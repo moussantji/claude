@@ -49,7 +49,7 @@
     </style>
     @livewireStyles
 </head>
-<body class="bg-slate-950 text-slate-100 antialiased min-h-screen flex flex-col">
+<body class="bg-slate-950 text-slate-100 antialiased min-h-screen flex flex-col pb-16 md:pb-0">
     @include('partials.navbar')
 
     <main class="flex-1">
@@ -72,6 +72,9 @@
     </main>
 
     @include('partials.footer')
+
+    {{-- Mobile app-style bottom navigation --}}
+    @include('partials.mobile-nav')
 
     {{-- Floating WhatsApp contact button --}}
     @include('partials.whatsapp')

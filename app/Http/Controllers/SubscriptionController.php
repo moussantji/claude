@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Package;
 use App\Models\Subscription;
+use App\Services\OrangeMoneyService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 class SubscriptionController extends Controller
 {
@@ -18,44 +20,42 @@ class SubscriptionController extends Controller
 
         return view('subscribe.show', [
             'package' => $package,
+            'orangeApiEnabled' => app(OrangeMoneyService::class)->apiEnabled(),
         ]);
     }
 
     /**
-     * "Purchase" a package and create the subscription.
-     *
-     * NOTE: This is a simulated checkout for demonstration. In production you
-     * would integrate a real payment gateway (Stripe, PayPal, etc.) and only
-     * activate the subscription after a confirmed payment webhook.
+     * Process a checkout. Orange Money uses the real Web Payment API when
+     * configured; every other method (and Orange Money in demo mode) uses a
+     * simulated instant activation.
      */
-    public function store(Request $request, Package $package)
+    public function store(Request $request, Package $package, OrangeMoneyService $orange)
     {
         abort_unless($package->is_active, 404);
 
         $validated = $request->validate([
             'payment_method' => ['required', 'in:card,paypal,crypto,orange_money'],
-            'orange_phone' => ['required_if:payment_method,orange_money', 'nullable', 'string', 'max:30'],
+            'orange_phone' => ['nullable', 'string', 'max:30'],
             'agree' => ['accepted'],
         ]);
 
         $user = $request->user();
 
-        // Stack onto any current active subscription's end date.
-        $current = $user->activeSubscription();
-        $startsAt = $current && $current->ends_at?->isFuture()
-            ? $current->ends_at
-            : Carbon::now();
+        // --- Real Orange Money Web Payment flow -----------------------------
+        if ($validated['payment_method'] === 'orange_money' && $orange->apiEnabled()) {
+            return $this->startOrangeMoneyPayment($user, $package, $validated, $orange);
+        }
 
-        Subscription::create([
+        // --- Simulated / instant flow ---------------------------------------
+        $subscription = Subscription::create([
             'user_id' => $user->id,
             'package_id' => $package->id,
-            'status' => 'active',
+            'status' => 'pending',
             'payment_method' => $validated['payment_method'],
             'payment_reference' => $this->buildReference($validated),
             'amount_paid' => $package->price,
-            'starts_at' => Carbon::now(),
-            'ends_at' => $startsAt->copy()->addDays($package->duration_days),
         ]);
+        $subscription->activate();
 
         $message = $validated['payment_method'] === 'orange_money'
             ? __('Payment received via Orange Money! Your :plan plan is now active.', ['plan' => $package->name])
@@ -64,13 +64,46 @@ class SubscriptionController extends Controller
         return redirect()->route('dashboard')->with('status', $message);
     }
 
-    private function buildReference(array $validated): string
+    private function startOrangeMoneyPayment($user, Package $package, array $validated, OrangeMoneyService $orange)
     {
-        if (($validated['payment_method'] ?? null) === 'orange_money') {
-            return 'OM-' . substr(preg_replace('/\D/', '', $validated['orange_phone'] ?? ''), -4) . '-' . strtoupper(\Illuminate\Support\Str::random(6));
+        $orderId = 'OM-' . now()->format('YmdHis') . '-' . Str::upper(Str::random(5));
+
+        $subscription = Subscription::create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'status' => 'pending',
+            'payment_method' => 'orange_money',
+            'payment_reference' => $orderId,
+            'amount_paid' => $package->price,
+        ]);
+
+        $result = $orange->initiatePayment([
+            'order_id' => $orderId,
+            'amount' => (int) round($package->price),
+            'return_url' => route('payment.orange.return'),
+            'cancel_url' => route('payment.orange.cancel'),
+            'notif_url' => route('payment.orange.notify'),
+            'reference' => config('app.name') . ' - ' . $package->name,
+        ]);
+
+        if (! $result || empty($result['payment_url'])) {
+            $subscription->update(['status' => 'cancelled']);
+
+            return redirect()->route('subscribe.show', $package)
+                ->with('error', __('We could not reach Orange Money right now. Please try again.'));
         }
 
-        return strtoupper($validated['payment_method'] ?? 'PAY') . '-' . strtoupper(\Illuminate\Support\Str::random(8));
+        $subscription->update(['payment_token' => $result['pay_token']]);
+
+        // Remember which subscription to finalise on return, and map the
+        // notif_token to it for the asynchronous webhook.
+        $request = request();
+        $request->session()->put('om_pending_subscription', $subscription->id);
+        if (! empty($result['notif_token'])) {
+            Cache::put('om_notif_' . $result['notif_token'], $subscription->id, now()->addHours(2));
+        }
+
+        return redirect()->away($result['payment_url']);
     }
 
     /**
@@ -83,5 +116,14 @@ class SubscriptionController extends Controller
         $subscription->update(['status' => 'cancelled']);
 
         return redirect()->route('dashboard')->with('status', __('Your subscription has been cancelled.'));
+    }
+
+    private function buildReference(array $validated): string
+    {
+        if (($validated['payment_method'] ?? null) === 'orange_money') {
+            return 'OM-' . substr(preg_replace('/\D/', '', $validated['orange_phone'] ?? ''), -4) . '-' . strtoupper(Str::random(6));
+        }
+
+        return strtoupper($validated['payment_method'] ?? 'PAY') . '-' . strtoupper(Str::random(8));
     }
 }

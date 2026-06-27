@@ -16,6 +16,7 @@ class Subscription extends Model
         'status',
         'payment_method',
         'payment_reference',
+        'payment_token',
         'amount_paid',
         'starts_at',
         'ends_at',
@@ -45,6 +46,32 @@ class Subscription extends Model
         return $this->status === 'active'
             && $this->ends_at !== null
             && $this->ends_at->isFuture();
+    }
+
+    /**
+     * Activate this subscription, stacking onto the end date of any other
+     * currently-active subscription the user holds.
+     */
+    public function activate(): void
+    {
+        $this->loadMissing('package', 'user');
+
+        $current = $this->user->subscriptions()
+            ->where('id', '!=', $this->id)
+            ->where('status', 'active')
+            ->where('ends_at', '>', now())
+            ->latest('ends_at')
+            ->first();
+
+        $start = $current && $current->ends_at?->isFuture()
+            ? $current->ends_at->copy()
+            : now();
+
+        $this->update([
+            'status' => 'active',
+            'starts_at' => now(),
+            'ends_at' => $start->addDays($this->package->duration_days),
+        ]);
     }
 
     public function scopeActive($query)

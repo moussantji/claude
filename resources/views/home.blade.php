@@ -116,6 +116,56 @@
 </section>
 @endif
 
+{{-- Movies preview --}}
+@if ($movies->isNotEmpty())
+<section class="max-w-7xl mx-auto px-4 py-12">
+    <div class="flex items-end justify-between mb-8" data-animate>
+        <div>
+            <h2 class="text-3xl md:text-4xl font-bold text-white">{{ __('Trending movies') }}</h2>
+            <p class="mt-2 text-slate-400">{{ __('Blockbusters and hidden gems on demand.') }}</p>
+        </div>
+        <a href="{{ route('movies.index') }}" class="hidden sm:inline-flex text-brand-400 hover:text-brand-300 font-medium">{{ __('View all') }} →</a>
+    </div>
+    <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-4" data-animate>
+        @foreach ($movies as $movie)
+            @include('partials.poster-card', [
+                'url' => route('movies.show', $movie),
+                'title' => $movie->title,
+                'poster' => $movie->poster_url,
+                'meta' => $movie->year,
+                'rating' => $movie->rating,
+                'badge' => $movie->quality,
+            ])
+        @endforeach
+    </div>
+</section>
+@endif
+
+{{-- Series preview --}}
+@if ($series->isNotEmpty())
+<section class="max-w-7xl mx-auto px-4 py-12">
+    <div class="flex items-end justify-between mb-8" data-animate>
+        <div>
+            <h2 class="text-3xl md:text-4xl font-bold text-white">{{ __('Binge-worthy series') }}</h2>
+            <p class="mt-2 text-slate-400">{{ __('Box sets you will not want to pause.') }}</p>
+        </div>
+        <a href="{{ route('series.index') }}" class="hidden sm:inline-flex text-brand-400 hover:text-brand-300 font-medium">{{ __('View all') }} →</a>
+    </div>
+    <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-4" data-animate>
+        @foreach ($series as $serie)
+            @include('partials.poster-card', [
+                'url' => route('series.show', $serie),
+                'title' => $serie->title,
+                'poster' => $serie->poster_url,
+                'meta' => $serie->start_year,
+                'rating' => $serie->rating,
+                'badge' => $serie->seasons . ' ' . __('seasons'),
+            ])
+        @endforeach
+    </div>
+</section>
+@endif
+
 {{-- CTA --}}
 <section class="max-w-7xl mx-auto px-4 pb-24">
     <div class="relative overflow-hidden rounded-3xl px-8 py-14 text-center" data-animate>

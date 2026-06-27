@@ -87,20 +87,27 @@
 
                 {{-- Orange Money fields --}}
                 <div x-show="method === 'orange_money'" x-transition x-cloak class="space-y-4">
-                    <div class="rounded-lg border border-orange-500/30 bg-orange-500/10 p-4 text-sm text-orange-200">
-                        <p class="font-semibold flex items-center gap-2">🟠 {{ __('Pay with Orange Money') }}</p>
-                        <ol class="mt-2 space-y-1 list-decimal list-inside text-orange-200/90">
-                            <li>{{ __('Dial :code on your phone.', ['code' => config('streamwave.orange_money.merchant_code')]) }}</li>
-                            <li>{{ __('Send :amount to :name.', ['amount' => '$' . number_format($package->price, 2), 'name' => config('streamwave.orange_money.merchant_name')]) }}</li>
-                            <li>{{ __('Enter the phone number you paid with below to confirm.') }}</li>
-                        </ol>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-1.5">{{ __('Orange Money phone number') }}</label>
-                        <input type="tel" name="orange_phone" value="{{ old('orange_phone') }}" placeholder="+221 77 000 00 00"
-                            class="w-full rounded-lg bg-slate-950 border border-white/10 px-3.5 py-2.5 text-white placeholder-slate-600 focus:border-brand-500 outline-none">
-                        @error('orange_phone')<p class="mt-1.5 text-sm text-rose-400">{{ $message }}</p>@enderror
-                    </div>
+                    @if ($orangeApiEnabled)
+                        <div class="rounded-lg border border-orange-500/30 bg-orange-500/10 p-4 text-sm text-orange-200">
+                            <p class="font-semibold flex items-center gap-2">🟠 {{ __('Pay with Orange Money') }}</p>
+                            <p class="mt-2 text-orange-200/90">{{ __('You will be securely redirected to Orange Money to authorise the payment, then brought back here.') }}</p>
+                        </div>
+                    @else
+                        <div class="rounded-lg border border-orange-500/30 bg-orange-500/10 p-4 text-sm text-orange-200">
+                            <p class="font-semibold flex items-center gap-2">🟠 {{ __('Pay with Orange Money') }}</p>
+                            <ol class="mt-2 space-y-1 list-decimal list-inside text-orange-200/90">
+                                <li>{{ __('Dial :code on your phone.', ['code' => config('streamwave.orange_money.merchant_code')]) }}</li>
+                                <li>{{ __('Send :amount to :name.', ['amount' => '$' . number_format($package->price, 2), 'name' => config('streamwave.orange_money.merchant_name')]) }}</li>
+                                <li>{{ __('Enter the phone number you paid with below to confirm.') }}</li>
+                            </ol>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1.5">{{ __('Orange Money phone number') }}</label>
+                            <input type="tel" name="orange_phone" value="{{ old('orange_phone') }}" placeholder="+221 77 000 00 00"
+                                class="w-full rounded-lg bg-slate-950 border border-white/10 px-3.5 py-2.5 text-white placeholder-slate-600 focus:border-brand-500 outline-none">
+                            @error('orange_phone')<p class="mt-1.5 text-sm text-rose-400">{{ $message }}</p>@enderror
+                        </div>
+                    @endif
                 </div>
 
                 {{-- PayPal / Crypto note --}}

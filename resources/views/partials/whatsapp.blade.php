@@ -5,7 +5,7 @@
 @endphp
 
 <a href="{{ $waLink }}" target="_blank" rel="noopener"
-   class="fixed bottom-5 right-5 z-50 group flex items-center gap-3"
+   class="fixed bottom-20 right-4 md:bottom-5 md:right-5 z-50 group flex items-center gap-3"
    aria-label="{{ __('Contact us on WhatsApp') }}">
     <span class="hidden group-hover:block bg-slate-900 text-white text-sm px-3 py-1.5 rounded-lg border border-white/10 shadow-lg whitespace-nowrap">
         {{ __('Chat on WhatsApp') }}
