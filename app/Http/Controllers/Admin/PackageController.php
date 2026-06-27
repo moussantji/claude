@@ -12,7 +12,7 @@ class PackageController extends Controller
     public function index()
     {
         return view('admin.packages.index', [
-            'packages' => Package::withCount('subscriptions')->orderBy('price')->get(),
+            'packages' => Package::withCount('orders')->orderBy('price')->get(),
         ]);
     }
 

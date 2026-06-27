@@ -18,8 +18,7 @@
                 <tr class="text-left text-slate-400 border-b border-white/10 bg-white/5">
                     <th class="py-3 px-4 font-medium">{{ __('Name') }}</th>
                     <th class="py-3 px-4 font-medium">{{ __('Email') }}</th>
-                    <th class="py-3 px-4 font-medium">{{ __('IPTV User') }}</th>
-                    <th class="py-3 px-4 font-medium">{{ __('Subs') }}</th>
+                    <th class="py-3 px-4 font-medium">{{ __('Orders') }}</th>
                     <th class="py-3 px-4 font-medium">{{ __('Role') }}</th>
                     <th class="py-3 px-4 font-medium">{{ __('Joined') }}</th>
                     <th class="py-3 px-4 font-medium text-right">{{ __('Actions') }}</th>
@@ -30,8 +29,7 @@
                     <tr class="border-b border-white/5">
                         <td class="py-3 px-4 text-white font-medium">{{ $user->name }}</td>
                         <td class="py-3 px-4 text-slate-300">{{ $user->email }}</td>
-                        <td class="py-3 px-4 text-slate-500 font-mono text-xs">{{ $user->iptv_username ?? '—' }}</td>
-                        <td class="py-3 px-4 text-slate-300">{{ $user->subscriptions_count }}</td>
+                        <td class="py-3 px-4 text-slate-300">{{ $user->orders_count }}</td>
                         <td class="py-3 px-4">
                             <span class="text-xs font-bold px-2 py-0.5 rounded {{ $user->is_admin ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-500/20 text-slate-400' }}">
                                 {{ $user->is_admin ? __('Admin') : __('Member') }}
@@ -46,7 +44,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="7" class="py-8 text-center text-slate-500">{{ __('No users found.') }}</td></tr>
+                    <tr><td colspan="6" class="py-8 text-center text-slate-500">{{ __('No users found.') }}</td></tr>
                 @endforelse
             </tbody>
         </table>

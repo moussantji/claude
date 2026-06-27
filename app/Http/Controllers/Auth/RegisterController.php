@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 
 class RegisterController extends Controller
@@ -28,23 +27,12 @@ class RegisterController extends Controller
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => $validated['password'],
-            'iptv_username' => $this->generateIptvUsername($validated['name']),
-            'iptv_password' => Str::random(12),
         ]);
 
         Auth::login($user);
         $request->session()->regenerate();
 
         return redirect()->route('dashboard')
-            ->with('status', 'Welcome to StreamWave! Your account is ready.');
-    }
-
-    private function generateIptvUsername(string $name): string
-    {
-        do {
-            $username = Str::slug(Str::words($name, 1, '')) . random_int(1000, 9999);
-        } while (User::where('iptv_username', $username)->exists());
-
-        return $username;
+            ->with('status', __('Welcome to StreamWave! Your account is ready.'));
     }
 }

@@ -12,8 +12,8 @@
         [__('Series'), number_format($seriesCount), 'text-sky-400'],
         [__('Channels'), number_format($channelCount), 'text-emerald-400'],
         [__('Packages'), number_format($packageCount), 'text-amber-400'],
-        [__('Active Subs'), number_format($activeSubCount), 'text-fuchsia-400'],
-        [__('Revenue'), '$' . number_format($revenue, 2), 'text-green-400'],
+        [__('Pending orders'), number_format($pendingOrders), 'text-fuchsia-400'],
+        [__('Revenue'), fcfa($revenue), 'text-green-400'],
     ])
     @foreach ($cards as [$label, $value, $color])
         <div class="rounded-2xl border border-white/10 bg-slate-900/40 p-5">
@@ -24,29 +24,29 @@
 </div>
 
 <div class="rounded-2xl border border-white/10 bg-slate-900/40 p-6">
-    <h2 class="text-lg font-semibold text-white mb-4">{{ __('Recent subscriptions') }}</h2>
-    @if ($recentSubs->isEmpty())
-        <p class="text-sm text-slate-500">{{ __('No subscriptions yet.') }}</p>
+    <h2 class="text-lg font-semibold text-white mb-4">{{ __('Recent orders') }}</h2>
+    @if ($recentOrders->isEmpty())
+        <p class="text-sm text-slate-500">{{ __('No orders yet.') }}</p>
     @else
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left text-slate-400 border-b border-white/10">
-                        <th class="py-2 pr-4 font-medium">{{ __('User') }}</th>
-                        <th class="py-2 pr-4 font-medium">{{ __('Package') }}</th>
+                        <th class="py-2 pr-4 font-medium">{{ __('Reference') }}</th>
+                        <th class="py-2 pr-4 font-medium">{{ __('Customer') }}</th>
                         <th class="py-2 pr-4 font-medium">{{ __('Amount') }}</th>
                         <th class="py-2 pr-4 font-medium">{{ __('Status') }}</th>
-                        <th class="py-2 pr-4 font-medium">{{ __('Date') }}</th>
+                        <th class="py-2 pr-4 font-medium text-right">{{ __('Actions') }}</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach ($recentSubs as $sub)
+                    @foreach ($recentOrders as $order)
                         <tr class="border-b border-white/5">
-                            <td class="py-2.5 pr-4 text-white">{{ $sub->user?->name ?? '—' }}</td>
-                            <td class="py-2.5 pr-4 text-slate-300">{{ $sub->package?->name ?? '—' }}</td>
-                            <td class="py-2.5 pr-4 text-slate-300">${{ number_format($sub->amount_paid, 2) }}</td>
-                            <td class="py-2.5 pr-4"><span class="text-xs uppercase font-bold text-slate-400">{{ $sub->status }}</span></td>
-                            <td class="py-2.5 pr-4 text-slate-500">{{ $sub->created_at->format('M j, Y') }}</td>
+                            <td class="py-2.5 pr-4 text-white font-mono text-xs">{{ $order->reference }}</td>
+                            <td class="py-2.5 pr-4 text-slate-300">{{ $order->user?->name ?? '—' }}</td>
+                            <td class="py-2.5 pr-4 text-slate-300">{{ fcfa($order->amount) }}</td>
+                            <td class="py-2.5 pr-4"><span class="text-xs uppercase font-bold px-2 py-0.5 rounded {{ $order->statusColor() }}">{{ __(ucfirst($order->status)) }}</span></td>
+                            <td class="py-2.5 pr-4 text-right"><a href="{{ route('admin.orders.edit', $order) }}" class="text-brand-400 hover:text-brand-300">{{ __('Edit') }}</a></td>
                         </tr>
                     @endforeach
                 </tbody>

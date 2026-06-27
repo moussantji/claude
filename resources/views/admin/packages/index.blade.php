@@ -17,7 +17,7 @@
                     <th class="py-3 px-4 font-medium">{{ __('Price') }}</th>
                     <th class="py-3 px-4 font-medium">{{ __('Duration') }}</th>
                     <th class="py-3 px-4 font-medium">{{ __('Channels') }}</th>
-                    <th class="py-3 px-4 font-medium">{{ __('Subs') }}</th>
+                    <th class="py-3 px-4 font-medium">{{ __('Orders') }}</th>
                     <th class="py-3 px-4 font-medium">{{ __('Status') }}</th>
                     <th class="py-3 px-4 font-medium text-right">{{ __('Actions') }}</th>
                 </tr>
@@ -29,10 +29,10 @@
                             {{ $package->name }}
                             @if ($package->is_featured)<span class="ml-1 text-[10px] uppercase font-bold text-brand-400">★ {{ __('Featured') }}</span>@endif
                         </td>
-                        <td class="py-3 px-4 text-slate-300">${{ number_format($package->price, 2) }}</td>
+                        <td class="py-3 px-4 text-slate-300">{{ fcfa($package->price) }}</td>
                         <td class="py-3 px-4 text-slate-300">{{ $package->duration_days }}{{ __('d') }}</td>
                         <td class="py-3 px-4 text-slate-300">{{ number_format($package->channel_count) }}</td>
-                        <td class="py-3 px-4 text-slate-300">{{ $package->subscriptions_count }}</td>
+                        <td class="py-3 px-4 text-slate-300">{{ $package->orders_count }}</td>
                         <td class="py-3 px-4">
                             <span class="text-xs font-bold px-2 py-0.5 rounded {{ $package->is_active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-500/20 text-slate-400' }}">
                                 {{ $package->is_active ? __('Active') : __('Hidden') }}

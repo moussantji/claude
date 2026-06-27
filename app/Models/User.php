@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
+use Illuminate\Contracts\Translation\HasLocalePreference;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,12 +12,20 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'is_admin', 'locale', 'iptv_username', 'iptv_password'])]
+#[Fillable(['name', 'email', 'password', 'is_admin', 'locale', 'google_id', 'avatar', 'iptv_username', 'iptv_password'])]
 #[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable
+class User extends Authenticatable implements HasLocalePreference
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+
+    /**
+     * Preferred locale for notifications (mail/database).
+     */
+    public function preferredLocale(): ?string
+    {
+        return $this->locale;
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -32,26 +41,29 @@ class User extends Authenticatable
         ];
     }
 
-    public function subscriptions(): HasMany
+    public function orders(): HasMany
     {
-        return $this->hasMany(Subscription::class);
+        return $this->hasMany(Order::class)->latest();
     }
 
     /**
-     * The user's current active subscription, if any.
+     * The user's most recent completed order (their active IPTV access).
      */
-    public function activeSubscription(): ?Subscription
+    public function latestCompletedOrder(): ?Order
     {
-        return $this->subscriptions()
-            ->with('package')
-            ->where('status', 'active')
-            ->where('ends_at', '>', now())
-            ->latest('ends_at')
-            ->first();
+        return $this->orders()->completed()->latest('processed_at')->first();
     }
 
     public function isAdmin(): bool
     {
         return (bool) $this->is_admin;
+    }
+
+    /**
+     * @return \Illuminate\Database\Eloquent\Builder<User>
+     */
+    public function scopeAdmins($query)
+    {
+        return $query->where('is_admin', true);
     }
 }

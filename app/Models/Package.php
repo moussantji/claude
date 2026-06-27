@@ -33,9 +33,9 @@ class Package extends Model
         ];
     }
 
-    public function subscriptions(): HasMany
+    public function orders(): HasMany
     {
-        return $this->hasMany(Subscription::class);
+        return $this->hasMany(Order::class);
     }
 
     public function scopeActive($query)

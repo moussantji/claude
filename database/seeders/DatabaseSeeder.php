@@ -6,9 +6,10 @@ use App\Models\Category;
 use App\Models\Channel;
 use App\Models\Episode;
 use App\Models\Movie;
+use App\Models\Order;
 use App\Models\Package;
+use App\Models\PaymentMethod;
 use App\Models\Series;
-use App\Models\Subscription;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
@@ -21,25 +22,41 @@ class DatabaseSeeder extends Seeder
         // ---- Users -------------------------------------------------------
         $admin = User::updateOrCreate(
             ['email' => 'admin@streamwave.test'],
-            [
-                'name' => 'Admin User',
-                'password' => 'password',
-                'is_admin' => true,
-                'iptv_username' => 'admin' . random_int(1000, 9999),
-                'iptv_password' => Str::random(12),
-            ]
+            ['name' => 'Admin User', 'password' => 'password', 'is_admin' => true]
         );
 
         $member = User::updateOrCreate(
             ['email' => 'member@streamwave.test'],
-            [
-                'name' => 'Demo Member',
-                'password' => 'password',
-                'is_admin' => false,
-                'iptv_username' => 'demo' . random_int(1000, 9999),
-                'iptv_password' => Str::random(12),
-            ]
+            ['name' => 'Demo Member', 'password' => 'password', 'is_admin' => false]
         );
+
+        // ---- Payment methods (admin uploads the QR codes later) ----------
+        $paymentMethods = [
+            [
+                'name' => 'Orange Money',
+                'account_number' => '07 07 00 00 00',
+                'color' => '#ff7900',
+                'instructions' => "1. Composez #144*82# (Orange Money).\n2. Envoyez le montant au numéro indiqué.\n3. Saisissez le numéro utilisé ci-dessous et validez.",
+            ],
+            [
+                'name' => 'Moov Money',
+                'account_number' => '01 01 00 00 00',
+                'color' => '#0066b3',
+                'instructions' => "1. Composez *155# (Moov Money).\n2. Envoyez le montant au numéro indiqué.\n3. Saisissez le numéro utilisé ci-dessous et validez.",
+            ],
+            [
+                'name' => 'Wave',
+                'account_number' => '05 05 00 00 00',
+                'color' => '#1dc8ff',
+                'instructions' => "1. Ouvrez l'application Wave.\n2. Envoyez le montant au numéro indiqué (ou scannez le QR code).\n3. Saisissez le numéro utilisé ci-dessous et validez.",
+            ],
+        ];
+        foreach ($paymentMethods as $i => $pm) {
+            PaymentMethod::updateOrCreate(
+                ['slug' => Str::slug($pm['name'])],
+                array_merge($pm, ['slug' => Str::slug($pm['name']), 'is_active' => true, 'sort_order' => $i]),
+            );
+        }
 
         // ---- Categories --------------------------------------------------
         $categories = collect([
@@ -90,36 +107,36 @@ class DatabaseSeeder extends Seeder
 
         $totalChannels = Channel::count();
 
-        // ---- Packages ----------------------------------------------------
+        // ---- Packages (prices in FCFA) -----------------------------------
         $packages = [
             [
                 'name' => 'Starter',
-                'description' => 'Perfect for casual viewers who want the essentials.',
-                'price' => 9.99,
+                'description' => 'Idéal pour les spectateurs occasionnels.',
+                'price' => 5000,
                 'duration_days' => 30,
                 'channel_count' => 1000,
                 'max_connections' => 1,
-                'features' => ['HD streaming', 'VOD library', 'EPG guide'],
+                'features' => ['Streaming HD', 'Bibliothèque VOD', 'Guide EPG'],
                 'is_featured' => false,
             ],
             [
                 'name' => 'Premium',
-                'description' => 'Our most popular plan with 4K and multi-device support.',
-                'price' => 19.99,
+                'description' => "Notre offre la plus populaire avec la 4K et le multi-appareils.",
+                'price' => 10000,
                 'duration_days' => 30,
                 'channel_count' => 5000,
                 'max_connections' => 3,
-                'features' => ['4K Ultra HD', 'Full VOD library', 'EPG guide', 'Catch-up TV', 'Priority support'],
+                'features' => ['4K Ultra HD', 'VOD complète', 'Guide EPG', 'Catch-up TV', 'Support prioritaire'],
                 'is_featured' => true,
             ],
             [
                 'name' => 'Annual Pro',
-                'description' => 'Best value — a full year of everything Premium offers.',
-                'price' => 149.99,
+                'description' => "Le meilleur rapport qualité-prix — un an d'accès complet.",
+                'price' => 90000,
                 'duration_days' => 365,
                 'channel_count' => 8000,
                 'max_connections' => 5,
-                'features' => ['4K Ultra HD', 'Full VOD library', 'EPG guide', 'Catch-up TV', 'Priority support', '2 months free'],
+                'features' => ['4K Ultra HD', 'VOD complète', 'Guide EPG', 'Catch-up TV', 'Support prioritaire', '2 mois offerts'],
                 'is_featured' => false,
             ],
         ];
@@ -131,7 +148,7 @@ class DatabaseSeeder extends Seeder
             );
         }
 
-        // ---- Movies ------------------------------------------------------
+        // ---- Movies (preview trailers) -----------------------------------
         $movieData = [
             ['The Last Horizon', 'Sci-Fi', 2024, 142, 8.4, '4K'],
             ['Midnight Avenue', 'Thriller', 2023, 118, 7.6, 'FHD'],
@@ -161,7 +178,7 @@ class DatabaseSeeder extends Seeder
                     'duration_minutes' => $runtime,
                     'rating' => $rating,
                     'quality' => $quality,
-                    'stream_url' => 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+                    'stream_url' => null,
                     'trailer_url' => 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
                     'is_featured' => $title === 'Quantum Drift',
                     'is_active' => true,
@@ -198,14 +215,13 @@ class DatabaseSeeder extends Seeder
                 ]
             );
 
-            // Episodes: 6 per season.
             for ($s = 1; $s <= min($seasons, 3); $s++) {
                 for ($e = 1; $e <= 6; $e++) {
                     Episode::updateOrCreate(
                         ['series_id' => $series->id, 'season' => $s, 'episode_number' => $e],
                         [
                             'title' => "Episode {$e}",
-                            'stream_url' => 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+                            'stream_url' => null,
                             'duration_minutes' => random_int(38, 55),
                         ]
                     );
@@ -213,21 +229,32 @@ class DatabaseSeeder extends Seeder
             }
         }
 
-        // ---- Demo subscription for the member ----------------------------
+        // ---- Sample completed order for the demo member ------------------
         $premium = Package::where('slug', 'premium')->first();
-        if ($premium) {
-            Subscription::updateOrCreate(
-                ['user_id' => $member->id, 'package_id' => $premium->id, 'status' => 'active'],
+        $orange = PaymentMethod::where('slug', 'orange-money')->first();
+        if ($premium && $orange) {
+            Order::updateOrCreate(
+                ['reference' => 'CMD-DEMO-0001'],
                 [
-                    'amount_paid' => $premium->price,
-                    'starts_at' => Carbon::now()->subDays(5),
-                    'ends_at' => Carbon::now()->addDays(25),
+                    'user_id' => $member->id,
+                    'package_id' => $premium->id,
+                    'package_name' => $premium->name,
+                    'payment_method_id' => $orange->id,
+                    'payment_method_name' => $orange->name,
+                    'payment_number' => '07 07 12 34 56',
+                    'amount' => $premium->price,
+                    'currency' => 'FCFA',
+                    'status' => 'completed',
+                    'iptv_username' => 'demo_user',
+                    'iptv_password' => Str::random(10),
+                    'iptv_dns' => 'http://line.streamwave.tv:8080',
+                    'processed_by' => $admin->id,
+                    'processed_at' => Carbon::now()->subDays(2),
                 ]
             );
         }
 
-        $this->command->info("Seeded {$totalChannels} channels, " . Movie::count() . ' movies, ' . Series::count() . ' series, ' . Package::count() . ' packages, ' . Category::count() . ' categories.');
-        $this->command->info('Admin login: admin@streamwave.test / password');
-        $this->command->info('Member login: member@streamwave.test / password');
+        $this->command->info("Seeded {$totalChannels} channels, " . Movie::count() . ' movies, ' . Series::count() . ' series, ' . Package::count() . ' packages, ' . PaymentMethod::count() . ' payment methods.');
+        $this->command->info('Admin: admin@streamwave.test / password — Member: member@streamwave.test / password');
     }
 }

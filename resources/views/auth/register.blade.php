@@ -49,6 +49,8 @@
                     {{ __('Create account') }}
                 </button>
             </form>
+
+            @include('partials.google-button')
         </div>
 
         <p class="text-center text-sm text-slate-400 mt-6">

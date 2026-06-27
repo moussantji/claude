@@ -3,7 +3,6 @@
 @section('title', $movie->title)
 
 @section('content')
-@php($canWatch = auth()->check() && auth()->user()->activeSubscription())
 <section class="relative">
     <div class="absolute inset-0 bg-cover bg-center opacity-20" style="background-image:url('{{ $movie->backdrop_url ?: $movie->poster_url }}')"></div>
     <div class="absolute inset-0 bg-slate-950/80"></div>
@@ -12,7 +11,6 @@
         <a href="{{ route('movies.index') }}" class="text-sm text-slate-400 hover:text-white">← {{ __('Back to movies') }}</a>
 
         <div class="mt-6 grid md:grid-cols-3 gap-8">
-            {{-- Poster --}}
             <div class="md:col-span-1">
                 <div class="aspect-[2/3] rounded-2xl overflow-hidden bg-slate-900 border border-white/10 max-w-xs">
                     @if ($movie->poster_url)
@@ -21,7 +19,6 @@
                 </div>
             </div>
 
-            {{-- Details --}}
             <div class="md:col-span-2">
                 <h1 class="text-3xl md:text-4xl font-black text-white">{{ $movie->title }}</h1>
                 <div class="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-300">
@@ -29,28 +26,30 @@
                     @if ($movie->year)<span>{{ $movie->year }}</span>@endif
                     @if ($movie->genre)<span class="rounded-full bg-white/10 px-3 py-0.5">{{ $movie->genre }}</span>@endif
                     @if ($movie->duration_minutes)<span>{{ $movie->duration_minutes }} {{ __('min') }}</span>@endif
-                    <span class="rounded bg-brand-600/80 text-white px-2 py-0.5 text-xs font-bold">{{ $movie->quality }}</span>
                 </div>
                 <p class="mt-5 text-slate-300 leading-relaxed">{{ $movie->description }}</p>
 
-                {{-- Player --}}
-                <div class="mt-6 rounded-2xl overflow-hidden border border-white/10 bg-black aspect-video relative">
-                    @if ($canWatch)
-                        <video controls class="h-full w-full" poster="{{ $movie->backdrop_url ?: $movie->poster_url }}">
-                            <source src="{{ $movie->stream_url ?: $movie->trailer_url }}">
-                            {{ __('Your browser does not support video playback.') }}
-                        </video>
-                    @else
-                        <div class="absolute inset-0 flex flex-col items-center justify-center text-center p-6"
-                             style="background-image:url('{{ $movie->backdrop_url ?: $movie->poster_url }}'); background-size:cover; background-position:center;">
-                            <div class="absolute inset-0 bg-slate-950/80"></div>
-                            <div class="relative">
-                                <div class="text-4xl">🔒</div>
-                                <p class="mt-3 text-white font-semibold">{{ __('Subscribe to watch the full movie') }}</p>
-                                <a href="{{ route('packages.index') }}" class="mt-4 inline-block rounded-lg bg-brand-600 hover:bg-brand-500 px-6 py-2.5 font-semibold text-white">{{ __('View Plans') }}</a>
-                            </div>
-                        </div>
-                    @endif
+                {{-- Trailer (preview only) --}}
+                <div class="mt-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400">{{ __('Trailer') }}</h2>
+                        <span class="text-xs text-slate-500">{{ __('Preview') }}</span>
+                    </div>
+                    <div class="rounded-2xl overflow-hidden border border-white/10 bg-black aspect-video">
+                        @if ($movie->trailer_url)
+                            <video controls preload="none" class="h-full w-full" poster="{{ $movie->backdrop_url ?: $movie->poster_url }}">
+                                <source src="{{ $movie->trailer_url }}">
+                                {{ __('Your browser does not support video playback.') }}
+                            </video>
+                        @else
+                            <div class="h-full w-full flex items-center justify-center text-slate-500 text-sm">{{ __('Trailer coming soon.') }}</div>
+                        @endif
+                    </div>
+                </div>
+
+                <div class="mt-6 rounded-xl border border-brand-500/30 bg-brand-600/10 px-4 py-3 text-sm text-slate-200 flex items-center justify-between gap-4 flex-wrap">
+                    <span>🎬 {{ __('Watch the full movie with a subscription.') }}</span>
+                    <a href="{{ route('packages.index') }}" class="rounded-lg bg-brand-600 hover:bg-brand-500 px-4 py-2 font-semibold text-white">{{ __('View Plans') }}</a>
                 </div>
             </div>
         </div>

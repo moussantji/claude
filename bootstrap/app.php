@@ -19,12 +19,6 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'admin' => \App\Http\Middleware\EnsureUserIsAdmin::class,
         ]);
-
-        // Orange Money sends its notification as a server-to-server POST
-        // without a CSRF token.
-        $middleware->validateCsrfTokens(except: [
-            'payment/orange/notify',
-        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

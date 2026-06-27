@@ -16,20 +16,26 @@
 @php
     $nav = [
         ['admin.dashboard', '▦ ' . __('Dashboard'), null],
+        ['admin.orders.index', '🧾 ' . __('Orders'), 'admin.orders.*'],
+        ['admin.payment-methods.index', '💳 ' . __('Payment methods'), 'admin.payment-methods.*'],
         ['admin.movies.index', '🎬 ' . __('Movies'), 'admin.movies.*'],
         ['admin.series.index', '📺 ' . __('Series'), 'admin.series.*'],
         ['admin.packages.index', '🏷 ' . __('Packages'), 'admin.packages.*'],
         ['admin.channels.index', '📡 ' . __('Channels'), 'admin.channels.*'],
         ['admin.categories.index', '🗂 ' . __('Categories'), 'admin.categories.*'],
-        ['admin.subscriptions.index', '🧾 ' . __('Subscriptions'), 'admin.subscriptions.*'],
         ['admin.users.index', '👥 ' . __('Users'), 'admin.users.*'],
     ];
+    $adminUnread = auth()->check() ? auth()->user()->unreadNotifications()->count() : 0;
 @endphp
 <div class="flex min-h-screen">
     {{-- Sidebar (desktop) --}}
     <aside class="hidden md:flex w-64 flex-col border-r border-white/10 bg-slate-900/50 fixed inset-y-0">
-        <div class="h-16 flex items-center px-6 border-b border-white/10">
+        <div class="h-16 flex items-center justify-between px-6 border-b border-white/10">
             <a href="{{ route('admin.dashboard') }}" class="text-brand-400 text-xl font-black">◈ {{ config('app.name') }}</a>
+            <a href="{{ route('notifications.index') }}" class="relative p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/5" aria-label="{{ __('Notifications') }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-5 w-5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                @if ($adminUnread > 0)<span class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">{{ $adminUnread > 9 ? '9+' : $adminUnread }}</span>@endif
+            </a>
         </div>
         <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
             @foreach ($nav as [$route, $label, $pattern])
@@ -56,6 +62,9 @@
             <div class="h-14 flex items-center justify-between px-4">
                 <a href="{{ route('admin.dashboard') }}" class="text-brand-400 font-black">◈ {{ __('Admin') }}</a>
                 <div class="flex items-center gap-3 text-sm">
+                    <a href="{{ route('notifications.index') }}" class="relative text-slate-300">
+                        🔔 @if ($adminUnread > 0)<span class="absolute -top-1 -right-2 min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">{{ $adminUnread > 9 ? '9+' : $adminUnread }}</span>@endif
+                    </a>
                     <a href="{{ route('home') }}" class="text-slate-300">{{ __('View site') }}</a>
                     <form method="POST" action="{{ route('logout') }}">@csrf<button class="text-slate-300">{{ __('Log out') }}</button></form>
                 </div>
