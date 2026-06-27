@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\ChannelController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\PackageController;
 use App\Http\Controllers\PlaylistController;
 use App\Http\Controllers\SubscriptionController;
@@ -22,6 +23,9 @@ Route::get('/channels', [ChannelController::class, 'index'])->name('channels.ind
 
 // Personalised M3U playlist consumed by IPTV players (credential based).
 Route::get('/playlist.m3u', [PlaylistController::class, 'm3u'])->name('playlist.m3u');
+
+// Language switcher (EN / FR).
+Route::get('/locale/{locale}', [LocaleController::class, 'switch'])->name('locale.switch');
 
 /*
 |--------------------------------------------------------------------------

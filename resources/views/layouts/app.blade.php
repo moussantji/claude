@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en" class="scroll-smooth">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="scroll-smooth">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'Stream Everything') — {{ config('app.name') }}</title>
+    <title>@yield('title', __('Stream Everything')) — {{ config('app.name') }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -27,7 +27,27 @@
             background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0);
             background-size: 28px 28px;
         }
+        /* Scroll reveal animations */
+        [data-animate] {
+            opacity: 0;
+            transform: translateY(28px);
+            transition: opacity .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1);
+            will-change: opacity, transform;
+        }
+        [data-animate].in-view {
+            opacity: 1;
+            transform: none;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            [data-animate] { opacity: 1; transform: none; transition: none; }
+        }
+        .float-pulse { animation: floatPulse 2.5s ease-in-out infinite; }
+        @keyframes floatPulse {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
     </style>
+    @livewireStyles
 </head>
 <body class="bg-slate-950 text-slate-100 antialiased min-h-screen flex flex-col">
     @include('partials.navbar')
@@ -51,17 +71,32 @@
         @yield('content')
     </main>
 
-    <footer class="border-t border-white/10 bg-slate-950">
-        <div class="max-w-7xl mx-auto px-4 py-10 flex flex-col md:flex-row items-center justify-between gap-4">
-            <div class="flex items-center gap-2">
-                <span class="text-brand-400 text-xl font-black tracking-tight">◈ {{ config('app.name') }}</span>
-            </div>
-            <p class="text-sm text-slate-500">&copy; {{ date('Y') }} {{ config('app.name') }}. For demonstration purposes only.</p>
-            <div class="flex gap-5 text-sm text-slate-400">
-                <a href="{{ route('packages.index') }}" class="hover:text-white">Pricing</a>
-                <a href="{{ route('channels.index') }}" class="hover:text-white">Channels</a>
-            </div>
-        </div>
-    </footer>
+    @include('partials.footer')
+
+    {{-- Floating WhatsApp contact button --}}
+    @include('partials.whatsapp')
+
+    @livewireScripts
+
+    {{-- Scroll reveal via IntersectionObserver --}}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const reveal = (els) => {
+                const observer = new IntersectionObserver((entries, obs) => {
+                    entries.forEach((entry) => {
+                        if (entry.isIntersecting) {
+                            entry.target.classList.add('in-view');
+                            obs.unobserve(entry.target);
+                        }
+                    });
+                }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+                els.forEach((el, i) => {
+                    el.style.transitionDelay = Math.min(i * 60, 240) + 'ms';
+                    observer.observe(el);
+                });
+            };
+            reveal(Array.from(document.querySelectorAll('[data-animate]')));
+        });
+    </script>
 </body>
 </html>

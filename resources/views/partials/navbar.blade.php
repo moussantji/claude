@@ -1,3 +1,4 @@
+@php($locale = app()->getLocale())
 <nav class="sticky top-0 z-40 backdrop-blur bg-slate-950/80 border-b border-white/10">
     <div class="max-w-7xl mx-auto px-4">
         <div class="flex items-center justify-between h-16">
@@ -6,24 +7,32 @@
             </a>
 
             <div class="hidden md:flex items-center gap-1">
-                <a href="{{ route('home') }}" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">Home</a>
-                <a href="{{ route('packages.index') }}" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">Pricing</a>
-                <a href="{{ route('channels.index') }}" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">Channels</a>
+                <a href="{{ route('home') }}" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">{{ __('Home') }}</a>
+                <a href="{{ route('packages.index') }}" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">{{ __('Pricing') }}</a>
+                <a href="{{ route('channels.index') }}" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">{{ __('Channels') }}</a>
             </div>
 
             <div class="flex items-center gap-2">
+                {{-- Language switcher EN / FR --}}
+                <div class="flex items-center rounded-lg border border-white/10 bg-white/5 overflow-hidden text-xs font-bold">
+                    <a href="{{ route('locale.switch', 'en') }}"
+                       class="px-2.5 py-1.5 {{ $locale === 'en' ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/10' }}">EN</a>
+                    <a href="{{ route('locale.switch', 'fr') }}"
+                       class="px-2.5 py-1.5 {{ $locale === 'fr' ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/10' }}">FR</a>
+                </div>
+
                 @auth
                     @if (auth()->user()->isAdmin())
-                        <a href="{{ route('admin.dashboard') }}" class="px-3 py-2 rounded-md text-sm font-medium text-amber-300 hover:bg-white/5">Admin</a>
+                        <a href="{{ route('admin.dashboard') }}" class="px-3 py-2 rounded-md text-sm font-medium text-amber-300 hover:bg-white/5">{{ __('Admin') }}</a>
                     @endif
-                    <a href="{{ route('dashboard') }}" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">Dashboard</a>
+                    <a href="{{ route('dashboard') }}" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">{{ __('Dashboard') }}</a>
                     <form method="POST" action="{{ route('logout') }}">
                         @csrf
-                        <button type="submit" class="px-4 py-2 rounded-lg text-sm font-semibold bg-white/5 hover:bg-white/10 text-white border border-white/10">Log out</button>
+                        <button type="submit" class="px-4 py-2 rounded-lg text-sm font-semibold bg-white/5 hover:bg-white/10 text-white border border-white/10">{{ __('Log out') }}</button>
                     </form>
                 @else
-                    <a href="{{ route('login') }}" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white">Log in</a>
-                    <a href="{{ route('register') }}" class="px-4 py-2 rounded-lg text-sm font-semibold bg-brand-600 hover:bg-brand-500 text-white shadow-lg shadow-brand-600/30">Get Started</a>
+                    <a href="{{ route('login') }}" class="hidden sm:inline px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white">{{ __('Log in') }}</a>
+                    <a href="{{ route('register') }}" class="px-4 py-2 rounded-lg text-sm font-semibold bg-brand-600 hover:bg-brand-500 text-white shadow-lg shadow-brand-600/30">{{ __('Get Started') }}</a>
                 @endauth
             </div>
         </div>

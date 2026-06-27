@@ -32,8 +32,9 @@ class SubscriptionController extends Controller
     {
         abort_unless($package->is_active, 404);
 
-        $request->validate([
-            'payment_method' => ['required', 'in:card,paypal,crypto'],
+        $validated = $request->validate([
+            'payment_method' => ['required', 'in:card,paypal,crypto,orange_money'],
+            'orange_phone' => ['required_if:payment_method,orange_money', 'nullable', 'string', 'max:30'],
             'agree' => ['accepted'],
         ]);
 
@@ -49,15 +50,27 @@ class SubscriptionController extends Controller
             'user_id' => $user->id,
             'package_id' => $package->id,
             'status' => 'active',
+            'payment_method' => $validated['payment_method'],
+            'payment_reference' => $this->buildReference($validated),
             'amount_paid' => $package->price,
             'starts_at' => Carbon::now(),
             'ends_at' => $startsAt->copy()->addDays($package->duration_days),
         ]);
 
-        return redirect()->route('dashboard')->with(
-            'status',
-            "Payment successful! Your {$package->name} plan is now active."
-        );
+        $message = $validated['payment_method'] === 'orange_money'
+            ? __('Payment received via Orange Money! Your :plan plan is now active.', ['plan' => $package->name])
+            : __('Payment successful! Your :plan plan is now active.', ['plan' => $package->name]);
+
+        return redirect()->route('dashboard')->with('status', $message);
+    }
+
+    private function buildReference(array $validated): string
+    {
+        if (($validated['payment_method'] ?? null) === 'orange_money') {
+            return 'OM-' . substr(preg_replace('/\D/', '', $validated['orange_phone'] ?? ''), -4) . '-' . strtoupper(\Illuminate\Support\Str::random(6));
+        }
+
+        return strtoupper($validated['payment_method'] ?? 'PAY') . '-' . strtoupper(\Illuminate\Support\Str::random(8));
     }
 
     /**
@@ -69,6 +82,6 @@ class SubscriptionController extends Controller
 
         $subscription->update(['status' => 'cancelled']);
 
-        return redirect()->route('dashboard')->with('status', 'Your subscription has been cancelled.');
+        return redirect()->route('dashboard')->with('status', __('Your subscription has been cancelled.'));
     }
 }

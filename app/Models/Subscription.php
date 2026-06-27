@@ -14,6 +14,8 @@ class Subscription extends Model
         'user_id',
         'package_id',
         'status',
+        'payment_method',
+        'payment_reference',
         'amount_paid',
         'starts_at',
         'ends_at',
