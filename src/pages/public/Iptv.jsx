@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import PageHero from '../../components/PageHero.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import { useCollection } from '../../data/store.js'
 import { fcfa } from '../../data/format.js'
 
@@ -24,18 +25,20 @@ export default function Iptv() {
               { i: '\u26BD', t: 'Sport en direct', d: 'Football, basket et grands evenements en live.' },
               { i: '\u23EA', t: 'Replay 7 jours', d: 'Rattrapez vos programmes preferes quand vous voulez.' },
               { i: '\u{1F5A5}', t: 'Multi-appareils', d: 'Box TV, smart TV, ordinateur et mobile.' },
-            ].map((f) => (
-              <div key={f.t} className="card hover">
-                <div className="ico">{f.i}</div>
-                <h3 style={{ fontSize: '1.1rem' }}>{f.t}</h3>
-                <p>{f.d}</p>
-              </div>
+            ].map((f, i) => (
+              <Reveal key={f.t} delay={i * 90}>
+                <div className="card hover">
+                  <div className="ico">{f.i}</div>
+                  <h3 style={{ fontSize: '1.1rem' }}>{f.t}</h3>
+                  <p>{f.d}</p>
+                </div>
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="section" style={{ background: 'var(--bg-soft)' }}>
+      <section className="section section-pattern">
         <div className="container">
           <div className="center" style={{ marginBottom: 44 }}>
             <span className="eyebrow">Abonnements IPTV</span>

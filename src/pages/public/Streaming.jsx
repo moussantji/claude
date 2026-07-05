@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import PageHero from '../../components/PageHero.jsx'
+import Reveal from '../../components/Reveal.jsx'
 import { useCollection } from '../../data/store.js'
 import { fcfa } from '../../data/format.js'
 
@@ -26,18 +27,20 @@ export default function Streaming() {
               { i: '\u{1F4F6}', t: 'Adapte au reseau', d: 'Qualite ajustee automatiquement selon votre connexion.' },
               { i: '\u{1F4F1}', t: 'Multi-ecrans', d: 'TV, ordinateur, tablette et smartphone.' },
               { i: '\u{1F1F2}\u{1F1F1}', t: 'Contenu malien', d: 'Films et musiques du terroir mis en avant.' },
-            ].map((f) => (
-              <div key={f.t} className="card hover">
-                <div className="ico">{f.i}</div>
-                <h3 style={{ fontSize: '1.1rem' }}>{f.t}</h3>
-                <p>{f.d}</p>
-              </div>
+            ].map((f, i) => (
+              <Reveal key={f.t} delay={i * 90}>
+                <div className="card hover">
+                  <div className="ico">{f.i}</div>
+                  <h3 style={{ fontSize: '1.1rem' }}>{f.t}</h3>
+                  <p>{f.d}</p>
+                </div>
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="section" style={{ background: 'var(--bg-soft)' }}>
+      <section className="section section-pattern">
         <div className="container center">
           <span className="eyebrow">Categories</span>
           <h2 className="section-title">Il y en a pour tous les gouts</h2>

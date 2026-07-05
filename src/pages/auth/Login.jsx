@@ -15,11 +15,11 @@ export default function Login() {
 
   if (isAuthenticated) return <Navigate to="/admin" replace />
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault()
     setError('')
     setLoading(true)
-    const res = login(email, password)
+    const res = await login(email, password)
     setLoading(false)
     if (res.ok) navigate(from, { replace: true })
     else setError(res.error)

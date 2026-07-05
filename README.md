@@ -89,3 +89,95 @@ src/
 - Les montants sont en **FCFA (XOF)**.
 - Ceci est une base front-end prete a etre branchee sur une vraie API / base de donnees
   (remplacer les fonctions de `src/data/store.js` par des appels reseau).
+
+
+---
+
+## Nouveautes
+
+- **Barre d'onglets mobile** : sur telephone, la navigation principale s'affiche comme une
+  barre d'onglets fixee en bas de l'ecran (facon application), en plus du menu du haut.
+- **Animations au scroll** : les sections apparaissent en fondu/glissement lorsqu'elles
+  entrent dans la zone visible (respecte `prefers-reduced-motion`).
+- **Images de fond** : motifs decoratifs inspires du bogolan malien (`public/img/*.svg`)
+  sur le hero, les sections claires et la banniere d'appel a l'action.
+
+## Deux modes de fonctionnement
+
+Le front detecte automatiquement le mode selon la variable `VITE_API_URL` (fichier `.env`) :
+
+| Mode | Condition | Donnees | Authentification |
+|------|-----------|---------|------------------|
+| **Demo** (defaut) | `VITE_API_URL` vide | `localStorage` (donnees de demo) | verifiees en local |
+| **API** | `VITE_API_URL` renseigne | API Laravel (base de donnees) | Laravel **Sanctum** (jeton Bearer) |
+
+Pour activer le mode API, copiez `.env.example` en `.env` et renseignez l'URL du back-end :
+
+```bash
+cp .env.example .env
+# puis dans .env :
+VITE_API_URL=http://localhost:8000
+```
+
+En mode API, le formulaire de contact envoie les messages a l'API, la connexion admin
+utilise Sanctum, et toutes les pages du CRM (prospects, clients, projets, produits,
+commandes, blog, messages, parametres) lisent/ecrivent via le back-end.
+
+---
+
+## Back-end : Laravel 11 + Sanctum (`backend/`)
+
+Une API REST complete est fournie dans le dossier `backend/`.
+
+### Installation
+
+```bash
+cd backend
+composer install
+cp .env.example .env
+php artisan key:generate
+
+# Base SQLite par defaut :
+touch database/database.sqlite
+php artisan migrate --seed
+
+php artisan serve   # http://localhost:8000
+```
+
+> Pour MySQL, adaptez les variables `DB_*` dans `backend/.env` avant `php artisan migrate --seed`.
+
+### Authentification (Sanctum, par jeton)
+
+- `POST /api/login` `{ email, password }` -> `{ token, user }`
+- `GET  /api/user` (jeton requis) -> utilisateur courant
+- `POST /api/logout` (jeton requis) -> revoque le jeton
+
+Le front stocke le jeton et l'envoie dans l'en-tete `Authorization: Bearer <token>`.
+
+### Ressources CRM (jeton requis, sauf creation de message)
+
+`GET|POST /api/{ressource}` et `GET|PUT|DELETE /api/{ressource}/{id}` pour :
+`leads`, `clients`, `projects`, `products`, `orders`, `posts`.
+
+- `POST /api/messages` est **public** (formulaire de contact) ; le reste des routes
+  `messages` est protege.
+- `GET|PUT /api/settings` : parametres de l'entreprise (ligne unique).
+- `GET /api/stats` : indicateurs du tableau de bord.
+
+### Comptes seedes
+
+- `admin@fasodigital.ml` / `admin123`
+- `fatou@fasodigital.ml` / `faso2025`
+
+### CORS
+
+`backend/config/cors.php` autorise l'origine du front (`FRONTEND_URL`, par defaut
+`http://localhost:5173`). Adaptez-la pour la production.
+
+### Limitations connues
+
+- La gestion des utilisateurs admin (page Parametres) reste locale : ajoutez un
+  `UserController` + routes si vous souhaitez la gerer via l'API.
+- Le back-end n'a pas pu etre execute dans l'environnement de developpement (pas d'acces
+  reseau a Packagist) : la syntaxe PHP a ete verifiee avec `php -l` mais lancez
+  `composer install` + `php artisan migrate --seed` en local pour confirmer.

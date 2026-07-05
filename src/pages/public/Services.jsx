@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import Reveal from '../../components/Reveal.jsx'
 
 function PageHero({ eyebrow, title, lead }) {
   return (
@@ -46,7 +47,7 @@ export default function Services() {
         <div className="container">
           <div className="grid" style={{ gap: 28 }}>
             {services.map((s, idx) => (
-              <div key={s.title} className={`split ${idx % 2 ? 'rev' : ''}`}>
+              <Reveal key={s.title} className={`split ${idx % 2 ? 'rev' : ''}`}>
                 <div>
                   <div className="ico">{s.icon}</div>
                   <h2 style={{ fontSize: '1.8rem' }}>{s.title}</h2>
@@ -62,13 +63,13 @@ export default function Services() {
                     </ul>
                   </div>
                 </div>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="section" style={{ background: 'var(--bg-soft)' }}>
+      <section className="section section-pattern">
         <div className="container center">
           <span className="eyebrow">Technologies</span>
           <h2 className="section-title">Des outils modernes et eprouves</h2>

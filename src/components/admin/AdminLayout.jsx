@@ -23,8 +23,8 @@ export default function AdminLayout() {
 
   const title = titles[location.pathname] || 'Administration'
 
-  function handleLogout() {
-    logout()
+  async function handleLogout() {
+    await logout()
     navigate('/admin/login', { replace: true })
   }
 
