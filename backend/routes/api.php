@@ -9,22 +9,23 @@ use App\Http\Controllers\PostController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\SettingController;
+use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
 | Routes API - CRM Faso Digital
 |--------------------------------------------------------------------------
-| Authentification via Laravel Sanctum (jetons Bearer).
+| Authentification via Laravel Sanctum en mode SPA (cookie de session).
+| Le front recupere d'abord le cookie CSRF via GET /sanctum/csrf-cookie.
 */
 
-// --- Public : messages du formulaire de contact ---
-Route::post('/messages', [MessageController::class, 'store']);
-
-// --- Authentification ---
+// --- Public ---
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/messages', [MessageController::class, 'store']); // formulaire de contact
+Route::post('/orders', [OrderController::class, 'store']);      // checkout e-commerce
 
-// --- Routes protegees (jeton Sanctum requis) ---
+// --- Routes protegees (session Sanctum requise) ---
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -34,10 +35,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('clients', ClientController::class)->parameters(['clients' => 'id']);
     Route::apiResource('projects', ProjectController::class)->parameters(['projects' => 'id']);
     Route::apiResource('products', ProductController::class)->parameters(['products' => 'id']);
-    Route::apiResource('orders', OrderController::class)->parameters(['orders' => 'id']);
     Route::apiResource('posts', PostController::class)->parameters(['posts' => 'id']);
+    Route::apiResource('users', UserController::class)->parameters(['users' => 'id']);
 
-    // Messages : lecture/maj/suppression reservees aux admins (creation publique ci-dessus)
+    // Commandes : creation publique ci-dessus, gestion reservee aux admins
+    Route::get('/orders', [OrderController::class, 'index']);
+    Route::get('/orders/{id}', [OrderController::class, 'show']);
+    Route::match(['put', 'patch'], '/orders/{id}', [OrderController::class, 'update']);
+    Route::delete('/orders/{id}', [OrderController::class, 'destroy']);
+
+    // Messages : creation publique ci-dessus, gestion reservee aux admins
     Route::get('/messages', [MessageController::class, 'index']);
     Route::get('/messages/{id}', [MessageController::class, 'show']);
     Route::match(['put', 'patch'], '/messages/{id}', [MessageController::class, 'update']);

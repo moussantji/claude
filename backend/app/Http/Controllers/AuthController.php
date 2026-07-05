@@ -2,16 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
     /**
-     * Connexion : verifie les identifiants et renvoie un jeton Sanctum.
+     * Connexion SPA (Sanctum par cookie).
+     * On ouvre une session authentifiee ; le navigateur conserve le cookie de session.
      */
     public function login(Request $request): JsonResponse
     {
@@ -20,19 +20,17 @@ class AuthController extends Controller
             'password' => 'required|string',
         ]);
 
-        $user = User::where('email', $credentials['email'])->first();
-
-        if (! $user || ! Hash::check($credentials['password'], $user->password)) {
+        if (! Auth::attempt($credentials, true)) {
             throw ValidationException::withMessages([
                 'email' => ['Identifiants incorrects. Verifiez votre email et mot de passe.'],
             ]);
         }
 
-        $token = $user->createToken('faso-crm')->plainTextToken;
+        // Regenere l'ID de session pour prevenir la fixation de session
+        $request->session()->regenerate();
 
         return response()->json([
-            'token' => $token,
-            'user' => $user,
+            'user' => Auth::user(),
         ]);
     }
 
@@ -45,11 +43,14 @@ class AuthController extends Controller
     }
 
     /**
-     * Deconnexion : revoque le jeton courant.
+     * Deconnexion : ferme la session et invalide le cookie.
      */
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
+        Auth::guard('web')->logout();
+
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
         return response()->json(['message' => 'Deconnecte avec succes.']);
     }

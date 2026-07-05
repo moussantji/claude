@@ -101,6 +101,11 @@ src/
   entrent dans la zone visible (respecte `prefers-reduced-motion`).
 - **Images de fond** : motifs decoratifs inspires du bogolan malien (`public/img/*.svg`)
   sur le hero, les sections claires et la banniere d'appel a l'action.
+- **Panier e-commerce** : ajout au panier depuis la page E-commerce, tiroir coulissant
+  (quantites, suppression, total) et tunnel de commande. La commande validee est creee
+  dans le CRM (collection `orders`, ou `POST /api/orders` en mode API).
+- **Gestion des administrateurs via l'API** : la page _Parametres_ cree / supprime les
+  comptes admin via `GET|POST|PUT|DELETE /api/users` (en mode API).
 
 ## Deux modes de fonctionnement
 
@@ -109,7 +114,7 @@ Le front detecte automatiquement le mode selon la variable `VITE_API_URL` (fichi
 | Mode | Condition | Donnees | Authentification |
 |------|-----------|---------|------------------|
 | **Demo** (defaut) | `VITE_API_URL` vide | `localStorage` (donnees de demo) | verifiees en local |
-| **API** | `VITE_API_URL` renseigne | API Laravel (base de donnees) | Laravel **Sanctum** (jeton Bearer) |
+| **API** | `VITE_API_URL` renseigne | API Laravel (base de donnees) | Laravel **Sanctum** (SPA par cookie) |
 
 Pour activer le mode API, copiez `.env.example` en `.env` et renseignez l'URL du back-end :
 
@@ -151,23 +156,38 @@ php artisan serve   # http://localhost:8000
 
 > Pour MySQL, adaptez les variables `DB_*` dans `backend/.env` avant `php artisan migrate --seed`.
 
-### Authentification (Sanctum, par jeton)
+### Authentification (Sanctum SPA, par cookie)
 
-- `POST /api/login` `{ email, password }` -> `{ token, user }`
-- `GET  /api/user` (jeton requis) -> utilisateur courant
-- `POST /api/logout` (jeton requis) -> revoque le jeton
+L'authentification se fait **par cookie de session** (mode SPA de Sanctum), et non par
+jeton. Le front :
 
-Le front stocke le jeton et l'envoie dans l'en-tete `Authorization: Bearer <token>`.
+1. appelle `GET /sanctum/csrf-cookie` pour recevoir le cookie `XSRF-TOKEN` ;
+2. renvoie ce jeton dans l'en-tete `X-XSRF-TOKEN` sur les requetes mutantes ;
+3. envoie toutes les requetes avec `credentials: 'include'` (cookie de session).
 
-### Ressources CRM (jeton requis, sauf creation de message)
+Routes :
+
+- `POST /api/login` `{ email, password }` -> ouvre la session, renvoie `{ user }`
+- `GET  /api/user` (session requise) -> utilisateur courant
+- `POST /api/logout` (session requise) -> ferme la session
+
+> **CSRF token mismatch ?** C'est le symptome d'un front qui n'a pas recupere le cookie
+> CSRF avant de poster. Le client (`src/api/client.js`) le gere automatiquement. Cote
+> back-end, verifiez que `SANCTUM_STATEFUL_DOMAINS` contient l'origine du front
+> (`localhost:5173`), que `FRONTEND_URL` est correct et que `config/cors.php` a
+> `supports_credentials => true`.
+
+### Ressources CRM (session requise, sauf creation publique)
 
 `GET|POST /api/{ressource}` et `GET|PUT|DELETE /api/{ressource}/{id}` pour :
-`leads`, `clients`, `projects`, `products`, `orders`, `posts`.
+`leads`, `clients`, `projects`, `products`, `posts`, `users`.
 
-- `POST /api/messages` est **public** (formulaire de contact) ; le reste des routes
-  `messages` est protege.
+- `POST /api/messages` (formulaire de contact) et `POST /api/orders` (checkout) sont
+  **publics** ; la lecture/modification/suppression de ces ressources reste protegee.
 - `GET|PUT /api/settings` : parametres de l'entreprise (ligne unique).
 - `GET /api/stats` : indicateurs du tableau de bord.
+- `GET|POST|PUT|DELETE /api/users` : gestion des administrateurs (email unique, mot de
+  passe hache ; impossible de supprimer le dernier admin ou son propre compte).
 
 ### Comptes seedes
 
@@ -181,8 +201,10 @@ Le front stocke le jeton et l'envoie dans l'en-tete `Authorization: Bearer <toke
 
 ### Limitations connues
 
-- La gestion des utilisateurs admin (page Parametres) reste locale : ajoutez un
-  `UserController` + routes si vous souhaitez la gerer via l'API.
+- Front et back doivent partager le meme domaine racine pour l'auth par cookie. En local,
+  `localhost:5173` (front) et `localhost:8000` (back) fonctionnent car meme site. En
+  production, utilisez des sous-domaines du meme domaine (ex : `app.exemple.ml` et
+  `api.exemple.ml`) et adaptez `SESSION_DOMAIN`, `SANCTUM_STATEFUL_DOMAINS`, `FRONTEND_URL`.
 - Le back-end n'a pas pu etre execute dans l'environnement de developpement (pas d'acces
   reseau a Packagist) : la syntaxe PHP a ete verifiee avec `php -l` mais lancez
   `composer install` + `php artisan migrate --seed` en local pour confirmer.

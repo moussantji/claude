@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { NavLink, Link } from 'react-router-dom'
+import { useCart } from '../context/CartContext.jsx'
 
 const links = [
   { to: '/', label: 'Accueil', end: true },
@@ -12,6 +13,7 @@ const links = [
 
 export default function Navbar() {
   const [open, setOpen] = useState(false)
+  const { count, setOpen: setCartOpen } = useCart()
   return (
     <header className="nav">
       <div className="container nav-inner">
@@ -37,6 +39,10 @@ export default function Navbar() {
         </nav>
 
         <div className="nav-cta">
+          <button className="cart-btn" aria-label="Panier" onClick={() => setCartOpen(true)}>
+            <span aria-hidden="true">{'\u{1F6D2}'}</span>
+            {count > 0 && <span className="cart-badge">{count}</span>}
+          </button>
           <button className="nav-toggle" aria-label="Menu" onClick={() => setOpen((v) => !v)}>
             {open ? '\u2715' : '\u2630'}
           </button>

@@ -1,34 +1,54 @@
 // ----------------------------------------------------------
-// Client HTTP pour l'API Laravel + Sanctum.
+// Client HTTP pour l'API Laravel + Sanctum (mode SPA par COOKIE).
 // Active uniquement si VITE_API_URL est defini (fichier .env).
 // Sinon, l'application fonctionne en mode demo (localStorage).
+//
+// Flux Sanctum SPA :
+//   1. GET /sanctum/csrf-cookie  -> pose le cookie XSRF-TOKEN
+//   2. Les requetes mutantes renvoient ce jeton dans l'en-tete X-XSRF-TOKEN
+//   3. credentials: 'include' pour transporter le cookie de session
 // ----------------------------------------------------------
 
 const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 export const API_ENABLED = !!BASE
 
-const TOKEN_KEY = 'faso.token'
-
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY)
-}
-export function setToken(token) {
-  if (token) localStorage.setItem(TOKEN_KEY, token)
-  else localStorage.removeItem(TOKEN_KEY)
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'))
+  return match ? decodeURIComponent(match[1]) : null
 }
 
-async function request(method, path, body) {
+let csrfReady = false
+async function ensureCsrf() {
+  if (csrfReady) return
+  await fetch(BASE + '/sanctum/csrf-cookie', { credentials: 'include' })
+  csrfReady = true
+}
+
+async function request(method, path, body, _retried = false) {
+  const mutating = method !== 'GET' && method !== 'HEAD'
+  if (mutating) await ensureCsrf()
+
   const headers = { Accept: 'application/json' }
-  const token = getToken()
-  if (token) headers.Authorization = 'Bearer ' + token
+  if (mutating) {
+    const xsrf = getCookie('XSRF-TOKEN')
+    if (xsrf) headers['X-XSRF-TOKEN'] = xsrf
+  }
 
-  const opts = { method, headers }
+  const opts = { method, headers, credentials: 'include' }
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json'
     opts.body = JSON.stringify(body)
   }
 
   const res = await fetch(BASE + path, opts)
+
+  // Jeton CSRF expire : on rafraichit le cookie et on retente une fois.
+  if (res.status === 419 && mutating && !_retried) {
+    csrfReady = false
+    await ensureCsrf()
+    return request(method, path, body, true)
+  }
+
   if (res.status === 204) return null
 
   let data = null
@@ -57,19 +77,16 @@ export const api = {
   del: (p) => request('DELETE', p),
 }
 
-// --- Authentification ---
+// --- Authentification (par cookie de session) ---
 export async function apiLogin(email, password) {
-  const data = await api.post('/api/login', { email, password })
-  if (data && data.token) setToken(data.token)
-  return data // { token, user }
+  return api.post('/api/login', { email, password }) // { user }
 }
 export async function apiLogout() {
   try {
     await api.post('/api/logout')
   } catch {
-    // on ignore : on nettoie le jeton quoi qu'il arrive
+    // on ignore : la session sera de toute facon consideree fermee cote front
   }
-  setToken(null)
 }
 export function apiMe() {
   return api.get('/api/user')

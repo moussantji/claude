@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { initStore, getAll } from '../data/store.js'
-import { API_ENABLED, apiLogin, apiLogout, apiMe, getToken, setToken } from '../api/client.js'
+import { API_ENABLED, apiLogin, apiLogout, apiMe } from '../api/client.js'
 
 const AuthContext = createContext(null)
 const SESSION_KEY = 'faso.session'
@@ -26,15 +26,12 @@ export function AuthProvider({ children }) {
     else localStorage.removeItem(SESSION_KEY)
   }, [user])
 
-  // En mode API : si un jeton existe, on tente de restaurer la session
+  // En mode API : on tente de restaurer la session via le cookie
   useEffect(() => {
-    if (API_ENABLED && getToken()) {
+    if (API_ENABLED) {
       apiMe()
         .then((u) => u && setUser(toSafeUser(u)))
-        .catch(() => {
-          setToken(null)
-          setUser(null)
-        })
+        .catch(() => setUser(null))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

@@ -14,8 +14,8 @@ import { API_ENABLED, resource, settingsApi } from '../api/client.js'
 const PREFIX = 'faso.'
 const listeners = new Map() // collection -> Set<fn>
 
-// Collections gerees par l'API (les autres restent locales : users)
-const API_COLLECTIONS = ['leads', 'clients', 'projects', 'products', 'orders', 'posts', 'messages']
+// Collections gerees par l'API en mode backend
+const API_COLLECTIONS = ['leads', 'clients', 'projects', 'products', 'orders', 'posts', 'messages', 'users']
 const isApi = (name) => API_ENABLED && API_COLLECTIONS.includes(name)
 
 function keyOf(name) {

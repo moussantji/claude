@@ -3,8 +3,10 @@ import PageHero from '../../components/PageHero.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import { useCollection } from '../../data/store.js'
 import { fcfa } from '../../data/format.js'
+import { useCart } from '../../context/CartContext.jsx'
 
 export default function Ecommerce() {
+  const { add } = useCart()
   const products = useCollection('products').filter((p) => p.category === 'E-commerce' && p.status === 'Publie')
 
   return (
@@ -53,7 +55,7 @@ export default function Ecommerce() {
                 <div className="body">
                   <h3 style={{ fontSize: '1.05rem' }}>{p.name}</h3>
                   <div className="price" style={{ fontSize: '1.4rem', margin: '6px 0' }}>{fcfa(p.price)}</div>
-                  <button className="btn btn-primary btn-sm btn-block">Ajouter au panier</button>
+                  <button className="btn btn-primary btn-sm btn-block" onClick={() => add(p)}>Ajouter au panier</button>
                 </div>
               </div>
             ))}

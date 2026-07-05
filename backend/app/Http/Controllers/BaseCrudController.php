@@ -27,9 +27,14 @@ abstract class BaseCrudController extends Controller
     public function store(Request $request): JsonResponse
     {
         $model = $this->model;
-        $data = $this->storeRules ? $request->validate($this->storeRules) : $request->all();
 
-        return response()->json($model::create($data), 201);
+        if ($this->storeRules) {
+            $request->validate($this->storeRules);
+        }
+
+        // On valide les champs requis mais on persiste tous les champs autorises
+        // (proteges par le $fillable de chaque modele).
+        return response()->json($model::create($request->all()), 201);
     }
 
     public function show(int|string $id): JsonResponse
