@@ -125,9 +125,14 @@ commandes, blog, messages, parametres) lisent/ecrivent via le back-end.
 
 ---
 
-## Back-end : Laravel 11 + Sanctum (`backend/`)
+## Back-end : Laravel 12 + Sanctum (`backend/`)
 
 Une API REST complete est fournie dans le dossier `backend/`.
+
+> **Note version** : le back-end cible **Laravel 12** (pleinement supporte). Laravel 11 a
+> atteint la fin de son support de securite le 12 mars 2026 : Composer bloque desormais son
+> installation via les *security advisories*. Laravel 12 conserve la meme structure de projet,
+> le code est donc inchange.
 
 ### Installation
 
