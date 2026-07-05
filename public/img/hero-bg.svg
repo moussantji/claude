@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="g1" cx="82%" cy="8%" r="55%">
+      <stop offset="0%" stop-color="#fcd116" stop-opacity="0.28" />
+      <stop offset="100%" stop-color="#fcd116" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="g2" cx="8%" cy="95%" r="60%">
+      <stop offset="0%" stop-color="#ce1126" stop-opacity="0.30" />
+      <stop offset="100%" stop-color="#ce1126" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="g3" cx="50%" cy="55%" r="70%">
+      <stop offset="0%" stop-color="#14b866" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#14b866" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#072a20" />
+      <stop offset="60%" stop-color="#0b3d2e" />
+      <stop offset="100%" stop-color="#0d4a37" />
+    </linearGradient>
+  </defs>
+  <rect width="1440" height="900" fill="url(#base)" />
+  <rect width="1440" height="900" fill="url(#g3)" />
+  <rect width="1440" height="900" fill="url(#g1)" />
+  <rect width="1440" height="900" fill="url(#g2)" />
+  <g fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="2">
+    <path d="M-100 250 Q 360 150 720 250 T 1540 250" />
+    <path d="M-100 420 Q 360 320 720 420 T 1540 420" />
+    <path d="M-100 620 Q 360 520 720 620 T 1540 620" />
+  </g>
+</svg>
