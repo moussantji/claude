@@ -1,26 +1,52 @@
-{{-- Reusable grid of movie cards. Expects $movies (array of movie dicts). --}}
+{{-- Grid of movie cards with infinite scroll.
+     Expects $movies (array) and optionally $nextPage (?string). --}}
 @if (count($movies) === 0)
     <p class="text-slate-400">Aucun film à afficher.</p>
 @else
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
-        @foreach ($movies as $movie)
-            <a href="{{ route('movies.show', ['url' => $movie['url'], 'title' => $movie['title'] ?? '', 'year' => $movie['year'] ?? 0]) }}"
-               class="group block rounded-lg overflow-hidden bg-slate-900 border border-slate-800 hover:border-indigo-500 transition">
-                <div class="aspect-[2/3] bg-slate-800 overflow-hidden">
-                    @if (!empty($movie['cover_photo']))
-                        <img src="{{ $movie['cover_photo'] }}" alt="{{ $movie['title'] ?? '' }}"
-                             loading="lazy"
-                             class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                             onerror="this.style.display='none'">
-                    @endif
-                </div>
-                <div class="p-3">
-                    <h3 class="text-sm font-semibold leading-tight line-clamp-2">{{ $movie['title'] ?? 'Sans titre' }}</h3>
-                    @if (!empty($movie['year']))
-                        <p class="text-xs text-slate-400 mt-1">{{ $movie['year'] }}</p>
-                    @endif
-                </div>
-            </a>
-        @endforeach
+    <div id="movie-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+        @include('partials.movie-cards', ['movies' => $movies])
     </div>
+
+    {{-- Sentinel observed for infinite scroll --}}
+    <div id="scroll-sentinel" data-next="{{ $nextPage ?? '' }}" class="h-12"></div>
+    <p id="scroll-status" class="text-center text-sm text-slate-500 mt-2"></p>
+
+    <script>
+        (function () {
+            const sentinel = document.getElementById('scroll-sentinel');
+            const grid = document.getElementById('movie-grid');
+            const status = document.getElementById('scroll-status');
+            if (!sentinel || !grid) return;
+
+            let nextUrl = sentinel.dataset.next || '';
+            let loading = false;
+
+            async function loadMore() {
+                if (loading || !nextUrl) return;
+                loading = true;
+                status.textContent = 'Chargement…';
+                try {
+                    const res = await fetch(@json(route('movies.more')) + '?next=' + encodeURIComponent(nextUrl), {
+                        headers: { 'Accept': 'application/json' },
+                    });
+                    const data = await res.json();
+                    if (data.html) grid.insertAdjacentHTML('beforeend', data.html);
+                    nextUrl = data.next || '';
+                    sentinel.dataset.next = nextUrl;
+                    status.textContent = nextUrl ? '' : 'Fin des résultats.';
+                    if (!nextUrl) observer.unobserve(sentinel);
+                } catch (e) {
+                    status.textContent = 'Impossible de charger la suite.';
+                } finally {
+                    loading = false;
+                }
+            }
+
+            const observer = new IntersectionObserver((entries) => {
+                if (entries[0].isIntersecting) loadMore();
+            }, { rootMargin: '400px' });
+
+            if (nextUrl) observer.observe(sentinel);
+        })();
+    </script>
 @endif

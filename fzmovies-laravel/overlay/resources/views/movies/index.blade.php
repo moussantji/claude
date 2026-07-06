@@ -38,6 +38,6 @@
 
     @if ($q !== '')
         <h2 class="text-lg font-semibold mb-4">Résultats pour « {{ $q }} »</h2>
-        @include('partials.movie-grid', ['movies' => $movies])
+        @include('partials.movie-grid', ['movies' => $movies, 'nextPage' => $nextPage ?? null])
     @endif
 @endsection

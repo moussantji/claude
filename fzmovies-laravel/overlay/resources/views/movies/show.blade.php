@@ -39,10 +39,16 @@
                                 @if (!empty($file['hits'])) &middot; {{ $file['hits'] }} téléchargements @endif
                             </p>
                         </div>
-                        <a href="{{ route('movies.download', ['url' => $file['url'], 'title' => $file['title'] ?? $title]) }}"
-                           class="shrink-0 rounded-md bg-indigo-600 hover:bg-indigo-500 px-5 py-2 text-sm font-semibold text-center">
-                            Obtenir les liens
-                        </a>
+                        <div class="flex shrink-0 gap-2">
+                            <a href="{{ route('movies.watch', ['url' => $file['url'], 'title' => $file['title'] ?? $title]) }}"
+                               class="rounded-md bg-rose-600 hover:bg-rose-500 px-5 py-2 text-sm font-semibold text-center">
+                                ▶ Regarder
+                            </a>
+                            <a href="{{ route('movies.download', ['url' => $file['url'], 'title' => $file['title'] ?? $title]) }}"
+                               class="rounded-md bg-indigo-600 hover:bg-indigo-500 px-5 py-2 text-sm font-semibold text-center">
+                                Liens
+                            </a>
+                        </div>
                     </div>
                 @endforeach
             </div>

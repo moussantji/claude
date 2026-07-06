@@ -20,6 +20,9 @@ return [
     'timeout' => (int) env('FZMOVIES_TIMEOUT', 20),
     'connect_timeout' => (int) env('FZMOVIES_CONNECT_TIMEOUT', 10),
 
+    // Streaming proxy timeout (0 = no limit; a movie stream is long-lived).
+    'stream_timeout' => (int) env('FZMOVIES_STREAM_TIMEOUT', 0),
+
     // Category -> catID mapping used by the browse filters.
     'category_ids' => [
         'Bollywood' => 1,

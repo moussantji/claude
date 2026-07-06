@@ -70,6 +70,67 @@ class FzMoviesScraper
     }
 
     /**
+     * Fetch an arbitrary listing/search page URL (used for pagination /
+     * infinite scroll). The URL must belong to the source host.
+     */
+    public function page(string $url): array
+    {
+        $this->assertSameHost($url);
+
+        return $this->parser->searchResults($this->client->get($url));
+    }
+
+    /**
+     * Resolve a movie file all the way to a direct, streamable URL.
+     *
+     * file url -> download-links page -> pick a mirror -> dlink page
+     * -> final direct file URL.
+     *
+     * @return array{url: string, filename: ?string, size: ?string}
+     */
+    public function resolvePlayable(string $fileUrl, int $mirror = 0): array
+    {
+        $download = $this->downloadLinks($fileUrl);
+        $links = $download['links'] ?? [];
+
+        if (empty($links)) {
+            throw new \RuntimeException("Aucun lien exploitable pour ce fichier.");
+        }
+
+        $mirror = max(0, min($mirror, count($links) - 1));
+        $dlinkUrl = $links[$mirror]['url'];
+
+        $finalHtml = $this->client->get($dlinkUrl);
+        $directUrl = $this->parser->finalDownloadLink($finalHtml);
+
+        return [
+            'url' => $directUrl,
+            'filename' => $download['filename'] ?? null,
+            'size' => $download['size'] ?? null,
+        ];
+    }
+
+    /**
+     * Guard against SSRF: only allow URLs on the configured source host
+     * (or one of its subdomains).
+     */
+    protected function assertSameHost(string $url): void
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        $base = parse_url($this->client->baseUrl(), PHP_URL_HOST);
+
+        if (! $host || ! $base) {
+            throw new InvalidArgumentException('URL invalide.');
+        }
+
+        // Allow exact host or any subdomain of the base registrable domain.
+        $baseRoot = implode('.', array_slice(explode('.', $base), -2));
+        if ($host !== $base && ! str_ends_with($host, '.' . $baseRoot) && $host !== $baseRoot) {
+            throw new InvalidArgumentException("Hôte non autorisé : {$host}");
+        }
+    }
+
+    /**
      * Build the listing URL for a browse filter.
      */
     protected function filterUrl(string $filter, array $options): string

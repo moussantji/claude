@@ -104,3 +104,40 @@ curl "http://127.0.0.1:8000/api/search?q=Fast+X" \
   `FZMOVIES_BASE_URL=https://fzmovies.host`.
 - Le scraping vise un site tiers de films sous copyright : à réserver à un usage
   **personnel / éducatif**.
+
+
+
+## Nouveautés
+
+### Scroll infini
+Les pages de recherche et « Parcourir » chargent automatiquement la page
+suivante quand tu arrives en bas (via l'endpoint `GET /more?next=<url>` +
+`IntersectionObserver`). Plus besoin de bouton « page suivante ».
+
+### Lecteur vidéo intégré (comme YouTube)
+Chaque fichier a un bouton **▶ Regarder** qui ouvre un lecteur HTML5.
+Fonctionnement :
+
+1. `GET /watch?url=<fichier>` résout la chaîne complète jusqu'à l'**URL directe**
+   du fichier (`download1.php` → `download.php` → `dlink.php` → lien final).
+2. Cette URL est stockée côté serveur derrière un **jeton de session** (aucune
+   URL fournie par l'utilisateur n'est proxyfiée → pas de SSRF).
+3. `GET /stream/{token}` relaie le flux avec support des **requêtes Range**
+   (donc on peut avancer/reculer dans la vidéo) et le bon `Referer`.
+
+**Limites honnêtes :**
+- Ne marche bien que pour les fichiers **.mp4** (le navigateur ne lit pas
+  nativement .mkv/.avi → dans ce cas, télécharge et lis avec VLC).
+- Le serveur `php artisan serve` est mono-thread : le streaming occupe le
+  worker. Pour un usage réel, sers l'app derrière **php-fpm + nginx**.
+- Non testé contre le vrai site depuis mon environnement (pas de réseau
+  sortant) : si un lien direct ne se lit pas, envoie-moi le comportement.
+
+## À propos des films « en français »
+
+fzmovies ne propose **pas** de catégorie française. Les catégories du site sont
+`All`, `Bollywood`, `Hollywood` et `DHollywood` (Hollywood doublé — en hindi,
+pas en français). Il n'est donc pas possible de filtrer « uniquement les films
+français » depuis cette source. L'interface, elle, est déjà en français.
+Si tu veux du contenu francophone, il faudrait brancher une **autre source** —
+dis-le moi et on en discute.

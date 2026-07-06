@@ -205,6 +205,21 @@ class Parser
     }
 
     /**
+     * From a "dlink" page (/dlink.php?id=...), extract the final direct URL
+     * of the movie file (used by the embedded player).
+     */
+    public function finalDownloadLink(string $html): string
+    {
+        $crawler = $this->crawler($html);
+        $link = $this->attr($crawler, 'div.mainbox3 a', 'href');
+        if (! $link) {
+            throw new RuntimeException("URL directe du fichier introuvable.");
+        }
+
+        return $this->client->absolute($link);
+    }
+
+    /**
      * Parse the download-links page into a DownloadMovie-like array.
      *
      * @return array{filename: ?string, size: ?string, info: ?string, links: array<int, array>}

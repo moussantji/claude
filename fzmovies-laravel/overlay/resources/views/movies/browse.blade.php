@@ -50,5 +50,5 @@
     @endif
 
     <h2 class="text-lg font-semibold mb-4">{{ $filterLabels[$filter] ?? $filter }}</h2>
-    @include('partials.movie-grid', ['movies' => $movies])
+    @include('partials.movie-grid', ['movies' => $movies, 'nextPage' => $nextPage ?? null])
 @endsection
