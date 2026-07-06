@@ -38,6 +38,25 @@ docker build -t anime-sama-backend .
 docker run -p 8001:8001 --env-file .env anime-sama-backend
 ```
 
+## Troubleshooting
+
+### `error: externally-managed-environment` on `pip install`
+
+Recent Debian/Ubuntu (and Homebrew) Python installs block installing packages
+system-wide (PEP 668). Always install into a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+If `python3 -m venv` reports that `ensurepip` is missing, install the venv
+package first: `sudo apt install python3-venv python3-full`.
+
+Alternatives: use [`uv`](https://docs.astral.sh/uv/) (`uv venv && uv pip install -r requirements.txt`),
+run everything via Docker, or (not recommended) pass `--break-system-packages`.
+
 ## Notes
 
 - The anime-sama domain changes periodically. Set `ANIMESAMA_SITE_URL` or call
