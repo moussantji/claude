@@ -31,13 +31,6 @@ cp .env.example .env          # then edit as needed
 uvicorn app.main:app --reload --port 8001
 ```
 
-## Run with Docker
-
-```bash
-docker build -t anime-sama-backend .
-docker run -p 8001:8001 --env-file .env anime-sama-backend
-```
-
 ## Troubleshooting
 
 ### `error: externally-managed-environment` on `pip install`
@@ -55,7 +48,7 @@ If `python3 -m venv` reports that `ensurepip` is missing, install the venv
 package first: `sudo apt install python3-venv python3-full`.
 
 Alternatives: use [`uv`](https://docs.astral.sh/uv/) (`uv venv && uv pip install -r requirements.txt`),
-run everything via Docker, or (not recommended) pass `--break-system-packages`.
+or (not recommended) pass `--break-system-packages`.
 
 ## Notes
 

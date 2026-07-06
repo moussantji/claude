@@ -26,36 +26,26 @@ the actual scraping via the upstream library.
 
 ---
 
-## Quick start with Docker
+## Setup
 
-```bash
-# from the repo root
-SHARED_API_KEY=$(openssl rand -hex 16) docker compose up --build
-```
+Run the two services in **two separate terminals**.
 
-- Backend:  http://localhost:8001  (interactive docs at `/docs`)
-- Frontend: http://localhost:8000  (health at `/up`)
-
-`SHARED_API_KEY` is injected into **both** services so the Laravel gateway can
-authenticate to the FastAPI backend via the `X-API-Key` header.
-
----
-
-## Manual setup
-
-### 1. Backend (FastAPI)
+### 1. Backend (FastAPI) — terminal 1
 
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
 uvicorn app.main:app --reload --port 8001
 ```
 
-See [`backend/README.md`](backend/README.md) for the full endpoint list.
+- Runs on http://localhost:8001 (interactive docs at `/docs`).
+- See [`backend/README.md`](backend/README.md) for the full endpoint list and
+  troubleshooting (e.g. the `externally-managed-environment` pip error).
 
-### 2. Frontend (Laravel + Sanctum)
+### 2. Frontend (Laravel + Sanctum) — terminal 2
 
 ```bash
 cd frontend
@@ -67,8 +57,10 @@ php artisan migrate
 php artisan serve --port=8000
 ```
 
-Set `ANIME_SAMA_BASE_URL` (and `ANIME_SAMA_API_KEY` if the backend enforces one)
-in `frontend/.env`.
+- Runs on http://localhost:8000 (health at `/up`).
+- Set `ANIME_SAMA_BASE_URL` (default `http://localhost:8001`) and, if the
+  backend enforces one, `ANIME_SAMA_API_KEY` in `frontend/.env`. The same key
+  goes in `backend/.env` as `ANIMESAMA_API_KEY` (leave both empty in local dev).
 
 ---
 
