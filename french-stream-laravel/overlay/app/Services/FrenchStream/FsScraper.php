@@ -64,8 +64,15 @@ class FsScraper
             return ['items' => [], 'next' => null];
         }
 
-        $url = '/index.php?do=search&subaction=search&story=' . rawurlencode($query);
-        $html = $this->client->get($url);
+        // DataLife Engine search is far more reliable over POST than GET.
+        $html = $this->client->post('/index.php?do=search', [
+            'do' => 'search',
+            'subaction' => 'search',
+            'search_start' => 0,
+            'full_search' => 0,
+            'result_from' => 1,
+            'story' => $query,
+        ]);
 
         return $this->parser->listing($html);
     }

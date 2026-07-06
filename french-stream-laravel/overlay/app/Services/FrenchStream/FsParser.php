@@ -147,41 +147,95 @@ class FsParser
     }
 
     /**
-     * Best-effort detail parsing. The synopsis / trailer / poster are usually
-     * already known from the card; here we additionally try to collect the
-     * embedded players (iframes) from the full story page.
+     * Detail page parsing (DataLife Engine full story page).
      *
-     * NOTE: the exact player markup of french-stream.one could not be verified
-     * from a static homepage sample. Update the selectors below once a real
-     * detail page (/index.php?newsid=ID) HTML is available.
+     * IMPORTANT: the streaming players are NOT present in the HTML. french-stream
+     * injects them client-side via /js/serie-player12.js using a token from
+     * /engine/ajax/vidzy_token.php (the #seriePlayer iframe ships with an empty
+     * src and #players-list / #vf-episodes are empty). A server-side HTML scraper
+     * therefore cannot extract stream links. We parse the rich metadata that IS
+     * in the HTML (title, synopsis, genres, cast, poster, YouTube trailer) and
+     * flag whether the JS/token player is in use so the UI can react honestly.
      *
-     * @return array{title: ?string, synopsis: ?string, poster: ?string, players: array<int, array{label: string, url: string}>}
+     * @return array{title: ?string, synopsis: ?string, poster: ?string, trailer: ?string, facts: array, status: ?string, episodes: ?string, meta: array<string,string>, cast: array<int,string>, players: array<int, array{label:string,url:string}>, js_player: bool}
      */
     public function detail(string $html): array
     {
         $crawler = $this->crawler($html);
 
+        // #serie-data / #film-data carries clean metadata as data-attributes.
+        $data = $crawler->filter('#serie-data, #film-data');
+        $dataAttr = fn (string $a) => $data->count() ? $data->first()->attr($a) : null;
+
+        $title = $this->firstText($crawler, 'h1#s-title')
+            ?: $this->firstText($crawler, 'h1')
+            ?: $dataAttr('data-title');
+
+        $trailer = $dataAttr('data-trailer');
+
+        $poster = $this->client->absolute(
+            $dataAttr('data-affiche') ?: $this->firstAttr($crawler, '.fposter img', 'src')
+        );
+
+        $synopsis = $this->firstText($crawler, '.fdesc') ?? $this->firstText($crawler, '#s-desc');
+
+        $facts = [
+            'certification' => $this->firstText($crawler, '.facts .certification'),
+            'year' => trim((string) $this->firstText($crawler, '.facts .release'), " -\t"),
+            'genres' => $this->firstText($crawler, '.facts .genres'),
+            'runtime' => $this->firstText($crawler, '.facts .runtime'),
+        ];
+
+        $status = $this->firstText($crawler, '.short-qual');
+        $episodes = $this->firstText($crawler, '.short-label');
+
+        // Key/value metadata list (Titre original, Réalisateur, Avec, ...)
+        $meta = [];
+        $crawler->filter('#s-list li')->each(function (Crawler $li) use (&$meta) {
+            $key = $this->firstText($li, 'span');
+            if (! $key) {
+                return;
+            }
+            $value = $this->clean(preg_replace('/^\s*' . preg_quote($key, '/') . '/u', '', $this->clean($li->text(''))));
+            $meta[rtrim($key, ' :')] = $value;
+        });
+
+        // Cast with photos is exposed via a JS array: window.actorData = [...]
+        $cast = [];
+        if (preg_match('/window\.actorData\s*=\s*(\[[^\]]*\])/s', $html, $m)) {
+            $decoded = json_decode($m[1], true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $entry) {
+                    // "Name (Role) - https://.../photo.jpg"
+                    $cast[] = trim(explode(' - http', (string) $entry)[0]);
+                }
+            }
+        }
+
+        // Streams are JS/token-injected; the iframe ships empty. Detect that.
+        $jsPlayer = $crawler->filter('#seriePlayer, #serie-config, #cn-content, .movie-players')->count() > 0;
+
+        // Very rare: a static (non-empty) player iframe.
         $players = [];
-        $crawler->filter('iframe')->each(function (Crawler $frame) use (&$players) {
-            $src = $frame->attr('src') ?? $frame->attr('data-src');
-            if (! $src) {
-                return;
+        $crawler->filter('.iframe iframe, .movie-players iframe')->each(function (Crawler $f) use (&$players) {
+            $src = $f->attr('src') ?: $f->attr('data-src');
+            if ($src && ! str_contains($src, 'youtube')) {
+                $players[] = ['label' => 'Lecteur ' . (count($players) + 1), 'url' => $this->client->absolute($src)];
             }
-            // Ignore the YouTube trailer iframe and ad frames.
-            if (str_contains($src, 'youtube') || str_contains($src, 'youtu.be')) {
-                return;
-            }
-            $players[] = [
-                'label' => 'Lecteur ' . (count($players) + 1),
-                'url' => $this->client->absolute($src),
-            ];
         });
 
         return [
-            'title' => $this->firstText($crawler, 'h1'),
-            'synopsis' => $this->firstText($crawler, '#s-desc') ?? $this->firstText($crawler, '.fdesc'),
-            'poster' => $this->client->absolute($this->firstAttr($crawler, '.fposter img', 'src')),
+            'title' => $title,
+            'synopsis' => $synopsis,
+            'poster' => $poster,
+            'trailer' => $trailer,
+            'facts' => $facts,
+            'status' => $status,
+            'episodes' => $episodes,
+            'meta' => $meta,
+            'cast' => $cast,
             'players' => $players,
+            'js_player' => $jsPlayer,
         ];
     }
 }

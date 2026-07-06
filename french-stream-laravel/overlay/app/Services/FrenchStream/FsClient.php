@@ -132,6 +132,30 @@ class FsClient
     }
 
     /**
+     * POST a form (used by the DataLife Engine search, which is more reliable
+     * over POST than GET) and return the HTML body.
+     */
+    public function post(string $url, array $form): string
+    {
+        $url = $this->absolute($url);
+        $resp = $this->request()->asForm()->post($url, $form);
+
+        if ($resp->status() === 403 || $resp->status() === 503) {
+            throw new RuntimeException(
+                'Cloudflare a bloqué la requête (HTTP ' . $resp->status() . '). '
+                . 'Il faut un résolveur Cloudflare (FlareSolverr) ou une IP autorisée.'
+            );
+        }
+        if ($resp->failed()) {
+            throw new RuntimeException("Requête POST échouée (HTTP {$resp->status()}) : {$url}");
+        }
+
+        $this->rememberSession($resp);
+
+        return $resp->body();
+    }
+
+    /**
      * DLE AJAX call (used by home tabs), e.g. custom category listings.
      * Kept for completeness; the UI relies mostly on server-rendered pages.
      */
