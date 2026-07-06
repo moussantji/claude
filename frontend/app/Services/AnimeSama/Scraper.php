@@ -776,6 +776,19 @@ class Scraper
         return str_repeat(' ', max(0, strlen((string) $maxEpisodes) - strlen((string) $n)));
     }
 
+    /**
+     * Split a comma-separated string into a trimmed list of non-empty values.
+     *
+     * @return list<string>
+     */
+    protected function splitList(string $value): array
+    {
+        return array_values(array_filter(
+            array_map('trim', explode(',', $value)),
+            static fn (string $item): bool => $item !== ''
+        ));
+    }
+
     protected function ensureSlash(string $url): string
     {
         return str_ends_with($url, '/') ? $url : $url.'/';
