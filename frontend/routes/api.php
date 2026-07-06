@@ -20,13 +20,14 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 
-// --- Public catalogue browsing (proxied to the FastAPI backend) ---
+// --- Public catalogue browsing (scraped natively from anime-sama) ---
 Route::prefix('anime')->group(function () {
     Route::get('/search', [AnimeController::class, 'search']);
     Route::get('/new-episodes', [AnimeController::class, 'newEpisodes']);
     Route::get('/catalogue', [AnimeController::class, 'catalogue']);
     Route::get('/episodes', [AnimeController::class, 'episodes']);
     Route::get('/site', [AnimeController::class, 'site']);
+    Route::post('/site/resolve', [AnimeController::class, 'resolveSite']);
 });
 
 // --- Protected endpoints (require a valid Sanctum token) ---

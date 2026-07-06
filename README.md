@@ -1,51 +1,39 @@
-# Anime-Sama — FastAPI backend + Laravel/Sanctum frontend
+# Anime-Sama — Laravel + Sanctum
 
-This project combines two services:
+A single **Laravel 12** application that scrapes the public
+[anime-sama](https://anime-sama.fr) website **natively in PHP** (a port of the
+[`anime-sama_api`](https://github.com/Sky-NiniKo/anime-sama_api) Python library)
+and exposes it as a JSON API with **Sanctum** token authentication, favorites
+and watch history.
 
-| Service    | Stack                     | Role                                                                 |
-|------------|---------------------------|----------------------------------------------------------------------|
-| `backend/` | Python + FastAPI          | REST wrapper around [`anime-sama_api`](https://github.com/Sky-NiniKo/anime-sama_api) (scrapes anime-sama) |
-| `frontend/`| PHP + Laravel 12 + Sanctum| Authenticated API gateway/app layer that consumes the backend and adds users, favorites and watch history |
+> There is no separate backend service anymore: the scraping logic runs inside
+> Laravel (`app/Services/AnimeSama/`), so you only run one app.
 
 ```
 Browser / SPA / mobile app
-          │  Bearer token (Sanctum)
-          ▼
-┌─────────────────────┐        ┌──────────────────────────┐
-│  Laravel + Sanctum   │  HTTP  │  FastAPI backend          │
-│  (frontend/, :8000)  ├───────►│  (backend/, :8001)        │
-│  auth, favorites,    │  X-API │  wraps anime-sama_api     │
-│  history, caching    │  -Key  │  → scrapes anime-sama     │
-└─────────────────────┘        └──────────────────────────┘
+        │  Authorization: Bearer <token>  (Sanctum)
+        ▼
+┌───────────────────────────────────────────────┐
+│  Laravel 12 (frontend/, :8000)                 │
+│  • Sanctum auth (register/login/logout)        │
+│  • App\Services\AnimeSama\Scraper  ────────────┼──► scrapes anime-sama
+│  • favorites + watch history (SQLite/MySQL)    │
+│  • short-lived response cache                  │
+└───────────────────────────────────────────────┘
 ```
 
-The Laravel layer holds user accounts (Sanctum personal access tokens),
-favorites and watch history, and **proxies** all catalogue/episode requests to
-the Python backend (with short-lived response caching). The Python backend does
-the actual scraping via the upstream library.
+## The scraper (`app/Services/AnimeSama/`)
 
----
+A faithful PHP port of the Python library:
+
+| File          | Ports (Python)                     | Responsibility                                   |
+|---------------|------------------------------------|--------------------------------------------------|
+| `Lang.php`    | `langs.py`                         | language id ⇄ language maps, allowed categories  |
+| `Players.php` | `Players`                          | mirror URLs per episode (swap + vidmoly fix)     |
+| `Episode.php` | `Episode` / `Languages`            | languages, best-player resolution, serialisation |
+| `Scraper.php` | `top_level.py` / `catalogue.py` / `season.py` | search, catalogue, seasons, episodes, site resolve |
 
 ## Setup
-
-Run the two services in **two separate terminals**.
-
-### 1. Backend (FastAPI) — terminal 1
-
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload --port 8001
-```
-
-- Runs on http://localhost:8001 (interactive docs at `/docs`).
-- See [`backend/README.md`](backend/README.md) for the full endpoint list and
-  troubleshooting (e.g. the `externally-managed-environment` pip error).
-
-### 2. Frontend (Laravel + Sanctum) — terminal 2
 
 ```bash
 cd frontend
@@ -57,35 +45,40 @@ php artisan migrate
 php artisan serve --port=8000
 ```
 
-- Runs on http://localhost:8000 (health at `/up`).
-- Set `ANIME_SAMA_BASE_URL` (default `http://localhost:8001`) and, if the
-  backend enforces one, `ANIME_SAMA_API_KEY` in `frontend/.env`. The same key
-  goes in `backend/.env` as `ANIMESAMA_API_KEY` (leave both empty in local dev).
+The app runs on http://localhost:8000 (health at `/up`).
 
----
+Relevant `.env` settings (all optional, sensible defaults provided):
 
-## API (Laravel gateway)
+```env
+ANIME_SAMA_SITE_URL=https://anime-sama.fr/      # anime-sama base URL
+ANIME_SAMA_PREFER_LANGUAGES=VF,VOSTFR           # "best player" order
+ANIME_SAMA_TIMEOUT=20                            # scraping HTTP timeout (s)
+ANIME_SAMA_CACHE_TTL=300                         # response cache TTL (s), 0 = off
+```
+
+## API
 
 Base URL: `http://localhost:8000/api`
 
 ### Authentication (public)
 
-| Method | Endpoint          | Body                                                    |
-|--------|-------------------|---------------------------------------------------------|
-| POST   | `/auth/register`  | `name, email, password, password_confirmation`          |
-| POST   | `/auth/login`     | `email, password` → returns `{ token }`                 |
+| Method | Endpoint          | Body                                            |
+|--------|-------------------|-------------------------------------------------|
+| POST   | `/auth/register`  | `name, email, password, password_confirmation`  |
+| POST   | `/auth/login`     | `email, password` → returns `{ token }`         |
 
-Send the returned token as `Authorization: Bearer <token>` on protected routes.
+Send the token as `Authorization: Bearer <token>` on protected routes.
 
-### Catalogue browsing (public, proxied to FastAPI)
+### Catalogue browsing (public, scraped from anime-sama)
 
-| Method | Endpoint                          | Query                          |
-|--------|-----------------------------------|--------------------------------|
-| GET    | `/anime/search`                   | `q`                            |
-| GET    | `/anime/new-episodes`             | –                              |
-| GET    | `/anime/catalogue`                | `url`                          |
-| GET    | `/anime/episodes`                 | `url`, optional `prefer`       |
-| GET    | `/anime/site`                     | –                              |
+| Method | Endpoint               | Query                          |
+|--------|------------------------|--------------------------------|
+| GET    | `/anime/search`        | `q`                            |
+| GET    | `/anime/new-episodes`  | –                              |
+| GET    | `/anime/catalogue`     | `url`                          |
+| GET    | `/anime/episodes`      | `url`, optional `prefer`       |
+| GET    | `/anime/site`          | current anime-sama URL         |
+| POST   | `/anime/site/resolve`  | auto-detect the current domain |
 
 ### Protected (require `auth:sanctum`)
 
@@ -112,29 +105,27 @@ curl -s -X POST http://localhost:8000/api/auth/register \
 # Search (public)
 curl -s 'http://localhost:8000/api/anime/search?q=naruto'
 
+# Episodes + player links for a season
+curl -s 'http://localhost:8000/api/anime/episodes?url=https://anime-sama.fr/catalogue/naruto/saison1/'
+
 # Add a favorite (authenticated)
 curl -s -X POST http://localhost:8000/api/favorites \
   -H "Authorization: Bearer <TOKEN>" -H 'Content-Type: application/json' \
   -d '{"catalogue_url":"https://anime-sama.fr/catalogue/naruto/","name":"Naruto"}'
 ```
 
----
-
 ## Testing
 
 ```bash
-cd frontend && php artisan test        # Laravel feature/unit tests
+cd frontend && php artisan test
 ```
 
-The Laravel tests mock the backend with `Http::fake`, so they do not require a
-running FastAPI service or network access.
-
----
+Tests fake anime-sama's HTML with `Http::fake`, so they need no network access.
 
 ## Notes & legal
 
-- The anime-sama domain changes periodically. Set `ANIMESAMA_SITE_URL` or call
-  `POST /api/site/resolve` on the backend to auto-detect the current domain.
-- This project reads publicly available data through the upstream
-  `anime-sama_api` library and is intended for **personal/educational use**.
-  Respect the terms of service of the sites involved.
+- The anime-sama domain changes periodically. Set `ANIME_SAMA_SITE_URL` or call
+  `POST /api/anime/site/resolve` to auto-detect the current domain.
+- This project only reads publicly available data and is intended for
+  **personal/educational use**. Respect the terms of service of the sites
+  involved.

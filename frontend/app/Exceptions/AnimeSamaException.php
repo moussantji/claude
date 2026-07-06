@@ -7,7 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Raised when the anime-sama backend returns an error or is unreachable.
+ * Raised when scraping anime-sama fails or the site is unreachable.
  */
 class AnimeSamaException extends Exception
 {
@@ -22,7 +22,7 @@ class AnimeSamaException extends Exception
 
         return response()->json([
             'message' => $this->getMessage(),
-            'source' => 'anime-sama-backend',
+            'source' => 'anime-sama',
         ], $status);
     }
 }

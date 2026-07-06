@@ -2,14 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\AnimeSamaClient;
+use App\Services\AnimeSama\Scraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 class AnimeController extends Controller
 {
-    public function __construct(protected AnimeSamaClient $client)
+    public function __construct(protected Scraper $scraper)
     {
     }
 
@@ -24,7 +24,7 @@ class AnimeController extends Controller
 
         $data = $this->remember(
             'search:'.mb_strtolower($validated['q']),
-            fn () => $this->client->search($validated['q'])
+            fn () => $this->scraper->search($validated['q'])
         );
 
         return response()->json(['data' => $data]);
@@ -35,7 +35,7 @@ class AnimeController extends Controller
      */
     public function newEpisodes(): JsonResponse
     {
-        $data = $this->remember('new-episodes', fn () => $this->client->newEpisodes());
+        $data = $this->remember('new-episodes', fn () => $this->scraper->newEpisodes());
 
         return response()->json(['data' => $data]);
     }
@@ -51,7 +51,7 @@ class AnimeController extends Controller
 
         $data = $this->remember(
             'catalogue:'.$validated['url'],
-            fn () => $this->client->catalogue($validated['url'])
+            fn () => $this->scraper->catalogue($validated['url'])
         );
 
         return response()->json(['data' => $data]);
@@ -67,26 +67,36 @@ class AnimeController extends Controller
             'prefer' => ['sometimes', 'string', 'max:100'],
         ]);
 
-        $prefer = $validated['prefer'] ?? null;
+        $prefer = isset($validated['prefer'])
+            ? array_values(array_filter(array_map('trim', explode(',', $validated['prefer']))))
+            : null;
 
         $data = $this->remember(
-            'episodes:'.$validated['url'].':'.($prefer ?? ''),
-            fn () => $this->client->episodes($validated['url'], $prefer)
+            'episodes:'.$validated['url'].':'.($validated['prefer'] ?? ''),
+            fn () => $this->scraper->episodes($validated['url'], $prefer)
         );
 
         return response()->json(['data' => $data]);
     }
 
     /**
-     * Current anime-sama site URL used by the backend.
+     * Current anime-sama site URL used by the scraper.
      */
     public function site(): JsonResponse
     {
-        return response()->json(['data' => $this->client->site()]);
+        return response()->json(['data' => $this->scraper->site()]);
     }
 
     /**
-     * Cache a backend call for the configured TTL.
+     * Auto-detect the current anime-sama domain.
+     */
+    public function resolveSite(): JsonResponse
+    {
+        return response()->json(['data' => $this->scraper->resolveSite()]);
+    }
+
+    /**
+     * Cache a scraper call for the configured TTL.
      */
     protected function remember(string $key, callable $callback): mixed
     {
