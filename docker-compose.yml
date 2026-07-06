@@ -1,0 +1,38 @@
+services:
+  backend:
+    build: ./backend
+    container_name: anime-sama-backend
+    environment:
+      ANIMESAMA_SITE_URL: ${ANIMESAMA_SITE_URL:-https://anime-sama.fr/}
+      ANIMESAMA_API_KEY: ${SHARED_API_KEY:-changeme}
+      ANIMESAMA_CORS_ORIGINS: "*"
+      ANIMESAMA_PREFER_LANGUAGES: ${PREFER_LANGUAGES:-VF,VOSTFR}
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    container_name: anime-sama-frontend
+    depends_on:
+      - backend
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8000
+      DB_CONNECTION: sqlite
+      CACHE_STORE: file
+      SESSION_DRIVER: file
+      QUEUE_CONNECTION: sync
+      # Point the Laravel gateway at the backend service on the compose network.
+      ANIME_SAMA_BASE_URL: http://backend:8001
+      ANIME_SAMA_API_KEY: ${SHARED_API_KEY:-changeme}
+      ANIME_SAMA_CACHE_TTL: "300"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
