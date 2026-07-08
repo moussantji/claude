@@ -111,6 +111,23 @@ class AnimeCacheTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_cache_status_reports_stored_data(): void
+    {
+        AnimeCache::create([
+            'key_hash' => hash('sha256', 'all-catalogues'),
+            'cache_key' => 'all-catalogues',
+            'type' => 'catalogues',
+            'payload' => [['name' => 'Naruto', 'url' => 'https://anime-sama.fr/catalogue/naruto/']],
+            'fetched_at' => now(),
+        ]);
+
+        $this->artisan('anime:cache-status --key=all-catalogues')
+            ->expectsOutputToContain('Naruto')
+            ->assertSuccessful();
+
+        $this->artisan('anime:cache-status')->assertSuccessful();
+    }
+
     public function test_prune_removes_old_rows(): void
     {
         AnimeCache::create([

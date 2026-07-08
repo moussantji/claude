@@ -128,6 +128,15 @@ php artisan anime:cache-refresh "one piece" "jujutsu kaisen"  # warm feeds + sea
 php artisan anime:cache-prune --days=30                        # drop long-unused rows
 ```
 
+Inspect what's stored at any time:
+
+```bash
+php artisan anime:cache-status                      # summary by type (rows, size, freshness)
+php artisan anime:cache-status --type=episodes      # list keys of a type
+php artisan anime:cache-status --key=all-catalogues # inspect one entry (item count + preview)
+php artisan anime:cache-status --key=all-catalogues --json   # full stored payload
+```
+
 The scheduler (`routes/console.php`) already runs `anime:cache-refresh` every
 15 min, `anime:ingest` daily at 04:00, and `anime:cache-prune` daily — just run
 `php artisan schedule:work` (or a cron entry).
