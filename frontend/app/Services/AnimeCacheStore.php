@@ -105,6 +105,16 @@ class AnimeCacheStore
             ->delete();
     }
 
+    /**
+     * Return the stored payload for a key regardless of age, or null when the
+     * key has never been persisted. Used for curated snapshots (e.g. the full
+     * catalogue) that are refreshed by the ingest command / scheduler.
+     */
+    public function get(string $key): mixed
+    {
+        return $this->find($key)?->payload;
+    }
+
     protected function find(string $key): ?AnimeCache
     {
         return AnimeCache::query()->where('key_hash', $this->hash($key))->first();

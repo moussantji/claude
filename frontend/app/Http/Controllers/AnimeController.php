@@ -17,21 +17,84 @@ class AnimeController extends Controller
 
     /**
      * Search the anime-sama catalogue.
+     *
+     * When the full catalogue has been ingested (see anime:ingest) and local
+     * search is enabled, results are filtered from the stored snapshot with no
+     * upstream call. Otherwise the query is proxied to the backend and cached.
      */
     public function search(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'q' => ['required', 'string', 'min:1', 'max:200'],
         ]);
+        $query = $validated['q'];
+
+        if ($this->store->enabled() && config('services.anime_sama.local_search', true)) {
+            $snapshot = $this->store->get('all-catalogues');
+            if (is_array($snapshot)) {
+                return response()->json(['data' => $this->filterCatalogues($snapshot, $query)]);
+            }
+        }
 
         $data = $this->store->remember(
             'search',
-            'search:'.mb_strtolower($validated['q']),
+            'search:'.mb_strtolower($query),
             null,
-            fn () => $this->client->search($validated['q'])
+            fn () => $this->client->search($query)
         );
 
         return response()->json(['data' => $data]);
+    }
+
+    /**
+     * The entire anime-sama catalogue (metadata). One call fetches ~1k+ entries
+     * and persists them so browsing/search can be served from the database.
+     */
+    public function allCatalogues(): JsonResponse
+    {
+        $data = $this->store->remember(
+            'catalogues',
+            'all-catalogues',
+            null,
+            fn () => $this->client->allCatalogues()
+        );
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Filter a stored catalogue snapshot by query (name / alternative names).
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array<int, array<string, mixed>>
+     */
+    protected function filterCatalogues(array $items, string $query): array
+    {
+        $q = mb_strtolower(trim($query));
+        if ($q === '') {
+            return array_slice(array_values($items), 0, 60);
+        }
+
+        $matches = [];
+        foreach ($items as $item) {
+            $name = mb_strtolower((string) ($item['name'] ?? ''));
+            $hit = str_contains($name, $q);
+
+            if (! $hit) {
+                foreach ((array) ($item['alternative_names'] ?? []) as $alt) {
+                    if (str_contains(mb_strtolower((string) $alt), $q)) {
+                        $hit = true;
+                        break;
+                    }
+                }
+            }
+
+            if ($hit) {
+                $matches[] = $item;
+            }
+        }
+
+        return array_slice($matches, 0, 60);
     }
 
     /**

@@ -36,6 +36,16 @@ class AnimeSamaClient
     }
 
     /**
+     * The entire anime-sama catalogue (metadata only).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function allCatalogues(): array
+    {
+        return $this->get('/api/all-catalogues');
+    }
+
+    /**
      * Latest episode releases from the homepage.
      *
      * @return array<int, array<string, mixed>>

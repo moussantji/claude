@@ -78,6 +78,39 @@ class AnimeCacheTest extends TestCase
         $this->assertDatabaseCount('anime_caches', 0);
     }
 
+    public function test_ingest_stores_the_catalogue_and_search_is_served_locally(): void
+    {
+        Http::fake([
+            '*/api/new-episodes*' => Http::response([], 200),
+            '*/api/planning*' => Http::response(['detail' => 'not implemented'], 501),
+            '*/api/all-catalogues*' => Http::response([
+                ['url' => 'https://anime-sama.fr/catalogue/naruto/', 'name' => 'Naruto', 'alternative_names' => []],
+                ['url' => 'https://anime-sama.fr/catalogue/bleach/', 'name' => 'Bleach', 'alternative_names' => ['Burichi']],
+            ], 200),
+        ]);
+
+        $this->artisan('anime:ingest')->assertSuccessful();
+
+        $this->assertDatabaseHas('anime_caches', ['cache_key' => 'all-catalogues', 'type' => 'catalogues']);
+
+        // From here, search must be served from the local snapshot with no
+        // upstream request at all.
+        Http::fake();
+
+        $this->getJson('/api/anime/search?q=naruto')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'Naruto');
+
+        // Alternative-name match works too.
+        $this->getJson('/api/anime/search?q=burichi')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'Bleach');
+
+        Http::assertNothingSent();
+    }
+
     public function test_prune_removes_old_rows(): void
     {
         AnimeCache::create([

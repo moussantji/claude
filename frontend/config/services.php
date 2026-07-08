@@ -47,11 +47,17 @@ return [
         // source. Set ANIME_SAMA_STORE=false to disable and go straight through.
         'store' => filter_var(env('ANIME_SAMA_STORE', true), FILTER_VALIDATE_BOOLEAN),
 
+        // Serve search from the ingested catalogue snapshot (no upstream call)
+        // once `anime:ingest` has populated it. Falls back to a live proxied
+        // search when no snapshot exists.
+        'local_search' => filter_var(env('ANIME_SAMA_LOCAL_SEARCH', true), FILTER_VALIDATE_BOOLEAN),
+
         // Freshness window per response type, in seconds. Episode/player links
         // rotate more often, so they use a shorter TTL.
         'ttl' => [
             'search' => (int) env('ANIME_SAMA_TTL_SEARCH', 21600),        // 6h
             'catalogue' => (int) env('ANIME_SAMA_TTL_CATALOGUE', 43200),  // 12h
+            'catalogues' => (int) env('ANIME_SAMA_TTL_CATALOGUES', 86400), // 24h (full snapshot)
             'episodes' => (int) env('ANIME_SAMA_TTL_EPISODES', 3600),     // 1h
             'new_episodes' => (int) env('ANIME_SAMA_TTL_NEW_EPISODES', 900), // 15m
             'planning' => (int) env('ANIME_SAMA_TTL_PLANNING', 21600),    // 6h

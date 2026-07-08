@@ -67,6 +67,27 @@ async def search(
     return [catalogue_to_summary(c) for c in catalogues]
 
 
+@router.get("/all-catalogues", response_model=list[CatalogueSummary], tags=["catalogue"])
+async def all_catalogues(
+    client: AnimeSamaClient = Depends(get_client),
+) -> list[CatalogueSummary]:
+    """The entire anime-sama catalogue (metadata only).
+
+    A single listing crawl (~1k+ entries) intended to be ingested once into the
+    consumer's database so browsing/search can be served locally rather than
+    hitting anime-sama per request.
+    """
+    try:
+        catalogues = await client.api.all_catalogues()
+    except HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Upstream error while fetching all catalogues: {exc}",
+        ) from exc
+
+    return [catalogue_to_summary(c) for c in catalogues]
+
+
 @router.get("/new-episodes", response_model=list[dict], tags=["catalogue"])
 async def new_episodes(
     client: AnimeSamaClient = Depends(get_client),

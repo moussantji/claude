@@ -100,12 +100,37 @@ ANIME_SAMA_TTL_PLANNING=21600    # 6h
 ANIME_SAMA_TTL_TRAILER=2592000   # 30d
 ```
 
+### One-shot ingest (fill the DB without searching)
+
+You don't have to rely on user searches to populate the cache. A single command
+pulls the **entire catalogue** (~1k+ entries, one fast listing crawl) into the
+DB, and once it's there **search is served from the database** — no upstream
+call per query:
+
+```bash
+php artisan anime:ingest                 # feeds + planning + full catalogue (light)
+php artisan anime:ingest --full --limit=100 --sleep=250   # also crawl episodes/player links (throttled)
+```
+
+- Without `--full` it's light (one listing crawl + the homepage feeds).
+- `--full` additionally walks each catalogue's seasons/episodes (the player/
+  "vid" links). That's a heavy crawl, so it's **capped** (`--limit`) and
+  **throttled** (`--sleep` ms between calls) to stay gentle on anime-sama.
+- Set `ANIME_SAMA_LOCAL_SEARCH=false` to always proxy searches live instead.
+
+The same catalogue fetch is also exposed as an endpoint:
+`GET /api/anime/all-catalogues` (fetches once and persists).
+
 Maintenance commands (schedule them so users never trigger a live fetch):
 
 ```bash
 php artisan anime:cache-refresh "one piece" "jujutsu kaisen"  # warm feeds + searches
 php artisan anime:cache-prune --days=30                        # drop long-unused rows
 ```
+
+The scheduler (`routes/console.php`) already runs `anime:cache-refresh` every
+15 min, `anime:ingest` daily at 04:00, and `anime:cache-prune` daily — just run
+`php artisan schedule:work` (or a cron entry).
 
 ## Backend API (FastAPI, :8001)
 
@@ -115,6 +140,7 @@ php artisan anime:cache-prune --days=30                        # drop long-unuse
 | GET    | `/api/site`           | Current anime-sama base URL                    |
 | POST   | `/api/site/resolve`   | Auto-detect the current anime-sama domain      |
 | GET    | `/api/search?q=`      | Search catalogues                              |
+| GET    | `/api/all-catalogues` | Entire catalogue metadata (one listing crawl)  |
 | GET    | `/api/new-episodes`   | Latest episode releases (homepage)             |
 | GET    | `/api/planning`       | Release planning (501 until implemented upstream) |
 | GET    | `/api/catalogue?url=` | Catalogue detail (synopsis, seasons, ...)      |
@@ -141,7 +167,8 @@ Send the token as `Authorization: Bearer <token>` on protected routes.
 
 | Method | Endpoint               | Query                          |
 |--------|------------------------|--------------------------------|
-| GET    | `/anime/search`        | `q`                            |
+| GET    | `/anime/search`        | `q` (local snapshot when ingested) |
+| GET    | `/anime/all-catalogues`| – (fetch + persist full catalogue) |
 | GET    | `/anime/new-episodes`  | –                              |
 | GET    | `/anime/planning`      | –                              |
 | GET    | `/anime/catalogue`     | `url`                          |

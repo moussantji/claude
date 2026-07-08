@@ -17,5 +17,10 @@ Schedule::command('anime:cache-refresh')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Refresh the full catalogue snapshot (used by local search) once a day.
+Schedule::command('anime:ingest')
+    ->dailyAt('04:00')
+    ->withoutOverlapping();
+
 Schedule::command('anime:cache-prune --days=30')
     ->daily();

@@ -23,6 +23,7 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 // --- Public catalogue browsing (proxied to the FastAPI backend) ---
 Route::prefix('anime')->group(function () {
     Route::get('/search', [AnimeController::class, 'search']);
+    Route::get('/all-catalogues', [AnimeController::class, 'allCatalogues']);
     Route::get('/new-episodes', [AnimeController::class, 'newEpisodes']);
     Route::get('/planning', [AnimeController::class, 'planning']);
     Route::get('/catalogue', [AnimeController::class, 'catalogue']);
