@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\AnimeCache;
 use App\Services\AnimeCacheStore;
 use App\Services\AnimeSamaClient;
 use Illuminate\Console\Command;
@@ -10,19 +11,26 @@ use Throwable;
 /**
  * One-shot ingest of the anime-sama catalogue into the database.
  *
- * By default this is light: it warms the homepage feed, planning and the full
- * catalogue metadata (~1k+ entries in a single listing crawl). With --full it
- * additionally walks each catalogue's seasons and episodes (player/"vid" links)
- * — that is a heavy crawl, so it is throttled (--sleep) and capped (--limit).
+ * Default (no --full): light. Warms the homepage feed, planning and the full
+ * catalogue metadata (~1k+ entries in a single listing crawl).
+ *
+ * With --full: also walks every catalogue's seasons and episodes, storing the
+ * player/"vid" links for each episode. This is a long crawl (potentially
+ * hours over the whole catalogue), so it is:
+ *   - throttled (--sleep ms between upstream calls),
+ *   - resumable: entries already stored and still fresh are skipped, so you can
+ *     stop and re-run the command to continue where it left off (use --force to
+ *     re-fetch everything regardless).
  */
 class IngestAnimeCatalogue extends Command
 {
     protected $signature = 'anime:ingest
-        {--full : Also crawl seasons and episodes (player links) for each catalogue}
-        {--limit=100 : With --full, max catalogues to deep-crawl (0 = all)}
-        {--sleep=250 : With --full, pause in ms between upstream calls}';
+        {--full : Also crawl seasons and episodes (player/vid links) for each catalogue}
+        {--limit=0 : With --full, max catalogues to deep-crawl (0 = all)}
+        {--sleep=250 : With --full, pause in ms between upstream calls}
+        {--force : Re-fetch entries even if they are already stored and fresh}';
 
-    protected $description = 'Fetch the whole anime-sama catalogue (and optionally episodes) into the DB in one pass.';
+    protected $description = 'Fetch the whole anime-sama catalogue (and optionally every episode player link) into the DB.';
 
     public function handle(AnimeSamaClient $client, AnimeCacheStore $store): int
     {
@@ -50,6 +58,8 @@ class IngestAnimeCatalogue extends Command
 
         if ($this->option('full') && $catalogues) {
             $this->deepCrawl($client, $store, $catalogues);
+        } else {
+            $this->line('Run with --full to also store every episode\'s player/vid links.');
         }
 
         $this->info('Ingest complete.');
@@ -64,10 +74,18 @@ class IngestAnimeCatalogue extends Command
     {
         $limit = max(0, (int) $this->option('limit'));
         $sleepUs = max(0, (int) $this->option('sleep')) * 1000;
+        $force = (bool) $this->option('force');
         $subset = $limit > 0 ? array_slice($catalogues, 0, $limit) : $catalogues;
 
+        // Fresh entries are skipped (resumable) unless --force is given.
+        $fetch = function (string $type, string $key, callable $cb) use ($store, $force) {
+            return $force
+                ? $store->refresh($type, $key, $cb)
+                : $store->remember($type, $key, null, $cb);
+        };
+
         $this->warn(sprintf(
-            'Deep-crawling seasons/episodes for %d catalogue(s). This hits anime-sama repeatedly; keep --sleep reasonable.',
+            'Deep-crawling seasons/episodes for %d catalogue(s). This is slow and hits anime-sama repeatedly; keep --sleep reasonable.',
             count($subset)
         ));
 
@@ -78,13 +96,13 @@ class IngestAnimeCatalogue extends Command
             $url = $catalogue['url'] ?? null;
             if (is_string($url) && $url !== '') {
                 try {
-                    $detail = $store->refresh('catalogue', 'catalogue:'.$url, fn () => $client->catalogue($url));
+                    $detail = $fetch('catalogue', 'catalogue:'.$url, fn () => $client->catalogue($url));
 
                     foreach ((array) ($detail['seasons'] ?? []) as $season) {
                         $seasonUrl = $season['url'] ?? null;
                         if (is_string($seasonUrl) && $seasonUrl !== '') {
                             try {
-                                $store->refresh(
+                                $fetch(
                                     'episodes',
                                     'episodes:'.$seasonUrl.':',
                                     fn () => $client->episodes($seasonUrl)
@@ -110,6 +128,12 @@ class IngestAnimeCatalogue extends Command
 
         $bar->finish();
         $this->newLine();
+
+        $this->info(sprintf(
+            'Stored %d catalogue detail(s) and %d episode set(s) with player links.',
+            AnimeCache::query()->where('type', 'catalogue')->count(),
+            AnimeCache::query()->where('type', 'episodes')->count(),
+        ));
     }
 
     private function step(string $label, callable $do): void

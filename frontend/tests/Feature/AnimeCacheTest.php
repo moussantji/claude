@@ -111,6 +111,47 @@ class AnimeCacheTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_full_ingest_stores_episode_player_links(): void
+    {
+        Http::fake([
+            '*/api/all-catalogues*' => Http::response([
+                ['url' => 'https://anime-sama.fr/catalogue/naruto/', 'name' => 'Naruto', 'alternative_names' => []],
+            ], 200),
+            '*/api/new-episodes*' => Http::response([], 200),
+            '*/api/planning*' => Http::response(['detail' => 'not implemented'], 501),
+            '*/api/catalogue*' => Http::response([
+                'name' => 'Naruto',
+                'seasons' => [
+                    ['url' => 'https://anime-sama.fr/catalogue/naruto/saison1/', 'name' => 'Saison 1', 'serie_name' => 'Naruto'],
+                ],
+            ], 200),
+            '*/api/episodes*' => Http::response([
+                [
+                    'index' => 1,
+                    'name' => 'Episode 1',
+                    'season_name' => 'Saison 1',
+                    'serie_name' => 'Naruto',
+                    'long_name' => 'Saison 1 - Episode 1',
+                    'short_name' => 'Naruto S01E01',
+                    'languages' => ['VF' => [['https://mirror-a/ep1', 'https://mirror-b/ep1']]],
+                    'available_languages' => ['VF'],
+                    'best_player' => 'https://mirror-a/ep1',
+                ],
+            ], 200),
+        ]);
+
+        $this->artisan('anime:ingest --full --sleep=0')->assertSuccessful();
+
+        // The episode set (with its player/vid links) is now stored.
+        $this->assertDatabaseHas('anime_caches', [
+            'type' => 'episodes',
+            'cache_key' => 'episodes:https://anime-sama.fr/catalogue/naruto/saison1/:',
+        ]);
+
+        $row = AnimeCache::query()->where('type', 'episodes')->first();
+        $this->assertSame('https://mirror-a/ep1', $row->payload[0]['languages']['VF'][0][0]);
+    }
+
     public function test_cache_status_reports_stored_data(): void
     {
         AnimeCache::create([

@@ -108,14 +108,22 @@ DB, and once it's there **search is served from the database** — no upstream
 call per query:
 
 ```bash
-php artisan anime:ingest                 # feeds + planning + full catalogue (light)
-php artisan anime:ingest --full --limit=100 --sleep=250   # also crawl episodes/player links (throttled)
+php artisan anime:ingest                 # feeds + planning + full catalogue (light, fast)
+php artisan anime:ingest --full          # ALSO every episode's player/vid links (whole catalogue, slow)
+php artisan anime:ingest --full --limit=100 --sleep=500   # only the first 100, gentler pace
 ```
 
 - Without `--full` it's light (one listing crawl + the homepage feeds).
-- `--full` additionally walks each catalogue's seasons/episodes (the player/
-  "vid" links). That's a heavy crawl, so it's **capped** (`--limit`) and
-  **throttled** (`--sleep` ms between calls) to stay gentle on anime-sama.
+- `--full` additionally walks **every** catalogue's seasons/episodes and stores
+  each episode's player/mirror ("vid") links. Over the whole catalogue (~1k+
+  entries) this is a **long** crawl — expect a good while — so it's:
+  - **throttled** (`--sleep` ms between upstream calls),
+  - **resumable**: entries already stored and still fresh are skipped, so you
+    can stop and re-run to continue (use `--force` to re-fetch everything),
+  - optionally **capped** with `--limit=N` (0 = all, the default).
+- For a full run, launch it in the background and watch the log, e.g.
+  `nohup php artisan anime:ingest --full > storage/logs/ingest.log 2>&1 &`,
+  or let the daily scheduler build it up over time.
 - Set `ANIME_SAMA_LOCAL_SEARCH=false` to always proxy searches live instead.
 
 The same catalogue fetch is also exposed as an endpoint:
