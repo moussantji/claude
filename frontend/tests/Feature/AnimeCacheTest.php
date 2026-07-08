@@ -152,6 +152,33 @@ class AnimeCacheTest extends TestCase
         $this->assertSame('https://mirror-a/ep1', $row->payload[0]['languages']['VF'][0][0]);
     }
 
+    public function test_links_command_lists_stored_video_links(): void
+    {
+        AnimeCache::create([
+            'key_hash' => hash('sha256', 'episodes:https://anime-sama.fr/catalogue/naruto/saison1/:'),
+            'cache_key' => 'episodes:https://anime-sama.fr/catalogue/naruto/saison1/:',
+            'type' => 'episodes',
+            'payload' => [[
+                'index' => 1,
+                'serie_name' => 'naruto',
+                'season_name' => 'saison1',
+                'languages' => [
+                    'VF' => [['https://host-a/vf1', 'https://host-b/vf1']],
+                    'VOSTFR' => [['https://host-a/vostfr1']],
+                ],
+                'available_languages' => ['VF', 'VOSTFR'],
+            ]],
+            'fetched_at' => now(),
+        ]);
+
+        $this->artisan('anime:links --lang=VF')
+            ->expectsOutputToContain('https://host-a/vf1')
+            ->assertSuccessful();
+
+        // JSON export works too.
+        $this->artisan('anime:links --json')->assertSuccessful();
+    }
+
     public function test_cache_status_reports_stored_data(): void
     {
         AnimeCache::create([

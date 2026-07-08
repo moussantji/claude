@@ -145,6 +145,15 @@ php artisan anime:cache-status --key=all-catalogues # inspect one entry (item co
 php artisan anime:cache-status --key=all-catalogues --json   # full stored payload
 ```
 
+List the stored video/player links (episode mirrors):
+
+```bash
+php artisan anime:links                    # all stored links (up to --limit)
+php artisan anime:links --serie=naruto     # filter by serie / URL substring
+php artisan anime:links --lang=VF          # only one language
+php artisan anime:links --json             # machine-readable export
+```
+
 The scheduler (`routes/console.php`) already runs `anime:cache-refresh` every
 15 min, `anime:ingest` daily at 04:00, and `anime:cache-prune` daily — just run
 `php artisan schedule:work` (or a cron entry).
