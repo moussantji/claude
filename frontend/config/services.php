@@ -66,4 +66,24 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Vidmoly (upload your OWN media)
+    |--------------------------------------------------------------------------
+    |
+    | Used by the media:upload command to upload files you own to your vidmoly
+    | account and store the resulting embed links in the DB. Endpoints follow
+    | the standard XFileSharing upload flow (get upload server -> POST file);
+    | confirm/adjust them against your account's API panel if needed.
+    |
+    */
+
+    'vidmoly' => [
+        'api_key' => env('VIDMOLY_API_KEY', ''),
+        'api_base' => rtrim(env('VIDMOLY_API_BASE', 'https://api.vidmoly.to'), '/'),
+        'embed_base' => rtrim(env('VIDMOLY_EMBED_BASE', 'https://vidmoly.to'), '/'),
+        // Uploads can be large, so allow a long timeout (seconds).
+        'timeout' => (int) env('VIDMOLY_TIMEOUT', 900),
+    ],
+
 ];

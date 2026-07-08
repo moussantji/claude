@@ -154,6 +154,23 @@ php artisan anime:links --lang=VF          # only one language
 php artisan anime:links --json             # machine-readable export
 ```
 
+## Uploading your own media (vidmoly)
+
+If you host **your own** videos (content you created or hold the rights to),
+you can upload them to your vidmoly account and store the resulting embed links
+in the DB. Set `VIDMOLY_API_KEY` in `frontend/.env`, then:
+
+```bash
+php artisan media:upload /path/to/video.mp4            # a single file
+php artisan media:upload /path/to/folder --recursive   # a whole folder
+php artisan media:list                                 # show stored uploads + links
+php artisan media:list --json                          # machine-readable export
+```
+
+Already-uploaded files are skipped on re-run (use `--force` to re-upload). This
+pipeline only uploads files you provide from disk — it does not download
+anything, and must only be used with content you own.
+
 The scheduler (`routes/console.php`) already runs `anime:cache-refresh` every
 15 min, `anime:ingest` daily at 04:00, and `anime:cache-prune` daily — just run
 `php artisan schedule:work` (or a cron entry).
