@@ -279,6 +279,8 @@
             try {
                 const res = await api('/anime/trailer', { params: { title: name } });
                 key = (res && res.data && res.data.youtube_key) || null;
+                // Note: Without TMDB, youtube_key will be null
+                // Background trailers are disabled in this case
             } catch (err) { 
                 console.log('Trailer not available:', err.message);
                 key = null; 

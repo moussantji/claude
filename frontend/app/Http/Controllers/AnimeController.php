@@ -15,22 +15,21 @@ class AnimeController extends Controller
     }
 
     /**
-     * Return a YouTube trailer key for a title (TMDB), or null when disabled.
+     * Return a YouTube search URL for a title's trailer.
+     * This replaces TMDB-based trailer lookup with a direct YouTube search.
      */
-    public function trailer(Request $request, TmdbClient $tmdb): JsonResponse
+    public function trailer(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:200'],
         ]);
 
-        if (! $tmdb->enabled()) {
-            return response()->json(['data' => null]);
-        }
-
-        $data = $this->remember(
-            'trailer:'.mb_strtolower($validated['title']),
-            fn () => $tmdb->trailerFor($validated['title'])
-        );
+        // Instead of fetching from TMDB, return a YouTube search query
+        // The frontend will handle opening YouTube search
+        $data = [
+            'youtube_key' => null, // No direct key available without TMDB
+            'search_query' => $validated['title'] . ' anime bande annonce',
+        ];
 
         return response()->json(['data' => $data]);
     }

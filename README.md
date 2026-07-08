@@ -54,16 +54,12 @@ ANIME_SAMA_SITE_URL=https://anime-sama.fr/      # anime-sama base URL
 ANIME_SAMA_PREFER_LANGUAGES=VF,VOSTFR           # "best player" order
 ANIME_SAMA_TIMEOUT=20                            # scraping HTTP timeout (s)
 ANIME_SAMA_CACHE_TTL=300                         # response cache TTL (s), 0 = off
-
-# Optional: real video trailers in the hero background (free key).
-# https://www.themoviedb.org/settings/api — leave empty to use animated posters.
-TMDB_API_KEY=
-TMDB_LANGUAGE=fr-FR
 ```
 
-> **Trailers en fond** : sans `TMDB_API_KEY`, le héros affiche les affiches
-> animées (effet Ken Burns). Avec une clé TMDB, une vraie bande-annonce vidéo
-> (YouTube, muette + autoplay) se lance en fond, avec un bouton son.
+> **Note on trailers**: The app uses the [anime-sama API](https://github.com/Sky-NiniKo/anime-sama_api) 
+> for all anime data. Background video trailers are not available as anime-sama doesn't 
+> provide trailer information. The "Bande-annonce" button opens a YouTube search for 
+> the anime's trailer instead.
 
 ## API
 
@@ -86,6 +82,7 @@ Send the token as `Authorization: Bearer <token>` on protected routes.
 | GET    | `/anime/new-episodes`  | –                              |
 | GET    | `/anime/catalogue`     | `url`                          |
 | GET    | `/anime/episodes`      | `url`, optional `prefer`       |
+| GET    | `/anime/trailer`       | `title` (returns YouTube query)|
 | GET    | `/anime/site`          | current anime-sama URL         |
 | POST   | `/anime/site/resolve`  | auto-detect the current domain |
 
