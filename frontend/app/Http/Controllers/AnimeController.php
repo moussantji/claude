@@ -6,6 +6,7 @@ use App\Services\AnimeCacheStore;
 use App\Services\AnimeSamaClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class AnimeController extends Controller
 {
@@ -32,7 +33,13 @@ class AnimeController extends Controller
         if ($this->store->enabled() && config('services.anime_sama.local_search', true)) {
             $snapshot = $this->store->get('all-catalogues');
             if (is_array($snapshot)) {
-                return response()->json(['data' => $this->filterCatalogues($snapshot, $query)]);
+                $local = $this->filterCatalogues($snapshot, $query);
+                // The catalogue snapshot is not exhaustive and lacks some titles,
+                // so only trust it when it actually matched something; otherwise
+                // fall back to the site's own (alt-name aware) search below.
+                if ($local !== []) {
+                    return response()->json(['data' => $local]);
+                }
             }
         }
 
@@ -70,31 +77,40 @@ class AnimeController extends Controller
      */
     protected function filterCatalogues(array $items, string $query): array
     {
-        $q = mb_strtolower(trim($query));
+        $q = $this->normalizeTerm($query);
         if ($q === '') {
             return array_slice(array_values($items), 0, 60);
         }
 
         $matches = [];
         foreach ($items as $item) {
-            $name = mb_strtolower((string) ($item['name'] ?? ''));
-            $hit = str_contains($name, $q);
+            if (str_contains($this->normalizeTerm((string) ($item['name'] ?? '')), $q)) {
+                $matches[] = $item;
 
-            if (! $hit) {
-                foreach ((array) ($item['alternative_names'] ?? []) as $alt) {
-                    if (str_contains(mb_strtolower((string) $alt), $q)) {
-                        $hit = true;
-                        break;
-                    }
-                }
+                continue;
             }
 
-            if ($hit) {
-                $matches[] = $item;
+            foreach ((array) ($item['alternative_names'] ?? []) as $alt) {
+                if (str_contains($this->normalizeTerm((string) $alt), $q)) {
+                    $matches[] = $item;
+                    break;
+                }
             }
         }
 
         return array_slice($matches, 0, 60);
+    }
+
+    /**
+     * Normalise a title/query for lenient matching: lowercase, strip accents
+     * and any non-alphanumeric characters. So "Kono Subarashii..." and
+     * "konosuba" both reduce to a comparable form.
+     */
+    protected function normalizeTerm(string $value): string
+    {
+        $value = mb_strtolower(Str::ascii($value));
+
+        return (string) preg_replace('/[^a-z0-9]+/', '', $value);
     }
 
     /**

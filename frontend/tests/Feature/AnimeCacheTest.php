@@ -111,6 +111,58 @@ class AnimeCacheTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_local_search_matches_despite_spacing_and_case(): void
+    {
+        config()->set('services.anime_sama.local_search', true);
+
+        AnimeCache::create([
+            'key_hash' => hash('sha256', 'all-catalogues'),
+            'cache_key' => 'all-catalogues',
+            'type' => 'catalogues',
+            'payload' => [
+                ['url' => 'https://anime-sama.fr/catalogue/konosuba/', 'name' => 'Kono Subarashii Sekai ni Shukufuku wo!', 'alternative_names' => []],
+            ],
+            'fetched_at' => now(),
+        ]);
+
+        Http::fake(); // any upstream call would be recorded
+
+        $this->getJson('/api/anime/search?q=konosuba')
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+
+        Http::assertNothingSent();
+    }
+
+    public function test_search_falls_back_to_backend_when_snapshot_misses(): void
+    {
+        config()->set('services.anime_sama.local_search', true);
+
+        // Snapshot exists but does NOT contain the title (all_catalogues is not
+        // exhaustive), so search must fall back to the site's own search.
+        AnimeCache::create([
+            'key_hash' => hash('sha256', 'all-catalogues'),
+            'cache_key' => 'all-catalogues',
+            'type' => 'catalogues',
+            'payload' => [
+                ['url' => 'https://anime-sama.fr/catalogue/naruto/', 'name' => 'Naruto', 'alternative_names' => []],
+            ],
+            'fetched_at' => now(),
+        ]);
+
+        Http::fake([
+            '*/api/search*' => Http::response([
+                ['url' => 'https://anime-sama.fr/catalogue/konosuba/', 'name' => 'KonoSuba'],
+            ], 200),
+        ]);
+
+        $this->getJson('/api/anime/search?q=konosuba')
+            ->assertOk()
+            ->assertJsonPath('data.0.name', 'KonoSuba');
+
+        Http::assertSentCount(1);
+    }
+
     public function test_full_ingest_stores_episode_player_links(): void
     {
         Http::fake([
