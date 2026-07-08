@@ -154,6 +154,34 @@ php artisan anime:links --lang=VF          # only one language
 php artisan anime:links --json             # machine-readable export
 ```
 
+## Normalized library (separate tables)
+
+Besides the JSON API cache (`anime_caches`), the data can also be stored in a
+proper relational schema where **each entity has its own table**:
+
+```
+animes 1───* seasons 1───* episodes 1───* episode_links
+```
+
+- `animes` — catalogue entries (url, name, alternative_names, genres, image, …)
+- `seasons` — one row per season, linked to its anime
+- `episodes` — one row per episode, linked to its season
+- `episode_links` — **every video/player link in its own row** (episode, language, host, url)
+
+Populate and inspect it:
+
+```bash
+php artisan library:ingest              # animes only (fast)
+php artisan library:ingest --full       # + seasons, episodes and video links (slow)
+php artisan library:ingest --full --limit=50 --sleep=500   # a throttled subset
+php artisan library:status              # row counts per table
+php artisan library:links --serie=naruto --lang=VF         # query the links table
+php artisan library:links --json
+```
+
+`library:ingest` upserts idempotently (safe to re-run); an episode's links are
+replaced on each sync so they always reflect the current mirrors.
+
 ## Uploading your own media (vidmoly)
 
 If you host **your own** videos (content you created or hold the rights to),
