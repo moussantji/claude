@@ -187,10 +187,16 @@
         const items = state.heroItems;
         const content = $('#heroContent');
         const dots = $('#heroDots');
-        if (!items.length) { content.innerHTML = ''; dots.innerHTML = ''; return; }
+        if (!items.length) { 
+            content.innerHTML = '<div class="hero__badge">Bienvenue</div><h1 class="hero__title">Anime-Sama</h1><p class="hero__desc">Regardez vos animes préférés en streaming. Utilisez la recherche pour trouver un anime.</p>'; 
+            dots.innerHTML = ''; 
+            return; 
+        }
 
         const item = items[state.heroIndex % items.length];
-        setBackground(item.image_url);
+        if (item.image_url) {
+            setBackground(item.image_url);
+        }
         scheduleHeroTrailer(item);
 
         const tags = []
@@ -224,10 +230,13 @@
         $('#heroInfo').addEventListener('click', () => openDetail(cat, item));
         $('#heroPlay').addEventListener('click', () => openDetail(cat, item, item.url));
         $('#heroTrailer').addEventListener('click', () => openTrailer(item.name));
-        $('#heroMute').addEventListener('click', () => {
-            state.trailerMuted = !state.trailerMuted;
-            if (state.currentTrailerKey) showHeroTrailer(state.currentTrailerKey);
-        });
+        const muteBtn = $('#heroMute');
+        if (muteBtn) {
+            muteBtn.addEventListener('click', () => {
+                state.trailerMuted = !state.trailerMuted;
+                if (state.currentTrailerKey) showHeroTrailer(state.currentTrailerKey);
+            });
+        }
         updateHeroMuteBtn();
 
         dots.innerHTML = '';
@@ -257,8 +266,8 @@
     function scheduleHeroTrailer(item) {
         clearTimeout(state.trailerTimer);
         removeHeroTrailer();
-        // Load slightly after the slide appears (skip during fast rotation).
-        state.trailerTimer = setTimeout(() => loadHeroTrailer(item), 1800);
+        // Load slightly after the slide appears to allow background image to settle
+        state.trailerTimer = setTimeout(() => loadHeroTrailer(item), 2000);
     }
 
     async function loadHeroTrailer(item) {
@@ -270,7 +279,10 @@
             try {
                 const res = await api('/anime/trailer', { params: { title: name } });
                 key = (res && res.data && res.data.youtube_key) || null;
-            } catch (_) { key = null; }
+            } catch (err) { 
+                console.log('Trailer not available:', err.message);
+                key = null; 
+            }
             state.trailerCache.set(name, key);
         }
 
@@ -287,12 +299,23 @@
         const box = $('#bgTrailer');
         const mute = state.trailerMuted ? 1 : 0;
         const params = new URLSearchParams({
-            autoplay: '1', mute: String(mute), controls: '0', loop: '1', playlist: key,
-            modestbranding: '1', playsinline: '1', rel: '0', showinfo: '0',
-            iv_load_policy: '3', disablekb: '1', fs: '0',
+            autoplay: '1', 
+            mute: String(mute), 
+            controls: '0', 
+            loop: '1', 
+            playlist: key,
+            modestbranding: '1', 
+            playsinline: '1', 
+            rel: '0', 
+            showinfo: '0',
+            iv_load_policy: '3', 
+            disablekb: '1', 
+            fs: '0',
+            enablejsapi: '1',
+            origin: window.location.origin
         });
         box.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?${params}"
-            allow="autoplay; encrypted-media" frameborder="0"></iframe>`;
+            allow="autoplay; encrypted-media" frameborder="0" allowfullscreen></iframe>`;
         box.classList.add('is-on');
         state.trailerActive = true;
         updateHeroMuteBtn();
@@ -337,13 +360,17 @@
             const res = await api('/anime/new-episodes');
             latest = (res.data || []).filter((x) => x.name);
         } catch (e) {
+            // Still try to load hero even if API fails
+            console.error('Failed to load new episodes:', e);
+            state.heroItems = [];
+            renderHero();
             rows.innerHTML = `<div class="empty">Impossible de charger le contenu : ${escapeHtml(e.message)}<br>Vérifiez que le site anime-sama est accessible (ANIME_SAMA_SITE_URL).</div>`;
             return;
         }
 
         // Hero from the richest items (those with an image).
         state.heroItems = (latest.filter((x) => x.image_url).slice(0, 7));
-        if (!state.heroItems.length) state.heroItems = latest.slice(0, 5);
+        if (!state.heroItems.length && latest.length) state.heroItems = latest.slice(0, 5);
         state.heroIndex = 0;
         renderHero();
         restartHeroTimer();
@@ -596,6 +623,8 @@
     function renderPlayerBar(activeLang, activeMirror) {
         const ep = state.currentEpisode;
         const bar = $('#playerBar');
+        if (!ep) return;
+        
         const langs = orderLangs(ep.available_languages || []);
         const mirrors = activeLang ? mirrorsForLanguage(ep, activeLang) : [];
 
@@ -610,20 +639,34 @@
 
         bar.innerHTML = `
             <span class="player__title">${escapeHtml((state.currentContext?.serieName || '') + ' — ' + (ep.name || 'Épisode ' + ep.index))}</span>
-            ${langs.length ? `<span class="player__label">Langue</span>${langBtns}` : ''}
-            ${mirrors.length ? `<span class="player__label">Lecteur</span>${mirrorBtns}` : ''}`;
+            ${langs.length > 0 ? `<span class="player__label">Langue</span>${langBtns}` : ''}
+            ${mirrors.length > 0 ? `<span class="player__label">Lecteur</span>${mirrorBtns}` : ''}`;
 
-        $$('[data-lang]', bar).forEach((b) => b.addEventListener('click', () => {
-            const lang = b.getAttribute('data-lang');
-            renderPlayerBar(lang, 0);
-            const ms = mirrorsForLanguage(ep, lang);
-            if (ms[0]) { playUrl(ms[0]); recordHistory(ep, state.currentContext, lang, ms[0]); }
-        }));
-        $$('[data-mirror]', bar).forEach((b) => b.addEventListener('click', () => {
-            const i = +b.getAttribute('data-mirror');
-            renderPlayerBar(activeLang, i);
-            if (mirrors[i]) playUrl(mirrors[i]);
-        }));
+        // Re-attach event listeners after innerHTML update
+        $$('[data-lang]', bar).forEach((b) => {
+            b.addEventListener('click', (e) => {
+                e.preventDefault();
+                const lang = b.getAttribute('data-lang');
+                const ms = mirrorsForLanguage(ep, lang);
+                renderPlayerBar(lang, 0);
+                if (ms[0]) { 
+                    playUrl(ms[0]); 
+                    recordHistory(ep, state.currentContext, lang, ms[0]); 
+                }
+            });
+        });
+        
+        $$('[data-mirror]', bar).forEach((b) => {
+            b.addEventListener('click', (e) => {
+                e.preventDefault();
+                const i = +b.getAttribute('data-mirror');
+                renderPlayerBar(activeLang, i);
+                if (mirrors[i]) {
+                    playUrl(mirrors[i]);
+                    recordHistory(ep, state.currentContext, activeLang, mirrors[i]);
+                }
+            });
+        });
     }
 
     function playUrl(url) {
