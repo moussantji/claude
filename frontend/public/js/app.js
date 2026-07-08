@@ -411,7 +411,7 @@
     }
 
     async function runSearch(query) {
-        setActiveNav(null);
+        setActiveNav('search');
         loadingView('Recherche…');
         try {
             const res = await api('/anime/search', { params: { q: query } });
@@ -795,6 +795,25 @@
     /* ---- Navigation & wiring -------------------------------------------- */
     function setActiveNav(which) {
         $$('.nav__link').forEach((l) => l.classList.toggle('is-active', l.dataset.nav === which));
+        $$('.tabbar__item').forEach((t) => t.classList.toggle('is-active', t.dataset.tab === which));
+    }
+
+    function handleTab(tab) {
+        if (tab === 'home') renderHome();
+        else if (tab === 'new') showNewEpisodes();
+        else if (tab === 'list') showMyList();
+        else if (tab === 'search') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            const input = $('#searchInput');
+            if (input) { input.focus(); input.select(); }
+        } else if (tab === 'account') {
+            if (!state.token) openAuth();
+            else {
+                const avatar = $('.usermenu .avatar');
+                if (avatar) avatar.click();
+                else showMyList();
+            }
+        }
     }
 
     function wire() {
@@ -814,6 +833,11 @@
                 else if (target === 'new') showNewEpisodes();
                 else if (target === 'list') showMyList();
             });
+        });
+
+        // Mobile bottom navigation
+        $$('.tabbar__item').forEach((btn) => {
+            btn.addEventListener('click', () => handleTab(btn.dataset.tab));
         });
 
         // Search (debounced)
