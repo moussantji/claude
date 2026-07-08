@@ -2,15 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\AnimeCacheStore;
 use App\Services\AnimeSamaClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 class AnimeController extends Controller
 {
-    public function __construct(protected AnimeSamaClient $client)
-    {
+    public function __construct(
+        protected AnimeSamaClient $client,
+        protected AnimeCacheStore $store,
+    ) {
     }
 
     /**
@@ -22,8 +24,10 @@ class AnimeController extends Controller
             'q' => ['required', 'string', 'min:1', 'max:200'],
         ]);
 
-        $data = $this->remember(
+        $data = $this->store->remember(
+            'search',
             'search:'.mb_strtolower($validated['q']),
+            null,
             fn () => $this->client->search($validated['q'])
         );
 
@@ -35,7 +39,12 @@ class AnimeController extends Controller
      */
     public function newEpisodes(): JsonResponse
     {
-        $data = $this->remember('new-episodes', fn () => $this->client->newEpisodes());
+        $data = $this->store->remember(
+            'new_episodes',
+            'new-episodes',
+            null,
+            fn () => $this->client->newEpisodes()
+        );
 
         return response()->json(['data' => $data]);
     }
@@ -45,7 +54,12 @@ class AnimeController extends Controller
      */
     public function planning(): JsonResponse
     {
-        $data = $this->remember('planning', fn () => $this->client->planning());
+        $data = $this->store->remember(
+            'planning',
+            'planning',
+            null,
+            fn () => $this->client->planning()
+        );
 
         return response()->json(['data' => $data]);
     }
@@ -59,8 +73,10 @@ class AnimeController extends Controller
             'url' => ['required', 'url', 'max:2048'],
         ]);
 
-        $data = $this->remember(
+        $data = $this->store->remember(
+            'catalogue',
             'catalogue:'.$validated['url'],
+            null,
             fn () => $this->client->catalogue($validated['url'])
         );
 
@@ -69,6 +85,9 @@ class AnimeController extends Controller
 
     /**
      * Episodes (with player links) for a given season URL.
+     *
+     * The episode payload — including every mirror/player ("vid") URL — is
+     * persisted so playback links are served from the database.
      */
     public function episodes(Request $request): JsonResponse
     {
@@ -79,8 +98,10 @@ class AnimeController extends Controller
 
         $prefer = $validated['prefer'] ?? null;
 
-        $data = $this->remember(
+        $data = $this->store->remember(
+            'episodes',
             'episodes:'.$validated['url'].':'.($prefer ?? ''),
+            null,
             fn () => $this->client->episodes($validated['url'], $prefer)
         );
 
@@ -99,8 +120,10 @@ class AnimeController extends Controller
             'title' => ['required', 'string', 'max:200'],
         ]);
 
-        $data = $this->remember(
+        $data = $this->store->remember(
+            'trailer',
             'trailer:'.mb_strtolower($validated['title']),
+            null,
             fn () => $this->client->trailer($validated['title'])
         );
 
@@ -108,7 +131,7 @@ class AnimeController extends Controller
     }
 
     /**
-     * Current anime-sama site URL used by the backend.
+     * Current anime-sama site URL used by the backend. Not cached (live).
      */
     public function site(): JsonResponse
     {
@@ -116,24 +139,10 @@ class AnimeController extends Controller
     }
 
     /**
-     * Ask the backend to auto-detect the current anime-sama domain.
+     * Ask the backend to auto-detect the current anime-sama domain. Not cached.
      */
     public function resolveSite(): JsonResponse
     {
         return response()->json(['data' => $this->client->resolveSite()]);
-    }
-
-    /**
-     * Cache a backend call for the configured TTL.
-     */
-    protected function remember(string $key, callable $callback): mixed
-    {
-        $ttl = (int) config('services.anime_sama.cache_ttl', 300);
-
-        if ($ttl <= 0) {
-            return $callback();
-        }
-
-        return Cache::remember('anime_sama:'.md5($key), $ttl, $callback);
     }
 }

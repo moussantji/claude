@@ -71,6 +71,42 @@ button. Set `ANIMESAMA_TMDB_API_KEY` in `backend/.env` (free key from
 [themoviedb.org](https://www.themoviedb.org/settings/api)) to enable it; without
 a key the UI keeps the animated poster background.
 
+## Persistence & caching (MySQL)
+
+To avoid hammering — or going down with — the upstream anime-sama site, the
+Laravel app **persists every API response in the database** (`anime_caches`
+table), including each episode's player/mirror ("vid") links. Requests are
+served from the DB and only reach anime-sama when a row is missing or stale.
+
+- **Per-type freshness windows** (`ANIME_SAMA_TTL_*`): episode/player links use
+  a short TTL (they rotate), catalogue metadata a long one.
+- **Stale-while-error**: if a refresh fails (anime-sama slow/blocked/down), the
+  last stored payload is served instead of an error, so the site keeps working.
+- **Stampede protection**: concurrent misses for the same key collapse into a
+  single upstream call via a lock.
+
+SQLite works out of the box; **MySQL is recommended in production** — set the
+`DB_CONNECTION=mysql` block in `frontend/.env` and run `php artisan migrate`.
+
+Toggle/tune via `frontend/.env`:
+
+```env
+ANIME_SAMA_STORE=true            # false = always go live (no DB cache)
+ANIME_SAMA_TTL_SEARCH=21600      # 6h
+ANIME_SAMA_TTL_CATALOGUE=43200   # 12h
+ANIME_SAMA_TTL_EPISODES=3600     # 1h  (player links rotate)
+ANIME_SAMA_TTL_NEW_EPISODES=900  # 15m
+ANIME_SAMA_TTL_PLANNING=21600    # 6h
+ANIME_SAMA_TTL_TRAILER=2592000   # 30d
+```
+
+Maintenance commands (schedule them so users never trigger a live fetch):
+
+```bash
+php artisan anime:cache-refresh "one piece" "jujutsu kaisen"  # warm feeds + searches
+php artisan anime:cache-prune --days=30                        # drop long-unused rows
+```
+
 ## Backend API (FastAPI, :8001)
 
 | Method | Path                  | Description                                   |

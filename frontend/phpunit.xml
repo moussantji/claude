@@ -29,5 +29,7 @@
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="ANIME_SAMA_CACHE_TTL" value="0"/>
+        <!-- DB persistence off by default in tests; the cache test enables it explicitly. -->
+        <env name="ANIME_SAMA_STORE" value="false"/>
     </php>
 </phpunit>

@@ -39,7 +39,25 @@ return [
         'base_url' => env('ANIME_SAMA_BASE_URL', 'http://localhost:8001'),
         'api_key' => env('ANIME_SAMA_API_KEY', ''),
         'timeout' => (float) env('ANIME_SAMA_TIMEOUT', 25),
-        'cache_ttl' => (int) env('ANIME_SAMA_CACHE_TTL', 300),
+
+        // Persist API responses (incl. episode player/"vid" links) in the DB so
+        // the site serves from the database and only hits anime-sama when data
+        // is missing or stale. On upstream failure, stale data is served
+        // (stale-while-error) so the app keeps working and never hammers the
+        // source. Set ANIME_SAMA_STORE=false to disable and go straight through.
+        'store' => filter_var(env('ANIME_SAMA_STORE', true), FILTER_VALIDATE_BOOLEAN),
+
+        // Freshness window per response type, in seconds. Episode/player links
+        // rotate more often, so they use a shorter TTL.
+        'ttl' => [
+            'search' => (int) env('ANIME_SAMA_TTL_SEARCH', 21600),        // 6h
+            'catalogue' => (int) env('ANIME_SAMA_TTL_CATALOGUE', 43200),  // 12h
+            'episodes' => (int) env('ANIME_SAMA_TTL_EPISODES', 3600),     // 1h
+            'new_episodes' => (int) env('ANIME_SAMA_TTL_NEW_EPISODES', 900), // 15m
+            'planning' => (int) env('ANIME_SAMA_TTL_PLANNING', 21600),    // 6h
+            'trailer' => (int) env('ANIME_SAMA_TTL_TRAILER', 2592000),    // 30d
+            'default' => (int) env('ANIME_SAMA_CACHE_TTL', 21600),        // 6h
+        ],
     ],
 
 ];
