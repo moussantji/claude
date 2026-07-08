@@ -30,6 +30,12 @@
         authMode: 'login',
         currentEpisode: null,
         currentContext: null,        // { serieName, seasonUrl, seasonName }
+        // Hero background trailer (sourced from the backend /anime/trailer -> TMDB).
+        trailerCache: new Map(),     // title -> youtube key | null
+        trailerTimer: null,
+        trailerActive: false,
+        trailerMuted: true,
+        currentTrailerKey: null,
     };
 
     // Human labels for language codes.
@@ -192,6 +198,7 @@
         if (item.image_url) {
             setBackground(item.image_url);
         }
+        scheduleHeroTrailer(item);
 
         const tags = []
             .concat((item.languages || []).map((l) => `<span class="chip chip--lang">${escapeHtml(l)}</span>`))
@@ -214,11 +221,20 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01" stroke-linecap="round"/></svg>
                     Plus d'infos
                 </button>
+                <button class="btn btn--icon btn--ghost" id="heroMute" title="Activer le son" style="display:none"></button>
             </div>`;
 
         const cat = catalogueUrlFromSeason(item.url);
         $('#heroInfo').addEventListener('click', () => openDetail(cat, item));
         $('#heroPlay').addEventListener('click', () => openDetail(cat, item, item.url));
+        const muteBtn = $('#heroMute');
+        if (muteBtn) {
+            muteBtn.addEventListener('click', () => {
+                state.trailerMuted = !state.trailerMuted;
+                if (state.currentTrailerKey) showHeroTrailer(state.currentTrailerKey);
+            });
+        }
+        updateHeroMuteBtn();
 
         dots.innerHTML = '';
         items.forEach((_, i) => {
@@ -238,7 +254,84 @@
         }
     }
 
+    /* ---- Hero background trailer (auto-play, muted) ---------------------- */
+    // The trailer video is looked up via the backend (/anime/trailer -> TMDB)
+    // and auto-plays muted behind the hero. There is no button: it starts on
+    // its own once the slide has settled. A small speaker toggle lets the user
+    // unmute. When TMDB is not configured the key is null and we simply keep
+    // the animated poster background.
+    function scheduleHeroTrailer(item) {
+        clearTimeout(state.trailerTimer);
+        removeHeroTrailer();
+        // Delay slightly so quick slide rotations don't spawn iframes needlessly.
+        state.trailerTimer = setTimeout(() => loadHeroTrailer(item), 1600);
+    }
 
+    async function loadHeroTrailer(item) {
+        const name = item && item.name;
+        if (!name) return;
+
+        let key = state.trailerCache.get(name);
+        if (key === undefined) {
+            try {
+                const res = await api('/anime/trailer', { params: { title: name } });
+                key = (res && res.data && res.data.youtube_key) || null;
+            } catch (_) {
+                key = null;
+            }
+            state.trailerCache.set(name, key);
+        }
+
+        // Only show if this item is still the one on screen and we're on home.
+        const current = state.heroItems[state.heroIndex % (state.heroItems.length || 1)];
+        if (!key || !current || current.name !== name) return;
+        if ($('#hero').style.display === 'none') return;
+
+        showHeroTrailer(key);
+    }
+
+    function showHeroTrailer(key) {
+        state.currentTrailerKey = key;
+        const box = $('#bgTrailer');
+        if (!box) return;
+        const params = new URLSearchParams({
+            autoplay: '1',
+            mute: state.trailerMuted ? '1' : '0',
+            controls: '0',
+            loop: '1',
+            playlist: key,          // required for a single-video loop
+            modestbranding: '1',
+            playsinline: '1',
+            rel: '0',
+            showinfo: '0',
+            iv_load_policy: '3',
+            disablekb: '1',
+            fs: '0',
+        });
+        box.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?${params}"
+            allow="autoplay; encrypted-media" frameborder="0"></iframe>`;
+        box.classList.add('is-on');
+        state.trailerActive = true;
+        updateHeroMuteBtn();
+    }
+
+    function removeHeroTrailer() {
+        const box = $('#bgTrailer');
+        if (box) { box.classList.remove('is-on'); box.innerHTML = ''; }
+        state.trailerActive = false;
+        state.currentTrailerKey = null;
+        updateHeroMuteBtn();
+    }
+
+    function updateHeroMuteBtn() {
+        const b = $('#heroMute');
+        if (!b) return;
+        b.style.display = state.trailerActive ? 'inline-flex' : 'none';
+        b.title = state.trailerMuted ? 'Activer le son' : 'Couper le son';
+        b.innerHTML = state.trailerMuted
+            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6" stroke-linecap="round"/></svg>'
+            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7M19 5a9 9 0 010 14" stroke-linecap="round"/></svg>';
+    }
 
     /* ---- Views ----------------------------------------------------------- */
     function showHomeChrome(show) {
@@ -302,6 +395,8 @@
 
     function renderGridView(title, sub, items, emptyMsg) {
         clearInterval(state.heroTimer);
+        clearTimeout(state.trailerTimer);
+        removeHeroTrailer();
         showHomeChrome(false);
         const rows = $('#rows');
         rows.style.marginTop = '0';
@@ -320,6 +415,8 @@
     }
 
     function loadingView(title) {
+        clearTimeout(state.trailerTimer);
+        removeHeroTrailer();
         showHomeChrome(false);
         const rows = $('#rows');
         rows.style.marginTop = '0';
@@ -482,13 +579,8 @@
 
     /* ---- Player modal ---------------------------------------------------- */
     function mirrorsForLanguage(ep, lang) {
-        console.log('mirrorsForLanguage called with lang:', lang);
-        console.log('ep.languages keys:', Object.keys(ep.languages || {}));
         const groups = (ep.languages || {})[lang] || [];
-        console.log('Groups found:', groups);
-        const result = groups.flat();
-        console.log('Flattened result:', result);
-        return result;
+        return groups.flat();
     }
 
     function orderLangs(langs) {
@@ -503,22 +595,11 @@
         state.currentContext = context;
         openModal('player');
 
-        // Debug: Log episode data to understand structure
-        console.log('Episode data:', ep);
-        console.log('Available languages:', ep.available_languages);
-        console.log('Languages object:', ep.languages);
-
         const langs = orderLangs(ep.available_languages || []);
-        console.log('Ordered langs:', langs);
-        
         const defaultLang = langs.includes('VF') ? 'VF' : (langs[0] || null);
-        console.log('Default lang selected:', defaultLang);
-        
         renderPlayerBar(defaultLang, 0);
 
         const mirrors = defaultLang ? mirrorsForLanguage(ep, defaultLang) : [];
-        console.log('Mirrors for', defaultLang, ':', mirrors);
-        
         const first = mirrors[0] || ep.best_player;
         if (first) playUrl(first);
         else $('#playerLoader').innerHTML = '<p style="color:var(--muted)">Aucun lecteur disponible.</p>';
@@ -723,6 +804,9 @@
 
     /* ---- Modals ---------------------------------------------------------- */
     function openModal(name) {
+        // Pause the hero background trailer while any modal is open.
+        clearTimeout(state.trailerTimer);
+        removeHeroTrailer();
         $(`#${name}Modal`).classList.add('is-open');
         document.body.style.overflow = 'hidden';
     }
@@ -730,6 +814,10 @@
         $(`#${name}Modal`).classList.remove('is-open');
         document.body.style.overflow = '';
         if (name === 'player') { $('#playerIframe').src = 'about:blank'; }
+        // Resume the hero trailer when returning to the home page.
+        if (!anyModalOpen() && $('#hero').style.display !== 'none' && state.heroItems.length) {
+            scheduleHeroTrailer(state.heroItems[state.heroIndex % state.heroItems.length]);
+        }
     }
     function anyModalOpen() { return ['detail', 'player', 'auth'].some((n) => $(`#${n}Modal`).classList.contains('is-open')); }
     function closeAllModals() { ['detail', 'player', 'auth'].forEach(closeModal); }

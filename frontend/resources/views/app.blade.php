@@ -141,6 +141,6 @@
     <!-- Toasts -->
     <div class="toasts" id="toasts"></div>
 
-    <script src="/js/app.js?v=4"></script>
+    <script src="/js/app.js?v=5"></script>
 </body>
 </html>

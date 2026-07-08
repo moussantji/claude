@@ -2,36 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\AnimeSama\Scraper;
-use App\Services\Tmdb\TmdbClient;
+use App\Services\AnimeSamaClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 class AnimeController extends Controller
 {
-    public function __construct(protected Scraper $scraper)
+    public function __construct(protected AnimeSamaClient $client)
     {
-    }
-
-    /**
-     * Return a YouTube search URL for a title's trailer.
-     * This replaces TMDB-based trailer lookup with a direct YouTube search.
-     */
-    public function trailer(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'title' => ['required', 'string', 'max:200'],
-        ]);
-
-        // Instead of fetching from TMDB, return a YouTube search query
-        // The frontend will handle opening YouTube search
-        $data = [
-            'youtube_key' => null, // No direct key available without TMDB
-            'search_query' => $validated['title'] . ' anime bande annonce',
-        ];
-
-        return response()->json(['data' => $data]);
     }
 
     /**
@@ -45,7 +24,7 @@ class AnimeController extends Controller
 
         $data = $this->remember(
             'search:'.mb_strtolower($validated['q']),
-            fn () => $this->scraper->search($validated['q'])
+            fn () => $this->client->search($validated['q'])
         );
 
         return response()->json(['data' => $data]);
@@ -56,7 +35,17 @@ class AnimeController extends Controller
      */
     public function newEpisodes(): JsonResponse
     {
-        $data = $this->remember('new-episodes', fn () => $this->scraper->newEpisodes());
+        $data = $this->remember('new-episodes', fn () => $this->client->newEpisodes());
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Release planning grouped into scheduled slots.
+     */
+    public function planning(): JsonResponse
+    {
+        $data = $this->remember('planning', fn () => $this->client->planning());
 
         return response()->json(['data' => $data]);
     }
@@ -72,7 +61,7 @@ class AnimeController extends Controller
 
         $data = $this->remember(
             'catalogue:'.$validated['url'],
-            fn () => $this->scraper->catalogue($validated['url'])
+            fn () => $this->client->catalogue($validated['url'])
         );
 
         return response()->json(['data' => $data]);
@@ -88,36 +77,54 @@ class AnimeController extends Controller
             'prefer' => ['sometimes', 'string', 'max:100'],
         ]);
 
-        $prefer = isset($validated['prefer'])
-            ? array_values(array_filter(array_map('trim', explode(',', $validated['prefer']))))
-            : null;
+        $prefer = $validated['prefer'] ?? null;
 
         $data = $this->remember(
-            'episodes:'.$validated['url'].':'.($validated['prefer'] ?? ''),
-            fn () => $this->scraper->episodes($validated['url'], $prefer)
+            'episodes:'.$validated['url'].':'.($prefer ?? ''),
+            fn () => $this->client->episodes($validated['url'], $prefer)
         );
 
         return response()->json(['data' => $data]);
     }
 
     /**
-     * Current anime-sama site URL used by the scraper.
+     * Best YouTube trailer key for a title (TMDB-backed via the backend).
+     *
+     * anime-sama has no trailer data; the backend resolves it on TMDB and
+     * returns {"youtube_key": null} when trailers are disabled/unavailable.
+     */
+    public function trailer(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:200'],
+        ]);
+
+        $data = $this->remember(
+            'trailer:'.mb_strtolower($validated['title']),
+            fn () => $this->client->trailer($validated['title'])
+        );
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Current anime-sama site URL used by the backend.
      */
     public function site(): JsonResponse
     {
-        return response()->json(['data' => $this->scraper->site()]);
+        return response()->json(['data' => $this->client->site()]);
     }
 
     /**
-     * Auto-detect the current anime-sama domain.
+     * Ask the backend to auto-detect the current anime-sama domain.
      */
     public function resolveSite(): JsonResponse
     {
-        return response()->json(['data' => $this->scraper->resolveSite()]);
+        return response()->json(['data' => $this->client->resolveSite()]);
     }
 
     /**
-     * Cache a scraper call for the configured TTL.
+     * Cache a backend call for the configured TTL.
      */
     protected function remember(string $key, callable $callback): mixed
     {

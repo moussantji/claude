@@ -1,39 +1,53 @@
-# Anime-Sama — Laravel + Sanctum
+# Anime-Sama — FastAPI + Laravel + Sanctum
 
-A single **Laravel 12** application that scrapes the public
-[anime-sama](https://anime-sama.fr) website **natively in PHP** (a port of the
-[`anime-sama_api`](https://github.com/Sky-NiniKo/anime-sama_api) Python library)
-and exposes it as a JSON API with **Sanctum** token authentication, favorites
-and watch history.
+A two-service app for browsing and watching anime-sama:
 
-> There is no separate backend service anymore: the scraping logic runs inside
-> Laravel (`app/Services/AnimeSama/`), so you only run one app.
+- **`backend/`** — a **FastAPI** service that wraps the real
+  [`anime-sama_api`](https://github.com/Sky-NiniKo/anime-sama_api) Python
+  library and exposes it as JSON (search, catalogue, seasons, episodes/players,
+  planning, trailers).
+- **`frontend/`** — a **Laravel 12** app that adds **Sanctum** token auth,
+  favorites and watch history, serves the web UI, and **proxies** catalogue
+  requests to the backend (with a short-lived response cache).
+
+The Laravel app does **not** re-implement the scraping: it forwards to the
+Python service, so the actual `anime-sama_api` library is the single source of
+truth.
 
 ```
 Browser / SPA / mobile app
         │  Authorization: Bearer <token>  (Sanctum)
         ▼
-┌───────────────────────────────────────────────┐
-│  Laravel 12 (frontend/, :8000)                 │
-│  • Sanctum auth (register/login/logout)        │
-│  • App\Services\AnimeSama\Scraper  ────────────┼──► scrapes anime-sama
-│  • favorites + watch history (SQLite/MySQL)    │
-│  • short-lived response cache                  │
-└───────────────────────────────────────────────┘
+┌───────────────────────────────────────────────┐        ┌──────────────────────────────┐
+│  Laravel 12 (frontend/, :8000)                 │  HTTP  │  FastAPI (backend/, :8001)    │
+│  • Sanctum auth (register/login/logout)        │ ─────► │  • wraps anime-sama_api       │
+│  • App\Services\AnimeSamaClient (proxy) ───────┼──────► │  • search/catalogue/episodes  │
+│  • favorites + watch history (SQLite/MySQL)    │        │  • planning, trailers (TMDB)  │
+│  • short-lived response cache                  │        │  • auto-resolves live domain  │
+└───────────────────────────────────────────────┘        └───────────────┬──────────────┘
+                                                                          ▼
+                                                                    anime-sama.*
 ```
 
-## The scraper (`app/Services/AnimeSama/`)
+## Quick start (two terminals)
 
-A faithful PHP port of the Python library:
+### 1. Backend (FastAPI) — port 8001
 
-| File          | Ports (Python)                     | Responsibility                                   |
-|---------------|------------------------------------|--------------------------------------------------|
-| `Lang.php`    | `langs.py`                         | language id ⇄ language maps, allowed categories  |
-| `Players.php` | `Players`                          | mirror URLs per episode (swap + vidmoly fix)     |
-| `Episode.php` | `Episode` / `Languages`            | languages, best-player resolution, serialisation |
-| `Scraper.php` | `top_level.py` / `catalogue.py` / `season.py` | search, catalogue, seasons, episodes, site resolve |
+Requires Python 3.10+. Using [`uv`](https://docs.astral.sh/uv/):
 
-## Setup
+```bash
+cd backend
+uv venv --python 3.12 .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+cp .env.example .env            # optional; set ANIMESAMA_TMDB_API_KEY for trailers
+uvicorn app.main:app --reload --port 8001    # or: python run_dev.py
+```
+
+On startup the backend auto-resolves the current anime-sama domain (the domain
+rotates periodically), so it works even when the default in `.env` is stale.
+
+### 2. Frontend (Laravel) — port 8000
 
 ```bash
 cd frontend
@@ -45,23 +59,36 @@ php artisan migrate
 php artisan serve --port=8000
 ```
 
-The app runs on http://localhost:8000 (health at `/up`).
+Open http://localhost:8000. The frontend talks to the backend via
+`ANIME_SAMA_BASE_URL` (defaults to `http://localhost:8001`).
 
-Relevant `.env` settings (all optional, sensible defaults provided):
+## Trailers
 
-```env
-ANIME_SAMA_SITE_URL=https://anime-sama.fr/      # anime-sama base URL
-ANIME_SAMA_PREFER_LANGUAGES=VF,VOSTFR           # "best player" order
-ANIME_SAMA_TIMEOUT=20                            # scraping HTTP timeout (s)
-ANIME_SAMA_CACHE_TTL=300                         # response cache TTL (s), 0 = off
-```
+anime-sama has **no** trailer data, so the hero background trailer is sourced
+from **TMDB** (which returns official YouTube keys). It auto-plays muted behind
+the hero, with a small speaker toggle to unmute — there is no "play trailer"
+button. Set `ANIMESAMA_TMDB_API_KEY` in `backend/.env` (free key from
+[themoviedb.org](https://www.themoviedb.org/settings/api)) to enable it; without
+a key the UI keeps the animated poster background.
 
-> **Note on trailers**: The app uses the [anime-sama API](https://github.com/Sky-NiniKo/anime-sama_api) 
-> for all anime data. Background video trailers are not available as anime-sama doesn't 
-> provide trailer information. The "Bande-annonce" button opens a YouTube search for 
-> the anime's trailer instead.
+## Backend API (FastAPI, :8001)
 
-## API
+| Method | Path                  | Description                                   |
+|--------|-----------------------|-----------------------------------------------|
+| GET    | `/health`             | Health + current site URL + version           |
+| GET    | `/api/site`           | Current anime-sama base URL                    |
+| POST   | `/api/site/resolve`   | Auto-detect the current anime-sama domain      |
+| GET    | `/api/search?q=`      | Search catalogues                              |
+| GET    | `/api/new-episodes`   | Latest episode releases (homepage)             |
+| GET    | `/api/planning`       | Release planning (501 until implemented upstream) |
+| GET    | `/api/catalogue?url=` | Catalogue detail (synopsis, seasons, ...)      |
+| GET    | `/api/episodes?url=`  | Episodes + player links for a season URL       |
+| GET    | `/api/trailer?title=` | Best YouTube trailer key (TMDB, optional)      |
+
+Interactive docs at `/docs`. All `/api/*` routes require the `X-API-Key` header
+when `ANIMESAMA_API_KEY` is set (leave empty for local dev).
+
+## Frontend API (Laravel, :8000)
 
 Base URL: `http://localhost:8000/api`
 
@@ -74,15 +101,16 @@ Base URL: `http://localhost:8000/api`
 
 Send the token as `Authorization: Bearer <token>` on protected routes.
 
-### Catalogue browsing (public, scraped from anime-sama)
+### Catalogue browsing (public, proxied to the backend)
 
 | Method | Endpoint               | Query                          |
 |--------|------------------------|--------------------------------|
 | GET    | `/anime/search`        | `q`                            |
 | GET    | `/anime/new-episodes`  | –                              |
+| GET    | `/anime/planning`      | –                              |
 | GET    | `/anime/catalogue`     | `url`                          |
 | GET    | `/anime/episodes`      | `url`, optional `prefer`       |
-| GET    | `/anime/trailer`       | `title` (returns YouTube query)|
+| GET    | `/anime/trailer`       | `title` (returns `youtube_key`)|
 | GET    | `/anime/site`          | current anime-sama URL         |
 | POST   | `/anime/site/resolve`  | auto-detect the current domain |
 
@@ -108,11 +136,8 @@ curl -s -X POST http://localhost:8000/api/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"name":"Jane","email":"jane@example.com","password":"password123","password_confirmation":"password123"}'
 
-# Search (public)
+# Search (public, proxied to the backend)
 curl -s 'http://localhost:8000/api/anime/search?q=naruto'
-
-# Episodes + player links for a season
-curl -s 'http://localhost:8000/api/anime/episodes?url=https://anime-sama.fr/catalogue/naruto/saison1/'
 
 # Add a favorite (authenticated)
 curl -s -X POST http://localhost:8000/api/favorites \
@@ -126,12 +151,13 @@ curl -s -X POST http://localhost:8000/api/favorites \
 cd frontend && php artisan test
 ```
 
-Tests fake anime-sama's HTML with `Http::fake`, so they need no network access.
+The Laravel tests fake the backend with `Http::fake`, so they need no network
+access and no running backend.
 
 ## Notes & legal
 
-- The anime-sama domain changes periodically. Set `ANIME_SAMA_SITE_URL` or call
-  `POST /api/anime/site/resolve` to auto-detect the current domain.
-- This project only reads publicly available data and is intended for
-  **personal/educational use**. Respect the terms of service of the sites
-  involved.
+- The anime-sama domain changes periodically. The backend auto-resolves it on
+  startup; you can also call `POST /api/anime/site/resolve` at runtime.
+- This project only reads publicly available data via the upstream library and
+  is intended for **personal/educational use**. Respect the terms of service of
+  the sites involved.
