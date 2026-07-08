@@ -8,6 +8,7 @@ from anime_sama_api.catalogue import Catalogue
 from anime_sama_api.episode import Episode
 from anime_sama_api.season import Season
 
+from .parsing import extract_genres, extract_image, extract_synopsis
 from .schemas import (
     CatalogueDetail,
     CatalogueSummary,
@@ -37,8 +38,9 @@ def season_to_summary(season: Season) -> SeasonSummary:
 
 
 async def catalogue_to_detail(catalogue: Catalogue) -> CatalogueDetail:
-    # Trigger a single page fetch, then read every derived field concurrently.
-    synopsis, advancement, correspondence, is_mature, seasons = await asyncio.gather(
+    # Fetch the page once, then read derived fields concurrently.
+    page = await catalogue.page()
+    lib_synopsis, advancement, correspondence, is_mature, seasons = await asyncio.gather(
         catalogue.synopsis(),
         catalogue.advancement(),
         catalogue.correspondence(),
@@ -46,9 +48,19 @@ async def catalogue_to_detail(catalogue: Catalogue) -> CatalogueDetail:
         catalogue.seasons(),
     )
 
-    summary = catalogue_to_summary(catalogue)
+    data = catalogue_to_summary(catalogue).model_dump()
+
+    # The library's parsing is outdated for the current site design, so prefer
+    # our own extraction and fall back to the library only when it's empty.
+    synopsis = extract_synopsis(page) or lib_synopsis
+    image_url = extract_image(page) or data["image_url"]
+    genres = extract_genres(page) or data["genres"]
+
+    data["image_url"] = image_url
+    data["genres"] = genres
+
     return CatalogueDetail(
-        **summary.model_dump(),
+        **data,
         synopsis=synopsis,
         advancement=advancement,
         correspondence=correspondence,

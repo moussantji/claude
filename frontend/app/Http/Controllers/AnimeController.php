@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Anime;
 use App\Models\AnimeCache;
 use App\Services\AnimeCacheStore;
 use App\Services\AnimeSamaClient;
@@ -202,7 +203,38 @@ class AnimeController extends Controller
             fn () => $this->client->catalogue($validated['url'])
         );
 
-        return response()->json(['data' => $data]);
+        return response()->json(['data' => $this->applyLocalOverrides($validated['url'], $data)]);
+    }
+
+    /**
+     * Overlay admin-edited fields (synopsis, image, trailer) from the local
+     * `animes` table onto a catalogue payload, so edits show up in the app.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function applyLocalOverrides(string $url, array $data): array
+    {
+        $anime = Anime::query()
+            ->whereIn('url', [$url, rtrim($url, '/').'/'])
+            ->first();
+
+        if (! $anime) {
+            return $data;
+        }
+
+        if (! empty($anime->synopsis)) {
+            $data['synopsis'] = $anime->synopsis;
+        }
+        if (! empty($anime->image_url)) {
+            $data['image_url'] = $anime->image_url;
+        }
+        if (! empty($anime->trailer_url)) {
+            $data['trailer_url'] = $anime->trailer_url;
+            $data['trailer_key'] = $this->youtubeKey($anime->trailer_url);
+        }
+
+        return $data;
     }
 
     /**
@@ -242,6 +274,12 @@ class AnimeController extends Controller
             'title' => ['required', 'string', 'max:200'],
         ]);
 
+        // Prefer a trailer manually set in the admin area (matched by title).
+        $manual = $this->manualTrailerKey($validated['title']);
+        if ($manual !== null) {
+            return response()->json(['data' => ['youtube_key' => $manual, 'source' => 'manual']]);
+        }
+
         $data = $this->store->remember(
             'trailer',
             'trailer:'.mb_strtolower($validated['title']),
@@ -250,6 +288,46 @@ class AnimeController extends Controller
         );
 
         return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Find a manually-set trailer whose anime name/alt matches the title.
+     */
+    protected function manualTrailerKey(string $title): ?string
+    {
+        $needle = $this->normalizeTerm($title);
+        if ($needle === '') {
+            return null;
+        }
+
+        foreach (Anime::query()->whereNotNull('trailer_url')->get(['name', 'alternative_names', 'trailer_url']) as $anime) {
+            $names = array_merge([$anime->name], (array) $anime->alternative_names);
+            foreach ($names as $candidate) {
+                if ($this->normalizeTerm((string) $candidate) === $needle) {
+                    return $this->youtubeKey((string) $anime->trailer_url);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract an 11-char YouTube id from a URL (or accept a bare id).
+     */
+    protected function youtubeKey(?string $url): ?string
+    {
+        if ($url === null || $url === '') {
+            return null;
+        }
+        if (preg_match('~(?:youtu\.be/|[?&]v=|/embed/|/shorts/)([A-Za-z0-9_-]{11})~', $url, $m)) {
+            return $m[1];
+        }
+        if (preg_match('~^[A-Za-z0-9_-]{11}$~', $url)) {
+            return $url;
+        }
+
+        return null;
     }
 
     /**

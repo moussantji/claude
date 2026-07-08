@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AnimeController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\FavoriteController;
@@ -45,4 +46,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('history', WatchHistoryController::class)
         ->parameters(['history' => 'watchHistory'])
         ->only(['index', 'store', 'destroy']);
+});
+
+// --- Admin endpoints (require a valid token AND is_admin) ---
+Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+    Route::get('/stats', [AdminController::class, 'stats']);
+    Route::get('/animes', [AdminController::class, 'animes']);
+    Route::get('/animes/{anime}', [AdminController::class, 'showAnime']);
+    Route::put('/animes/{anime}', [AdminController::class, 'updateAnime']);
+    Route::delete('/animes/{anime}', [AdminController::class, 'destroyAnime']);
+    Route::get('/seasons/{season}/episodes', [AdminController::class, 'seasonEpisodes']);
 });

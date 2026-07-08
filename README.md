@@ -182,6 +182,38 @@ php artisan library:links --json
 `library:ingest` upserts idempotently (safe to re-run); an episode's links are
 replaced on each sync so they always reflect the current mirrors.
 
+## Admin area
+
+An admin dashboard manages the normalized library (edit synopsis, set a
+trailer, fix the image, delete entries). Admin edits are overlaid on the public
+catalogue/trailer endpoints, so they show up in the app immediately.
+
+1. Grant yourself admin rights (by account email):
+
+   ```bash
+   php artisan user:make-admin you@example.com     # --revoke to remove
+   ```
+
+2. Open **`/admin`** and log in with that account.
+
+You can search animes, edit **name / synopsis / image / trailer / 18+**, and
+delete an anime (cascades to its seasons, episodes and links). The synopsis and
+image are also scraped correctly again (the backend re-parses the current
+anime-sama layout: synopsis from the meta description, image from og:image,
+genres from the genre pills). A manually set trailer (a YouTube URL or id) is
+preferred over the TMDB lookup and never overwritten by re-ingest.
+
+Admin API (all under `auth:sanctum` + `admin`):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/stats` | Row counts across tables |
+| GET | `/api/admin/animes?q=` | Paginated/searchable anime list |
+| GET | `/api/admin/animes/{id}` | One anime + its seasons |
+| PUT | `/api/admin/animes/{id}` | Edit name/synopsis/image/trailer/mature |
+| DELETE | `/api/admin/animes/{id}` | Delete (cascade) |
+| GET | `/api/admin/seasons/{id}/episodes` | Episodes + links of a season |
+
 ## Uploading your own media (vidmoly)
 
 If you host **your own** videos (content you created or hold the rights to),

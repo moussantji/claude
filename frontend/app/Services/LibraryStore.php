@@ -30,19 +30,20 @@ class LibraryStore
             return null;
         }
 
-        return Anime::updateOrCreate(
-            ['url' => $url],
-            array_filter([
-                'slug' => $this->slug($url),
-                'name' => $summary['name'] ?? $this->slug($url),
-                'alternative_names' => $summary['alternative_names'] ?? [],
-                'genres' => $summary['genres'] ?? [],
-                'categories' => $summary['categories'] ?? [],
-                'languages' => $summary['languages'] ?? [],
-                'image_url' => $summary['image_url'] ?? null,
-                'last_synced_at' => now(),
-            ], fn ($v) => $v !== null),
-        );
+        $attrs = [
+            'slug' => $this->slug($url),
+            'name' => $summary['name'] ?? $this->slug($url),
+            'last_synced_at' => now(),
+        ];
+        // Never overwrite an existing value with an empty one; never touch
+        // trailer_url (it is set manually via the admin area).
+        $this->putIfNotEmpty($attrs, 'alternative_names', $summary['alternative_names'] ?? null);
+        $this->putIfNotEmpty($attrs, 'genres', $summary['genres'] ?? null);
+        $this->putIfNotEmpty($attrs, 'categories', $summary['categories'] ?? null);
+        $this->putIfNotEmpty($attrs, 'languages', $summary['languages'] ?? null);
+        $this->putIfNotEmpty($attrs, 'image_url', $summary['image_url'] ?? null);
+
+        return Anime::updateOrCreate(['url' => $url], $attrs);
     }
 
     /**
@@ -52,21 +53,22 @@ class LibraryStore
      */
     public function upsertAnimeFromDetail(string $url, array $detail): Anime
     {
-        $anime = Anime::updateOrCreate(
-            ['url' => $url],
-            [
-                'slug' => $this->slug($url),
-                'name' => $detail['name'] ?? $this->slug($url),
-                'alternative_names' => $detail['alternative_names'] ?? [],
-                'genres' => $detail['genres'] ?? [],
-                'categories' => $detail['categories'] ?? [],
-                'languages' => $detail['languages'] ?? [],
-                'image_url' => $detail['image_url'] ?? null,
-                'synopsis' => $detail['synopsis'] ?? null,
-                'is_mature' => (bool) ($detail['is_mature'] ?? false),
-                'last_synced_at' => now(),
-            ],
-        );
+        $attrs = [
+            'slug' => $this->slug($url),
+            'name' => $detail['name'] ?? $this->slug($url),
+            'is_mature' => (bool) ($detail['is_mature'] ?? false),
+            'last_synced_at' => now(),
+        ];
+        // Preserve manual/previous values when the scrape comes back empty, and
+        // never overwrite trailer_url (managed in the admin area).
+        $this->putIfNotEmpty($attrs, 'alternative_names', $detail['alternative_names'] ?? null);
+        $this->putIfNotEmpty($attrs, 'genres', $detail['genres'] ?? null);
+        $this->putIfNotEmpty($attrs, 'categories', $detail['categories'] ?? null);
+        $this->putIfNotEmpty($attrs, 'languages', $detail['languages'] ?? null);
+        $this->putIfNotEmpty($attrs, 'image_url', $detail['image_url'] ?? null);
+        $this->putIfNotEmpty($attrs, 'synopsis', $detail['synopsis'] ?? null);
+
+        $anime = Anime::updateOrCreate(['url' => $url], $attrs);
 
         foreach (array_values($detail['seasons'] ?? []) as $position => $season) {
             if (! empty($season['url'])) {
@@ -147,6 +149,25 @@ class LibraryStore
         $season->forceFill(['last_synced_at' => now()])->save();
 
         return ['episodes' => $episodeCount, 'links' => $linkCount];
+    }
+
+    /**
+     * Add $key => $value to $attrs only when $value is non-empty, so a refresh
+     * never clobbers an existing (or manually edited) value with a blank one.
+     */
+    private function putIfNotEmpty(array &$attrs, string $key, mixed $value): void
+    {
+        if (is_array($value)) {
+            if ($value !== []) {
+                $attrs[$key] = $value;
+            }
+        } elseif (is_string($value)) {
+            if (trim($value) !== '') {
+                $attrs[$key] = trim($value);
+            }
+        } elseif ($value !== null) {
+            $attrs[$key] = $value;
+        }
     }
 
     private function slug(string $url): string

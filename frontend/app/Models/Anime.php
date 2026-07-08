@@ -14,7 +14,7 @@ class Anime extends Model
 
     protected $fillable = [
         'url', 'slug', 'name', 'alternative_names', 'genres', 'categories',
-        'languages', 'image_url', 'synopsis', 'is_mature', 'last_synced_at',
+        'languages', 'image_url', 'trailer_url', 'synopsis', 'is_mature', 'last_synced_at',
     ];
 
     protected function casts(): array
