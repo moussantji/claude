@@ -4,16 +4,19 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#07070c">
+    <!-- Strip the Referer so hotlink-protected anime-sama images load. -->
+    <meta name="referrer" content="no-referrer">
     <title>Anime-Sama — Streaming</title>
     <meta name="description" content="Regardez vos animes préférés en streaming.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/css/app.css?v=1">
+    <link rel="stylesheet" href="/css/app.css?v=3">
 </head>
 <body>
     <!-- Animated cinematic backdrop -->
     <div class="bg-stage" id="bgStage" aria-hidden="true"></div>
+    <div class="bg-trailer" id="bgTrailer" aria-hidden="true"></div>
     <div class="bg-scrim" aria-hidden="true"></div>
 
     <!-- Navigation -->
@@ -113,6 +116,6 @@
     <!-- Toasts -->
     <div class="toasts" id="toasts"></div>
 
-    <script src="/js/app.js?v=1"></script>
+    <script src="/js/app.js?v=3"></script>
 </body>
 </html>

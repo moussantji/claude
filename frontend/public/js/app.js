@@ -16,7 +16,7 @@
         { title: 'À découvrir', queries: ['blue lock', 'spy family', 'tokyo revengers', 'death note', 'fullmetal'] },
     ];
 
-    const HERO_ROTATE_MS = 9000;
+    const HERO_ROTATE_MS = 13000;
 
     const state = {
         token: localStorage.getItem('as_token') || null,
@@ -30,7 +30,16 @@
         authMode: 'login',
         currentEpisode: null,
         currentContext: null,        // { serieName, seasonUrl, seasonName }
+        trailerCache: new Map(),     // name -> youtube key | null
+        trailerTimer: null,
+        trailerActive: false,
+        trailerMuted: true,
+        currentTrailerKey: null,
     };
+
+    // Human labels for language codes.
+    const LANG_LABEL = { VF: 'VF', VOSTFR: 'VOSTFR', VASTFR: 'VASTFR', VCN: 'VCN', VJSTFR: 'VJSTFR', VKR: 'VKR', VQC: 'VQC' };
+    const LANG_ORDER = ['VF', 'VOSTFR', 'VASTFR', 'VJSTFR', 'VCN', 'VKR', 'VQC'];
 
     /* ---- tiny DOM helpers ------------------------------------------------ */
     const $ = (sel, root = document) => root.querySelector(sel);
@@ -100,6 +109,7 @@
         const next = (state.bgActive + 1) % 2;
         const layer = state.bgLayers[next];
         const img = new Image();
+        img.referrerPolicy = 'no-referrer'; // bypass anime-sama hotlink protection
         img.onload = () => {
             layer.style.backgroundImage = `url("${imageUrl}")`;
             state.bgLayers.forEach((l, i) => l.classList.toggle('is-active', i === next));
@@ -112,7 +122,7 @@
     function posterHtml(item) {
         if (item.image_url) {
             return `<img class="card__poster" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.name)}"
-                    loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'card__poster card__ph',textContent:'${escapeHtml(initial(item.name))}'}))">`;
+                    loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'card__poster card__ph',textContent:'${escapeHtml(initial(item.name))}'}))">`;
         }
         return `<div class="card__poster card__ph">${escapeHtml(initial(item.name))}</div>`;
     }
@@ -181,6 +191,7 @@
 
         const item = items[state.heroIndex % items.length];
         setBackground(item.image_url);
+        scheduleHeroTrailer(item);
 
         const tags = []
             .concat((item.languages || []).map((l) => `<span class="chip chip--lang">${escapeHtml(l)}</span>`))
@@ -203,7 +214,8 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01" stroke-linecap="round"/></svg>
                     Plus d'infos
                 </button>
-                <button class="btn btn--icon btn--ghost" id="heroTrailer" title="Bande-annonce">
+                <button class="btn btn--icon btn--ghost" id="heroMute" title="Activer le son" style="display:none"></button>
+                <button class="btn btn--icon btn--ghost" id="heroTrailer" title="Bande-annonce sur YouTube">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v12H4z"/><path d="M10 9l5 3-5 3z" fill="currentColor" stroke="none"/></svg>
                 </button>
             </div>`;
@@ -212,6 +224,11 @@
         $('#heroInfo').addEventListener('click', () => openDetail(cat, item));
         $('#heroPlay').addEventListener('click', () => openDetail(cat, item, item.url));
         $('#heroTrailer').addEventListener('click', () => openTrailer(item.name));
+        $('#heroMute').addEventListener('click', () => {
+            state.trailerMuted = !state.trailerMuted;
+            if (state.currentTrailerKey) showHeroTrailer(state.currentTrailerKey);
+        });
+        updateHeroMuteBtn();
 
         dots.innerHTML = '';
         items.forEach((_, i) => {
@@ -234,6 +251,71 @@
     function openTrailer(name) {
         const q = encodeURIComponent(`${name} anime bande annonce`);
         window.open(`https://www.youtube.com/results?search_query=${q}`, '_blank', 'noopener');
+    }
+
+    /* ---- Video trailer background (TMDB, optional) ----------------------- */
+    function scheduleHeroTrailer(item) {
+        clearTimeout(state.trailerTimer);
+        removeHeroTrailer();
+        // Load slightly after the slide appears (skip during fast rotation).
+        state.trailerTimer = setTimeout(() => loadHeroTrailer(item), 1800);
+    }
+
+    async function loadHeroTrailer(item) {
+        const name = item && item.name;
+        if (!name) return;
+
+        let key = state.trailerCache.get(name);
+        if (key === undefined) {
+            try {
+                const res = await api('/anime/trailer', { params: { title: name } });
+                key = (res && res.data && res.data.youtube_key) || null;
+            } catch (_) { key = null; }
+            state.trailerCache.set(name, key);
+        }
+
+        // Only show if this item is still the one on screen.
+        const current = state.heroItems[state.heroIndex % (state.heroItems.length || 1)];
+        if (!key || !current || current.name !== name) return;
+        if ($('#hero').style.display === 'none') return; // not on home
+
+        showHeroTrailer(key);
+    }
+
+    function showHeroTrailer(key) {
+        state.currentTrailerKey = key;
+        const box = $('#bgTrailer');
+        const mute = state.trailerMuted ? 1 : 0;
+        const params = new URLSearchParams({
+            autoplay: '1', mute: String(mute), controls: '0', loop: '1', playlist: key,
+            modestbranding: '1', playsinline: '1', rel: '0', showinfo: '0',
+            iv_load_policy: '3', disablekb: '1', fs: '0',
+        });
+        box.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?${params}"
+            allow="autoplay; encrypted-media" frameborder="0"></iframe>`;
+        box.classList.add('is-on');
+        state.trailerActive = true;
+        updateHeroMuteBtn();
+    }
+
+    function removeHeroTrailer() {
+        const box = $('#bgTrailer');
+        if (!box) return;
+        box.classList.remove('is-on');
+        box.innerHTML = '';
+        state.trailerActive = false;
+        state.currentTrailerKey = null;
+        updateHeroMuteBtn();
+    }
+
+    function updateHeroMuteBtn() {
+        const b = $('#heroMute');
+        if (!b) return;
+        b.style.display = state.trailerActive ? 'inline-flex' : 'none';
+        b.title = state.trailerMuted ? 'Activer le son' : 'Couper le son';
+        b.innerHTML = state.trailerMuted
+            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6" stroke-linecap="round"/></svg>'
+            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7M19 5a9 9 0 010 14" stroke-linecap="round"/></svg>';
     }
 
     /* ---- Views ----------------------------------------------------------- */
@@ -294,6 +376,8 @@
 
     function renderGridView(title, sub, items, emptyMsg) {
         clearInterval(state.heroTimer);
+        clearTimeout(state.trailerTimer);
+        removeHeroTrailer();
         showHomeChrome(false);
         const rows = $('#rows');
         rows.style.marginTop = '0';
@@ -312,6 +396,8 @@
     }
 
     function loadingView(title) {
+        clearTimeout(state.trailerTimer);
+        removeHeroTrailer();
         showHomeChrome(false);
         const rows = $('#rows');
         rows.style.marginTop = '0';
@@ -387,7 +473,7 @@
 
         body.innerHTML = `
             <div class="detail__hero">
-                ${image ? `<img src="${escapeHtml(image)}" alt="">` : '<div class="card__ph" style="position:relative;height:100%">' + escapeHtml(initial(name)) + '</div>'}
+                ${image ? `<img src="${escapeHtml(image)}" alt="" referrerpolicy="no-referrer">` : '<div class="card__ph" style="position:relative;height:100%">' + escapeHtml(initial(name)) + '</div>'}
                 <div class="detail__heroText"><h2 class="detail__title">${escapeHtml(name)}</h2></div>
             </div>
             <div class="detail__content">
@@ -483,12 +569,19 @@
         return groups.flat();
     }
 
+    function orderLangs(langs) {
+        return [...(langs || [])].sort((a, b) => {
+            const ia = LANG_ORDER.indexOf(a); const ib = LANG_ORDER.indexOf(b);
+            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        });
+    }
+
     function openPlayer(ep, context) {
         state.currentEpisode = ep;
         state.currentContext = context;
         openModal('player');
 
-        const langs = ep.available_languages || [];
+        const langs = orderLangs(ep.available_languages || []);
         const defaultLang = langs.includes('VF') ? 'VF' : (langs[0] || null);
         renderPlayerBar(defaultLang, 0);
 
@@ -503,11 +596,11 @@
     function renderPlayerBar(activeLang, activeMirror) {
         const ep = state.currentEpisode;
         const bar = $('#playerBar');
-        const langs = ep.available_languages || [];
+        const langs = orderLangs(ep.available_languages || []);
         const mirrors = activeLang ? mirrorsForLanguage(ep, activeLang) : [];
 
         const langBtns = langs.map((l) =>
-            `<button class="mirror ${l === activeLang ? 'is-active' : ''}" data-lang="${escapeHtml(l)}">${escapeHtml(l)}</button>`
+            `<button class="mirror ${l === activeLang ? 'is-active' : ''}" data-lang="${escapeHtml(l)}">${escapeHtml(LANG_LABEL[l] || l)}</button>`
         ).join('');
         const mirrorBtns = mirrors.map((m, i) => {
             let host = '';
@@ -680,12 +773,23 @@
     }
 
     /* ---- Modals ---------------------------------------------------------- */
-    function openModal(name) { $(`#${name}Modal`).classList.add('is-open'); document.body.style.overflow = 'hidden'; }
+    function openModal(name) {
+        // Pause the background trailer while a modal is open.
+        clearTimeout(state.trailerTimer);
+        removeHeroTrailer();
+        $(`#${name}Modal`).classList.add('is-open');
+        document.body.style.overflow = 'hidden';
+    }
     function closeModal(name) {
         $(`#${name}Modal`).classList.remove('is-open');
         document.body.style.overflow = '';
         if (name === 'player') { $('#playerIframe').src = 'about:blank'; }
+        // Resume the hero trailer if we're back on the home page.
+        if (!anyModalOpen() && $('#hero').style.display !== 'none' && state.heroItems.length) {
+            scheduleHeroTrailer(state.heroItems[state.heroIndex % state.heroItems.length]);
+        }
     }
+    function anyModalOpen() { return ['detail', 'player', 'auth'].some((n) => $(`#${n}Modal`).classList.contains('is-open')); }
     function closeAllModals() { ['detail', 'player', 'auth'].forEach(closeModal); }
 
     /* ---- Navigation & wiring -------------------------------------------- */

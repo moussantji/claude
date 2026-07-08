@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\AnimeSama\Scraper;
+use App\Services\Tmdb\TmdbClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -11,6 +12,27 @@ class AnimeController extends Controller
 {
     public function __construct(protected Scraper $scraper)
     {
+    }
+
+    /**
+     * Return a YouTube trailer key for a title (TMDB), or null when disabled.
+     */
+    public function trailer(Request $request, TmdbClient $tmdb): JsonResponse
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:200'],
+        ]);
+
+        if (! $tmdb->enabled()) {
+            return response()->json(['data' => null]);
+        }
+
+        $data = $this->remember(
+            'trailer:'.mb_strtolower($validated['title']),
+            fn () => $tmdb->trailerFor($validated['title'])
+        );
+
+        return response()->json(['data' => $data]);
     }
 
     /**

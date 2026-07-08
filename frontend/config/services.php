@@ -48,4 +48,16 @@ return [
         'cache_ttl' => (int) env('ANIME_SAMA_CACHE_TTL', 300),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | TMDB (optional) — used for background video trailers
+    |--------------------------------------------------------------------------
+    | Leave TMDB_API_KEY empty to disable trailers (the UI then falls back to
+    | the animated image background). Free key: themoviedb.org/settings/api
+    */
+    'tmdb' => [
+        'api_key' => env('TMDB_API_KEY', ''),
+        'language' => env('TMDB_LANGUAGE', 'fr-FR'),
+    ],
+
 ];

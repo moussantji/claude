@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Services\AnimeSama\Scraper;
+use App\Services\Tmdb\TmdbClient;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\ServiceProvider;
 
@@ -19,6 +20,14 @@ class AppServiceProvider extends ServiceProvider
             return new Scraper(
                 $app->make(Factory::class),
                 config('services.anime_sama'),
+            );
+        });
+
+        $this->app->bind(TmdbClient::class, function ($app) {
+            return new TmdbClient(
+                $app->make(Factory::class),
+                (string) config('services.tmdb.api_key', ''),
+                (string) config('services.tmdb.language', 'fr-FR'),
             );
         });
     }

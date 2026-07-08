@@ -26,6 +26,7 @@ Route::prefix('anime')->group(function () {
     Route::get('/new-episodes', [AnimeController::class, 'newEpisodes']);
     Route::get('/catalogue', [AnimeController::class, 'catalogue']);
     Route::get('/episodes', [AnimeController::class, 'episodes']);
+    Route::get('/trailer', [AnimeController::class, 'trailer']);
     Route::get('/site', [AnimeController::class, 'site']);
     Route::post('/site/resolve', [AnimeController::class, 'resolveSite']);
 });
