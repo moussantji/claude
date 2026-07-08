@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AnimeCache;
 use App\Services\AnimeCacheStore;
 use App\Services\AnimeSamaClient;
 use Illuminate\Http\JsonResponse;
@@ -31,15 +32,14 @@ class AnimeController extends Controller
         $query = $validated['q'];
 
         if ($this->store->enabled() && config('services.anime_sama.local_search', true)) {
-            $snapshot = $this->store->get('all-catalogues');
-            if (is_array($snapshot)) {
-                $local = $this->filterCatalogues($snapshot, $query);
-                // The catalogue snapshot is not exhaustive and lacks some titles,
-                // so only trust it when it actually matched something; otherwise
-                // fall back to the site's own (alt-name aware) search below.
-                if ($local !== []) {
-                    return response()->json(['data' => $local]);
-                }
+            // Search everything already captured in the DB (the full snapshot
+            // PLUS titles you've already searched or opened), so anything stored
+            // is findable locally without calling anime-sama again. The snapshot
+            // is not exhaustive, so we only fall back to the site's own search
+            // when nothing local matches.
+            $local = $this->filterCatalogues($this->localCatalogueIndex(), $query);
+            if ($local !== []) {
+                return response()->json(['data' => $local]);
             }
         }
 
@@ -111,6 +111,49 @@ class AnimeController extends Controller
         $value = mb_strtolower(Str::ascii($value));
 
         return (string) preg_replace('/[^a-z0-9]+/', '', $value);
+    }
+
+    /**
+     * Build the local searchable catalogue index from everything already in the
+     * DB: the full snapshot, plus any titles previously searched (cached search
+     * results) or opened (catalogue details). This makes anything already
+     * captured findable locally — even offline — without calling anime-sama.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function localCatalogueIndex(): array
+    {
+        $index = [];
+
+        $snapshot = $this->store->get('all-catalogues');
+        if (is_array($snapshot)) {
+            foreach ($snapshot as $item) {
+                if (is_array($item) && ! empty($item['url'])) {
+                    $index[$item['url']] = $item;
+                }
+            }
+        }
+
+        // Fold in previously cached search results and opened catalogue details.
+        // Each search payload is a list of catalogue summaries; each catalogue
+        // payload is a single detail — both expose url/name/alternative_names.
+        AnimeCache::query()
+            ->whereIn('type', ['search', 'catalogue'])
+            ->get(['payload', 'type'])
+            ->each(function (AnimeCache $row) use (&$index) {
+                $payload = $row->payload;
+                if (! is_array($payload)) {
+                    return;
+                }
+                $items = array_is_list($payload) ? $payload : [$payload];
+                foreach ($items as $item) {
+                    if (is_array($item) && ! empty($item['url']) && ! isset($index[$item['url']])) {
+                        $index[$item['url']] = $item;
+                    }
+                }
+            });
+
+        return array_values($index);
     }
 
     /**
