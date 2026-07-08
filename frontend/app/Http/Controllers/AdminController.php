@@ -90,12 +90,110 @@ class AdminController extends Controller
     }
 
     /**
-     * Episodes (with their links) for a season — read-only inspection.
+     * Episodes (with their links) for a season.
      */
     public function seasonEpisodes(Season $season): JsonResponse
     {
         $season->load(['episodes' => fn ($q) => $q->with('links')->orderBy('index')]);
 
         return response()->json(['data' => $season]);
+    }
+
+    /* ---- Seasons ---- */
+
+    public function updateSeason(Request $request, Season $season): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['sometimes', 'string', 'max:255'],
+            'position' => ['sometimes', 'integer', 'min:0'],
+        ]);
+
+        $season->fill($validated)->save();
+
+        return response()->json(['data' => $season->fresh()]);
+    }
+
+    public function destroySeason(Season $season): JsonResponse
+    {
+        $season->delete();
+
+        return response()->json(['message' => 'Season deleted.']);
+    }
+
+    /* ---- Episodes ---- */
+
+    public function updateEpisode(Request $request, Episode $episode): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'index' => ['sometimes', 'integer', 'min:1'],
+        ]);
+
+        $episode->fill($validated)->save();
+
+        return response()->json(['data' => $episode->fresh()]);
+    }
+
+    public function destroyEpisode(Episode $episode): JsonResponse
+    {
+        $episode->delete();
+
+        return response()->json(['message' => 'Episode deleted.']);
+    }
+
+    /* ---- Episode video links ---- */
+
+    public function episodeLinks(Episode $episode): JsonResponse
+    {
+        return response()->json(['data' => $episode->links()->orderBy('position')->get()]);
+    }
+
+    public function storeLink(Request $request, Episode $episode): JsonResponse
+    {
+        $validated = $request->validate([
+            'language' => ['required', 'string', 'max:16'],
+            'url' => ['required', 'string', 'max:2048'],
+            'position' => ['sometimes', 'integer', 'min:0'],
+        ]);
+
+        $link = $episode->links()->create([
+            'language' => $validated['language'],
+            'url' => $validated['url'],
+            'position' => $validated['position'] ?? ((int) $episode->links()->max('position') + 1),
+            'host' => $this->host($validated['url']),
+        ]);
+
+        return response()->json(['data' => $link], 201);
+    }
+
+    public function updateLink(Request $request, EpisodeLink $link): JsonResponse
+    {
+        $validated = $request->validate([
+            'language' => ['sometimes', 'string', 'max:16'],
+            'url' => ['sometimes', 'string', 'max:2048'],
+            'position' => ['sometimes', 'integer', 'min:0'],
+        ]);
+
+        if (isset($validated['url'])) {
+            $validated['host'] = $this->host($validated['url']);
+        }
+
+        $link->fill($validated)->save();
+
+        return response()->json(['data' => $link->fresh()]);
+    }
+
+    public function destroyLink(EpisodeLink $link): JsonResponse
+    {
+        $link->delete();
+
+        return response()->json(['message' => 'Link deleted.']);
+    }
+
+    private function host(string $url): ?string
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+
+        return is_string($host) ? preg_replace('/^www\./', '', $host) : null;
     }
 }

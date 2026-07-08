@@ -196,12 +196,17 @@ catalogue/trailer endpoints, so they show up in the app immediately.
 
 2. Open **`/admin`** and log in with that account.
 
-You can search animes, edit **name / synopsis / image / trailer / 18+**, and
-delete an anime (cascades to its seasons, episodes and links). The synopsis and
-image are also scraped correctly again (the backend re-parses the current
-anime-sama layout: synopsis from the meta description, image from og:image,
-genres from the genre pills). A manually set trailer (a YouTube URL or id) is
-preferred over the TMDB lookup and never overwritten by re-ingest.
+You can search animes and edit **name / synopsis / image / trailer / 18+**, and
+manage the whole tree: rename or delete **seasons**, rename or delete
+**episodes**, and add/delete an episode's **video links** — all from the anime
+editor (open an anime → *Épisodes* on a season). Deleting cascades down.
+
+The synopsis and image are also scraped correctly again (the backend re-parses
+the current anime-sama layout: synopsis from the meta description, image from
+og:image, genres from the genre pills). A manually set trailer (a YouTube URL
+or id) is preferred over the TMDB lookup, never overwritten by re-ingest, and
+shows up in the app (a **Bande-annonce** button in the detail modal, and the
+`trailer_key` returned by the catalogue endpoint).
 
 Admin API (all under `auth:sanctum` + `admin`):
 
@@ -211,8 +216,12 @@ Admin API (all under `auth:sanctum` + `admin`):
 | GET | `/api/admin/animes?q=` | Paginated/searchable anime list |
 | GET | `/api/admin/animes/{id}` | One anime + its seasons |
 | PUT | `/api/admin/animes/{id}` | Edit name/synopsis/image/trailer/mature |
-| DELETE | `/api/admin/animes/{id}` | Delete (cascade) |
+| DELETE | `/api/admin/animes/{id}` | Delete anime (cascade) |
 | GET | `/api/admin/seasons/{id}/episodes` | Episodes + links of a season |
+| PUT / DELETE | `/api/admin/seasons/{id}` | Rename / delete a season |
+| PUT / DELETE | `/api/admin/episodes/{id}` | Rename / delete an episode |
+| POST | `/api/admin/episodes/{id}/links` | Add a video link |
+| PUT / DELETE | `/api/admin/links/{id}` | Edit / delete a video link |
 
 ## Uploading your own media (vidmoly)
 

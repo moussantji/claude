@@ -89,29 +89,46 @@
 
     <!-- Edit modal -->
     <div class="modal" id="editModal">
-        <form class="card" id="editForm">
-            <h2 style="margin:0 0 4px" id="editTitle">Éditer</h2>
-            <p class="muted" style="margin:0 0 8px" id="editUrl"></p>
-            <label>Nom</label>
-            <input name="name">
-            <label>Trailer (URL YouTube ou identifiant)</label>
-            <input name="trailer_url" placeholder="https://www.youtube.com/watch?v=…">
-            <label>Image (URL)</label>
-            <input name="image_url">
-            <label>Synopsis</label>
-            <textarea name="synopsis"></textarea>
-            <label style="display:flex;align-items:center;gap:8px;text-transform:none">
-                <input type="checkbox" name="is_mature" style="width:auto"> Contenu 18+
-            </label>
-            <p class="err" id="editErr"></p>
-            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
-                <button type="button" class="btn" id="editCancel">Annuler</button>
-                <button type="submit" class="btn btn--primary">Enregistrer</button>
+        <div class="card">
+            <form id="editForm">
+                <h2 style="margin:0 0 4px" id="editTitle">Éditer</h2>
+                <p class="muted" style="margin:0 0 8px" id="editUrl"></p>
+                <label>Nom</label>
+                <input name="name">
+                <label>Trailer (URL YouTube ou identifiant)</label>
+                <input name="trailer_url" placeholder="https://www.youtube.com/watch?v=…">
+                <label>Image (URL)</label>
+                <input name="image_url">
+                <label>Synopsis</label>
+                <textarea name="synopsis"></textarea>
+                <label style="display:flex;align-items:center;gap:8px;text-transform:none">
+                    <input type="checkbox" name="is_mature" style="width:auto"> Contenu 18+
+                </label>
+                <p class="err" id="editErr"></p>
+                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+                    <button type="button" class="btn" id="editCancel">Fermer</button>
+                    <button type="submit" class="btn btn--primary">Enregistrer</button>
+                </div>
+            </form>
+            <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px">
+                <h3 style="margin:0 0 8px;font-size:14px">Saisons</h3>
+                <div id="editSeasons" class="muted">—</div>
             </div>
-        </form>
+        </div>
+    </div>
+
+    <!-- Episodes & links modal -->
+    <div class="modal" id="episodesModal">
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0" id="epTitle">Épisodes</h2>
+                <button type="button" class="btn" id="epClose">Fermer</button>
+            </div>
+            <div id="epList" style="margin-top:12px"></div>
+        </div>
     </div>
 
     <div class="toast" id="toast"></div>
-    <script src="/js/admin.js?v=1"></script>
+    <script src="/js/admin.js?v=2"></script>
 </body>
 </html>

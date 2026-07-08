@@ -490,14 +490,19 @@
             .concat(data.is_mature ? ['<span class="chip" style="border-color:rgba(255,90,120,.5);color:#ff9db0">18+</span>'] : [])
             .join('');
 
+        const detailImage = data.image_url || image;
         body.innerHTML = `
-            <div class="detail__hero">
-                ${image ? `<img src="${escapeHtml(image)}" alt="" referrerpolicy="no-referrer">` : '<div class="card__ph" style="position:relative;height:100%">' + escapeHtml(initial(name)) + '</div>'}
+            <div class="detail__hero" id="detailHero" style="position:relative">
+                ${detailImage ? `<img src="${escapeHtml(detailImage)}" alt="" referrerpolicy="no-referrer">` : '<div class="card__ph" style="position:relative;height:100%">' + escapeHtml(initial(name)) + '</div>'}
                 <div class="detail__heroText"><h2 class="detail__title">${escapeHtml(name)}</h2></div>
             </div>
             <div class="detail__content">
                 <div class="detail__meta">${meta}</div>
                 <div class="detail__actions">
+                    <button class="btn btn--ghost" id="detailTrailer" style="display:none">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v12H4z"/><path d="M10 9l5 3-5 3z" fill="currentColor" stroke="none"/></svg>
+                        Bande-annonce
+                    </button>
                     <button class="btn ${fav ? 'btn--primary' : 'btn--ghost'}" id="detailFav">
                         <svg viewBox="0 0 24 24" fill="${fav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.35-9.5-8.5C1 9 2.5 5.5 6 5.5c2 0 3.2 1.2 4 2.3.8-1.1 2-2.3 4-2.3 3.5 0 5 3.5 3.5 7C19 16.65 12 21 12 21z"/></svg>
                         ${fav ? 'Dans ma liste' : 'Ma liste'}
@@ -509,7 +514,8 @@
                 <div id="episodesWrap"><div class="center-state"><span class="spinner"></span></div></div>
             </div>`;
 
-        $('#detailFav').addEventListener('click', () => toggleFavorite(catalogueUrl, name, image));
+        $('#detailFav').addEventListener('click', () => toggleFavorite(catalogueUrl, name, detailImage));
+        setupDetailTrailer(data, name);
 
         const seasons = data.seasons || [];
         const seasonsEl = $('#seasons');
@@ -543,6 +549,42 @@
             const firstEp = $('#episodesWrap .ep');
             if (firstEp) firstEp.click();
         }
+    }
+
+    // Show a "Bande-annonce" button when a trailer is available: prefer the
+    // admin-set trailer key returned with the catalogue, otherwise look it up
+    // by title. Clicking plays it over the detail hero image.
+    async function setupDetailTrailer(data, name) {
+        const btn = $('#detailTrailer');
+        if (!btn) return;
+
+        let key = data.trailer_key || null;
+        if (!key) {
+            try {
+                const r = await api('/anime/trailer', { params: { title: name } });
+                key = (r && r.data && r.data.youtube_key) || null;
+            } catch (_) { /* no trailer */ }
+        }
+        if (!key || !$('#detailModal').classList.contains('is-open')) return;
+
+        btn.style.display = '';
+        btn.addEventListener('click', () => playDetailTrailer(key));
+    }
+
+    function playDetailTrailer(key) {
+        const hero = $('#detailHero');
+        if (!hero) return;
+        const params = new URLSearchParams({
+            autoplay: '1', rel: '0', modestbranding: '1', playsinline: '1',
+        });
+        let box = hero.querySelector('.detail__hero-trailer');
+        if (!box) {
+            box = el('div', 'detail__hero-trailer');
+            box.style.cssText = 'position:absolute;inset:0;z-index:3;background:#000';
+            hero.appendChild(box);
+        }
+        box.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(key)}?${params}"
+            allow="autoplay; encrypted-media; fullscreen" allowfullscreen frameborder="0" style="width:100%;height:100%"></iframe>`;
     }
 
     async function loadEpisodes(season, serieName) {
@@ -814,6 +856,11 @@
         $(`#${name}Modal`).classList.remove('is-open');
         document.body.style.overflow = '';
         if (name === 'player') { $('#playerIframe').src = 'about:blank'; }
+        if (name === 'detail') {
+            // Stop any playing detail trailer so its audio doesn't keep going.
+            const box = $('#detailModal .detail__hero-trailer');
+            if (box) box.remove();
+        }
         // Resume the hero trailer when returning to the home page.
         if (!anyModalOpen() && $('#hero').style.display !== 'none' && state.heroItems.length) {
             scheduleHeroTrailer(state.heroItems[state.heroIndex % state.heroItems.length]);

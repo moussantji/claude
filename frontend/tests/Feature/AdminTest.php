@@ -79,6 +79,52 @@ class AdminTest extends TestCase
         $this->assertFalse($user->fresh()->is_admin);
     }
 
+    public function test_admin_can_manage_seasons_episodes_and_links(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $anime = Anime::create(['url' => 'https://x/catalogue/a/', 'slug' => 'a', 'name' => 'A']);
+        $season = $anime->seasons()->create(['url' => 'https://x/catalogue/a/saison1/', 'name' => 'Saison 1', 'position' => 0]);
+        $episode = $season->episodes()->create(['index' => 1, 'name' => 'Episode 1']);
+
+        // Rename a season.
+        $this->putJson("/api/admin/seasons/{$season->id}", ['name' => 'Season One'])
+            ->assertOk()->assertJsonPath('data.name', 'Season One');
+
+        // Rename an episode.
+        $this->putJson("/api/admin/episodes/{$episode->id}", ['name' => 'Pilot'])
+            ->assertOk()->assertJsonPath('data.name', 'Pilot');
+
+        // Add a video link.
+        $this->postJson("/api/admin/episodes/{$episode->id}/links", [
+            'language' => 'VF',
+            'url' => 'https://vidmoly.net/embed-abc.html',
+        ])->assertCreated()->assertJsonPath('data.host', 'vidmoly.net');
+
+        $this->assertDatabaseHas('episode_links', ['episode_id' => $episode->id, 'language' => 'VF', 'host' => 'vidmoly.net']);
+
+        $link = $episode->links()->first();
+
+        // Update the link.
+        $this->putJson("/api/admin/links/{$link->id}", ['url' => 'https://uqload.com/embed-x.html'])
+            ->assertOk()->assertJsonPath('data.host', 'uqload.com');
+
+        // Delete the link, then the episode, then the season.
+        $this->deleteJson("/api/admin/links/{$link->id}")->assertOk();
+        $this->assertDatabaseCount('episode_links', 0);
+
+        $this->deleteJson("/api/admin/episodes/{$episode->id}")->assertOk();
+        $this->assertDatabaseCount('episodes', 0);
+
+        $this->deleteJson("/api/admin/seasons/{$season->id}")->assertOk();
+        $this->assertDatabaseCount('seasons', 0);
+    }
+
+    public function test_admin_view_renders(): void
+    {
+        $this->get('/admin')->assertOk()->assertSee('Admin');
+    }
+
     public function test_catalogue_applies_local_overrides(): void
     {
         Anime::create([
