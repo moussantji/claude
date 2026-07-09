@@ -96,6 +96,8 @@
                 <p class="muted" style="margin:0 0 8px" id="editUrl"></p>
                 <label>Nom</label>
                 <input name="name">
+                <label>URL catalogue (utilisée pour ouvrir l'anime)</label>
+                <input name="url" placeholder="local://anime/slug ou https://...">
                 <label>Trailer (URL YouTube ou identifiant)</label>
                 <input name="trailer_url" placeholder="https://www.youtube.com/watch?v=…">
                 <label>Image (URL)</label>

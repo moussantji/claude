@@ -29,7 +29,8 @@
 
             <nav class="nav__links">
                 <a href="#" class="nav__link is-active" data-nav="home">Accueil</a>
-                <a href="#" class="nav__link" data-nav="new">Derniers épisodes</a>
+                <a href="#" class="nav__link" data-nav="new">Catalogue</a>
+                <a href="#" class="nav__link" data-nav="planning">Planning</a>
                 <a href="#" class="nav__link" data-nav="list">Ma liste</a>
             </nav>
 
@@ -141,6 +142,28 @@
     <!-- Toasts -->
     <div class="toasts" id="toasts"></div>
 
-    <script src="/js/app.js?v=6"></script>
+    <!-- Planning modal -->
+    <div class="modal" id="planningModal" aria-hidden="true">
+        <div class="modal__scrim" data-close="planning"></div>
+        <div class="modal__panel planning" role="dialog" aria-modal="true">
+            <button class="modal__close" data-close="planning" aria-label="Fermer">&times;</button>
+            <div class="planning__body" id="planningBody">
+                <h2 class="planning__title">Planning de diffusion</h2>
+                <p class="planning__sub">Emploi du temps des sorties d'épisodes</p>
+                <div class="planning__grid" id="planningGrid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Account modal (mobile) -->
+    <div class="modal" id="accountModal" aria-hidden="true">
+        <div class="modal__scrim" data-close="account"></div>
+        <div class="modal__panel account" role="dialog" aria-modal="true">
+            <button class="modal__close" data-close="account" aria-label="Fermer">&times;</button>
+            <div class="account__body" id="accountBody"></div>
+        </div>
+    </div>
+
+    <script src="/js/app.js?v=8"></script>
 </body>
 </html>

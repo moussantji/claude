@@ -45,23 +45,30 @@ class AnimeController extends Controller
      */
     public function allCatalogues(Request $request): JsonResponse
     {
-        $animes = Anime::query()
+        $perPage = min(60, max(1, (int) $request->query('per_page', 30)));
+
+        $paginated = Anime::query()
             ->orderByDesc('updated_at')
-            ->limit(200)
-            ->get();
+            ->paginate($perPage);
 
-        $data = $animes->map(fn($a) => $this->animeToSummary($a))->values()->all();
+        $data = collect($paginated->items())->map(fn($a) => $this->animeToSummary($a))->values()->all();
 
-        return response()->json(['data' => $data]);
+        return response()->json([
+            'data' => $data,
+            'current_page' => $paginated->currentPage(),
+            'last_page' => $paginated->lastPage(),
+            'total' => $paginated->total(),
+        ]);
     }
 
     /**
      * Homepage: animes ordered by most recently updated (acts as "new episodes").
-     * Supports sort parameter: 'newest' (default) or 'oldest'.
+     * Supports pagination via ?page= and sort via ?sort=newest|oldest.
      */
     public function newEpisodes(Request $request): JsonResponse
     {
         $sort = $request->query('sort', 'newest');
+        $perPage = min(60, max(1, (int) $request->query('per_page', 30)));
 
         $query = Anime::query();
 
@@ -71,11 +78,16 @@ class AnimeController extends Controller
             $query->orderByDesc('updated_at');
         }
 
-        $animes = $query->limit(30)->get();
+        $paginated = $query->paginate($perPage);
 
-        $data = $animes->map(fn($a) => $this->animeToSummary($a))->values()->all();
+        $data = collect($paginated->items())->map(fn($a) => $this->animeToSummary($a))->values()->all();
 
-        return response()->json(['data' => $data]);
+        return response()->json([
+            'data' => $data,
+            'current_page' => $paginated->currentPage(),
+            'last_page' => $paginated->lastPage(),
+            'total' => $paginated->total(),
+        ]);
     }
 
     /**

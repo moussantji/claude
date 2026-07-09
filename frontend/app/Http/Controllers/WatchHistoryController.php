@@ -29,11 +29,11 @@ class WatchHistoryController extends Controller
     {
         $validated = $request->validate([
             'serie_name' => ['required', 'string', 'max:255'],
-            'season_url' => ['required', 'url', 'max:2048'],
+            'season_url' => ['required', 'string', 'max:2048'],
             'season_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'episode_index' => ['required', 'integer', 'min:0'],
             'episode_name' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'player_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
+            'player_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'language' => ['sometimes', 'nullable', 'string', 'max:20'],
             'position_seconds' => ['sometimes', 'nullable', 'integer', 'min:0'],
         ]);

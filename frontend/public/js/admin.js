@@ -159,6 +159,7 @@
             $('#editTitle').textContent = data.name;
             $('#editUrl').textContent = data.url;
             f.name.value = data.name || '';
+            f.url.value = data.url || '';
             f.trailer_url.value = data.trailer_url || '';
             f.image_url.value = data.image_url || '';
             f.synopsis.value = data.synopsis || '';
@@ -364,6 +365,7 @@
                 method: 'PUT',
                 body: {
                     name: f.name.value.trim(),
+                    url: f.url.value.trim() || null,
                     trailer_url: f.trailer_url.value.trim() || null,
                     image_url: f.image_url.value.trim() || null,
                     synopsis: f.synopsis.value.trim() || null,

@@ -22,6 +22,8 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'avatar_url',
+        'preferred_language',
     ];
     // Note: `is_admin` is intentionally NOT fillable — it can't be set via
     // register/update mass-assignment; use the `user:make-admin` command.

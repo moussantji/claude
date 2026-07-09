@@ -72,6 +72,7 @@ class AdminController extends Controller
             'synopsis' => ['sometimes', 'nullable', 'string', 'max:20000'],
             'image_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'trailer_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
+            'url' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'is_mature' => ['sometimes', 'boolean'],
         ]);
 
