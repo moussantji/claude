@@ -6,7 +6,7 @@
     'use strict';
 
     const API = '/api';
-    const HERO_ROTATE_MS = 11000;
+    const HERO_ROTATE_MS = 20000;
     const INFINITE_SCROLL_THRESHOLD = 400;
 
     const state = {
@@ -144,7 +144,6 @@
         }
         const item = items[state.heroIndex % items.length];
         if (item.image_url) setBackground(item.image_url);
-        scheduleHeroTrailer(item);
 
         const tags = [].concat((item.languages||[]).map(l=>`<span class="chip chip--lang">${escapeHtml(l)}</span>`)).concat((item.categories||[]).map(c=>`<span class="chip">${escapeHtml(c)}</span>`)).join('');
         content.classList.remove('fade-in'); void content.offsetWidth; content.classList.add('fade-in');
@@ -243,19 +242,21 @@
     async function loadMoreAnimes(){
         if(state.loadingMore) return;
         state.loadingMore=true;
+        if(state.currentView==='catalogue'){
+            await loadCatalogueItems(false);
+            return;
+        }
         const sentinel=$('#scrollSentinel');
         if(sentinel) sentinel.innerHTML='<div class="center-state" style="padding:20px"><span class="spinner"></span></div>';
         try{
             const nextPage=state.currentPage+1;
-            const endpoint=state.currentView==='catalogue'?'/anime/all-catalogues':'/anime/new-episodes';
-            const res=await api(endpoint,{params:{page:nextPage,per_page:30}});
+            const res=await api('/anime/new-episodes',{params:{page:nextPage,per_page:30}});
             state.currentPage=res.current_page||nextPage;
             state.lastPage=res.last_page||state.lastPage;
             const items=(res.data||[]).filter(x=>x.name);
             if(items.length){
                 const rows=$('#rows');
-                // Insert as a new row before sentinel
-                const row=makeRow(`Page ${state.currentPage}`,items);
+                const row=makeRow(``,items);
                 if(sentinel) rows.insertBefore(row,sentinel);
                 else rows.appendChild(row);
             }
@@ -265,7 +266,7 @@
         state.loadingMore=false;
     }
 
-    function renderGridView(title,sub,items,emptyMsg,paginated){
+    function renderGridView(title,sub,items,emptyMsg){
         clearInterval(state.heroTimer);clearTimeout(state.trailerTimer);removeHeroTrailer();showHomeChrome(false);
         if(state._scrollHandler){window.removeEventListener('scroll',state._scrollHandler);state._scrollHandler=null;}
         const rows=$('#rows'); rows.style.marginTop='0'; rows.innerHTML='';
@@ -278,11 +279,6 @@
             sortBtns.forEach(btn=>{btn.addEventListener('click',()=>{sortBtns.forEach(b=>b.classList.remove('is-active'));btn.classList.add('is-active');const sorted=btn.dataset.sort==='oldest'?[...items].reverse():[...items];grid.innerHTML='';sorted.forEach(it=>grid.appendChild(makeCard(it)));});});
         }
         rows.appendChild(view);
-        // Infinite scroll for catalogue
-        if(paginated&&state.currentPage<state.lastPage){
-            state.currentView='catalogue';
-            const sentinel=el('div','scroll-sentinel');sentinel.id='scrollSentinel';rows.appendChild(sentinel);setupInfiniteScroll();
-        }
         window.scrollTo({top:0,behavior:'smooth'});
     }
 
@@ -291,9 +287,122 @@
     async function runSearch(query){setActiveNav('search');loadingView('Recherche\u2026');try{const res=await api('/anime/search',{params:{q:query}});renderGridView(`R\u00e9sultats \u00b7 ${query}`,`${(res.data||[]).length} anime(s)`,res.data||[],`Aucun r\u00e9sultat pour \u00ab ${query} \u00bb.`);}catch(e){renderGridView('Recherche','',[], e.message);}}
 
     async function showNewEpisodes(){
-        setActiveNav('new'); loadingView('Catalogue'); state.currentView='catalogue';
-        try{const res=await api('/anime/all-catalogues',{params:{per_page:30}});state.currentPage=res.current_page||1;state.lastPage=res.last_page||1;renderGridView('Catalogue',`${res.total||0} anime(s)`,res.data||[],'Aucun anime.',true);}
-        catch(e){renderGridView('Catalogue','',[], e.message);}
+        setActiveNav('new'); state.currentView='catalogue';
+        clearInterval(state.heroTimer);clearTimeout(state.trailerTimer);removeHeroTrailer();showHomeChrome(false);
+        if(state._scrollHandler){window.removeEventListener('scroll',state._scrollHandler);state._scrollHandler=null;}
+        const rows=$('#rows'); rows.style.marginTop='0'; rows.innerHTML='<div class="center-state"><span class="spinner"></span></div>';
+
+        // Load filters
+        let genres=[],languages=[],categories=[];
+        try{ const f=await api('/anime/filters'); genres=f.genres||[]; languages=f.languages||[]; categories=f.categories||[]; }catch(_){}
+
+        // Initial load
+        state.catalogueFilters={genre:null,language:null,category:null,sort:'newest'};
+        state.currentPage=1; state.lastPage=1;
+
+        rows.innerHTML='';
+        const view=el('section','view');
+
+        // Filter bar (like anime-sama.to)
+        const filterHtml=`
+            <div class="view__head">
+                <h1 class="view__title">Catalogue</h1>
+                <span class="view__sub" id="catalogueCount"></span>
+            </div>
+            <div class="filter-bar" id="filterBar">
+                <div class="filter-group">
+                    <span class="filter-group__label">Genre</span>
+                    <div class="filter-chips" id="filterGenres">
+                        <button class="filter-chip is-active" data-filter="genre" data-value="">Tous</button>
+                        ${genres.slice(0,20).map(g=>`<button class="filter-chip" data-filter="genre" data-value="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <span class="filter-group__label">Langue</span>
+                    <div class="filter-chips" id="filterLangs">
+                        <button class="filter-chip is-active" data-filter="language" data-value="">Toutes</button>
+                        ${languages.map(l=>`<button class="filter-chip" data-filter="language" data-value="${escapeHtml(l)}">${escapeHtml(LANG_LABEL[l]||l)}</button>`).join('')}
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <span class="filter-group__label">Type</span>
+                    <div class="filter-chips" id="filterCats">
+                        <button class="filter-chip is-active" data-filter="category" data-value="">Tous</button>
+                        ${categories.slice(0,15).map(c=>`<button class="filter-chip" data-filter="category" data-value="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('')}
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <span class="filter-group__label">Tri</span>
+                    <div class="filter-chips">
+                        <button class="filter-chip is-active" data-filter="sort" data-value="newest">Plus récent</button>
+                        <button class="filter-chip" data-filter="sort" data-value="oldest">Plus ancien</button>
+                        <button class="filter-chip" data-filter="sort" data-value="name">A → Z</button>
+                    </div>
+                </div>
+            </div>
+            <div class="grid" id="catalogueGrid"></div>
+            <div class="scroll-sentinel" id="scrollSentinel"></div>`;
+        view.innerHTML=filterHtml;
+        rows.appendChild(view);
+
+        // Wire filter clicks
+        $$('.filter-chip',view).forEach(chip=>{
+            chip.addEventListener('click',()=>{
+                const filterType=chip.dataset.filter;
+                const filterValue=chip.dataset.value;
+                // Toggle active state within same group
+                const parent=chip.closest('.filter-chips')||chip.closest('.filter-group');
+                $$('.filter-chip',parent).forEach(c=>c.classList.remove('is-active'));
+                chip.classList.add('is-active');
+                // Update state
+                state.catalogueFilters[filterType]=filterValue||null;
+                // Reload
+                state.currentPage=1; state.lastPage=1;
+                loadCatalogueItems(true);
+            });
+        });
+
+        loadCatalogueItems(true);
+        setupInfiniteScroll();
+    }
+
+    async function loadCatalogueItems(clear){
+        const grid=$('#catalogueGrid');
+        const sentinel=$('#scrollSentinel');
+        if(!grid) return;
+        if(clear) grid.innerHTML='<div class="center-state" style="grid-column:1/-1"><span class="spinner"></span></div>';
+        else if(sentinel) sentinel.innerHTML='<div class="center-state" style="padding:20px"><span class="spinner"></span></div>';
+
+        const params={per_page:30, page: clear?1:state.currentPage+1};
+        const f=state.catalogueFilters||{};
+        if(f.genre) params.genre=f.genre;
+        if(f.language) params.language=f.language;
+        if(f.category) params.category=f.category;
+        if(f.sort) params.sort=f.sort;
+
+        try{
+            const res=await api('/anime/all-catalogues',{params});
+            state.currentPage=res.current_page||1;
+            state.lastPage=res.last_page||1;
+            const items=(res.data||[]).filter(x=>x.name);
+
+            if(clear) grid.innerHTML='';
+            items.forEach(it=>grid.appendChild(makeCard(it)));
+
+            const countEl=$('#catalogueCount');
+            if(countEl) countEl.textContent=`${res.total||0} anime(s)`;
+
+            if(clear&&!items.length) grid.innerHTML='<div class="empty" style="grid-column:1/-1">Aucun anime ne correspond aux filtres.</div>';
+            if(sentinel){
+                sentinel.innerHTML='';
+                if(state.currentPage>=state.lastPage) sentinel.style.display='none';
+                else sentinel.style.display='';
+            }
+        }catch(e){
+            if(clear) grid.innerHTML=`<div class="empty" style="grid-column:1/-1">${escapeHtml(e.message)}</div>`;
+            if(sentinel) sentinel.innerHTML='';
+        }
+        state.loadingMore=false;
     }
 
     async function showMyList(){
@@ -304,11 +413,30 @@
 
 
     /* ---- Planning modal -------------------------------------------------- */
-    function openPlanning(){
+    async function openPlanning(){
         openModal('planning');
         const grid=$('#planningGrid');
-        grid.innerHTML=DAYS.map((day,i)=>`<div class="planning__day"><h3 class="planning__day-name">${day}</h3><div class="planning__day-content" id="planDay${i}"><span class="muted" style="font-size:13px">Pas de sortie prévue</span></div></div>`).join('');
-        // TODO: admin can populate this via a planning endpoint in the future
+        grid.innerHTML='<div class="center-state"><span class="spinner"></span></div>';
+
+        try{
+            const res=await api('/anime/planning');
+            const data=res.data||{};
+            grid.innerHTML=DAYS.map((day,i)=>{
+                const entries=data[i]||[];
+                const content=entries.length?entries.map(e=>`
+                    <div class="planning__entry">
+                        ${e.anime&&e.anime.image_url?`<img class="planning__thumb" src="${escapeHtml(e.anime.image_url)}" referrerpolicy="no-referrer" onerror="this.style.display='none'">`:''}
+                        <div class="planning__info">
+                            <span class="planning__anime-name">${escapeHtml(e.anime?e.anime.name:'?')}</span>
+                            ${e.time?`<span class="planning__time">${escapeHtml(e.time)}</span>`:''}
+                            ${e.note?`<span class="planning__note">${escapeHtml(e.note)}</span>`:''}
+                        </div>
+                    </div>`).join(''):'<span class="planning__empty">Pas de sortie prévue</span>';
+                return `<div class="planning__day"><h3 class="planning__day-name">${day}</h3><div class="planning__day-content">${content}</div></div>`;
+            }).join('');
+        }catch(e){
+            grid.innerHTML=`<div class="empty">${escapeHtml(e.message)}</div>`;
+        }
     }
 
     /* ---- Account / Profile (mobile) -------------------------------------- */

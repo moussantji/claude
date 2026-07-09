@@ -26,9 +26,11 @@ Route::prefix('anime')->group(function () {
     Route::get('/search', [AnimeController::class, 'search']);
     Route::get('/all-catalogues', [AnimeController::class, 'allCatalogues']);
     Route::get('/new-episodes', [AnimeController::class, 'newEpisodes']);
+    Route::get('/filters', [AnimeController::class, 'filters']);
     Route::get('/catalogue', [AnimeController::class, 'catalogue']);
     Route::get('/episodes', [AnimeController::class, 'episodes']);
     Route::get('/trailer', [AnimeController::class, 'trailer']);
+    Route::get('/planning', [AnimeController::class, 'planning']);
 });
 
 // --- Protected endpoints (require a valid Sanctum token) ---
@@ -69,4 +71,10 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
 
     Route::put('/links/{link}', [AdminController::class, 'updateLink']);
     Route::delete('/links/{link}', [AdminController::class, 'destroyLink']);
+
+    // Planning management
+    Route::get('/planning', [AdminController::class, 'planningIndex']);
+    Route::post('/planning', [AdminController::class, 'storePlanning']);
+    Route::put('/planning/{planning}', [AdminController::class, 'updatePlanning']);
+    Route::delete('/planning/{planning}', [AdminController::class, 'destroyPlanning']);
 });

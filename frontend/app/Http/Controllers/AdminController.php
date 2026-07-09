@@ -258,4 +258,52 @@ class AdminController extends Controller
 
         return is_string($host) ? preg_replace('/^www\./', '', $host) : null;
     }
+
+    /* ---- Planning ---- */
+
+    public function planningIndex(): JsonResponse
+    {
+        $entries = \App\Models\Planning::query()
+            ->with('anime:id,name,image_url')
+            ->orderBy('day_of_week')
+            ->orderBy('time')
+            ->get();
+
+        return response()->json(['data' => $entries]);
+    }
+
+    public function storePlanning(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'anime_id'    => ['required', 'exists:animes,id'],
+            'day_of_week' => ['required', 'integer', 'min:0', 'max:6'],
+            'time'        => ['sometimes', 'nullable', 'string', 'max:5'],
+            'note'        => ['sometimes', 'nullable', 'string', 'max:255'],
+        ]);
+
+        $entry = \App\Models\Planning::create($validated);
+
+        return response()->json(['data' => $entry->load('anime:id,name,image_url')], 201);
+    }
+
+    public function updatePlanning(Request $request, \App\Models\Planning $planning): JsonResponse
+    {
+        $validated = $request->validate([
+            'anime_id'    => ['sometimes', 'exists:animes,id'],
+            'day_of_week' => ['sometimes', 'integer', 'min:0', 'max:6'],
+            'time'        => ['sometimes', 'nullable', 'string', 'max:5'],
+            'note'        => ['sometimes', 'nullable', 'string', 'max:255'],
+        ]);
+
+        $planning->fill($validated)->save();
+
+        return response()->json(['data' => $planning->fresh()->load('anime:id,name,image_url')]);
+    }
+
+    public function destroyPlanning(\App\Models\Planning $planning): JsonResponse
+    {
+        $planning->delete();
+
+        return response()->json(['message' => 'Planning entry deleted.']);
+    }
 }

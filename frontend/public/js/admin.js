@@ -427,6 +427,83 @@
         });
         $('#epClose').addEventListener('click', () => $('#episodesModal').classList.remove('open'));
         $('#episodesModal').addEventListener('click', (e) => { if (e.target === $('#episodesModal')) $('#episodesModal').classList.remove('open'); });
+
+        // Planning
+        $('#planningBtn').addEventListener('click', openPlanningAdmin);
+        $('#planningClose').addEventListener('click', () => $('#planningModal').classList.remove('open'));
+        $('#planningModal').addEventListener('click', (e) => { if (e.target === $('#planningModal')) $('#planningModal').classList.remove('open'); });
+    }
+
+    /* ---- Planning Admin ---- */
+    const DAYS_FR = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
+
+    async function openPlanningAdmin() {
+        $('#planningModal').classList.add('open');
+        $('#planningList').innerHTML = '<span class="muted">Chargement...</span>';
+        reloadPlanning();
+    }
+
+    async function reloadPlanning() {
+        try {
+            const { data } = await api('/admin/planning');
+            renderPlanningAdmin(data || []);
+        } catch (e) { $('#planningList').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`; }
+    }
+
+    function renderPlanningAdmin(entries) {
+        const box = $('#planningList');
+        let html = '';
+        if (entries.length) {
+            html = entries.map(p => `
+                <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+                    <span style="flex:1"><b>${escapeHtml(p.anime ? p.anime.name : '?')}</b> — ${DAYS_FR[p.day_of_week]||'?'}${p.time ? ' '+escapeHtml(p.time) : ''}${p.note ? ' <span class="muted">('+escapeHtml(p.note)+')</span>' : ''}</span>
+                    <button class="btn btn--danger" data-pdel="${p.id}">Suppr.</button>
+                </div>`).join('');
+        } else {
+            html = '<span class="muted">Aucune entrée dans le planning.</span>';
+        }
+        // Add form
+        html += `
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+                <b style="font-size:13px;display:block;margin-bottom:8px">Ajouter au planning</b>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <input id="planAnimeId" placeholder="ID anime" style="width:80px" type="number">
+                    <select id="planDay" style="width:120px;padding:8px;border-radius:8px;background:#0f0f18;border:1px solid var(--border);color:var(--text)">
+                        ${DAYS_FR.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}
+                    </select>
+                    <input id="planTime" placeholder="HH:MM" style="width:80px">
+                    <input id="planNote" placeholder="Note (optionnel)" style="flex:1;min-width:120px">
+                    <button class="btn btn--primary" id="addPlanBtn">+ Ajouter</button>
+                </div>
+            </div>`;
+        box.innerHTML = html;
+
+        // Wire delete buttons
+        box.querySelectorAll('[data-pdel]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!confirm('Supprimer cette entrée ?')) return;
+                try { await api(`/admin/planning/${btn.dataset.pdel}`, { method: 'DELETE' }); toast('Supprimé'); reloadPlanning(); }
+                catch (e) { toast(e.message); }
+            });
+        });
+        // Wire add button
+        $('#addPlanBtn').addEventListener('click', addPlanningEntry);
+    }
+
+    async function addPlanningEntry() {
+        const animeId = $('#planAnimeId').value.trim();
+        const day = $('#planDay').value;
+        const time = $('#planTime').value.trim() || null;
+        const note = $('#planNote').value.trim() || null;
+        if (!animeId) { toast('ID anime requis'); return; }
+        try {
+            await api('/admin/planning', { method: 'POST', body: { anime_id: +animeId, day_of_week: +day, time, note } });
+            toast('Ajouté au planning');
+            $('#planAnimeId').value = '';
+            $('#planTime').value = '';
+            $('#planNote').value = '';
+            reloadPlanning();
+        } catch (e) { toast(e.message); }
     }
 
     document.addEventListener('DOMContentLoaded', boot);

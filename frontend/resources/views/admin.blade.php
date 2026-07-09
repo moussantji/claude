@@ -75,6 +75,7 @@
                 <input id="q" placeholder="Rechercher un anime par nom…">
                 <button class="btn" id="searchBtn">Rechercher</button>
                 <button class="btn btn--primary" id="createAnimeBtn">+ Nouvel anime</button>
+                <button class="btn" id="planningBtn">Planning</button>
             </div>
             <table>
                 <thead><tr><th></th><th>Nom</th><th>Saisons</th><th>Trailer</th><th>Synopsis</th><th></th></tr></thead>
@@ -158,6 +159,18 @@
     </div>
 
     <div class="toast" id="toast"></div>
-    <script src="/js/admin.js?v=2"></script>
+
+    <!-- Planning modal -->
+    <div class="modal" id="planningModal">
+        <div class="card" style="width:700px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0">Planning de diffusion</h2>
+                <button type="button" class="btn" id="planningClose">Fermer</button>
+            </div>
+            <div id="planningList" style="margin-top:12px;max-height:60vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <script src="/js/admin.js?v=3"></script>
 </body>
 </html>

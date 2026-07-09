@@ -41,15 +41,39 @@ class AnimeController extends Controller
     }
 
     /**
-     * All animes in the catalogue, paginated, ordered by most recent.
+     * All animes in the catalogue, paginated, with genre/language/category filters.
+     * Filters: ?genre=Action&language=VF&category=Shonen&sort=newest|oldest|name
      */
     public function allCatalogues(Request $request): JsonResponse
     {
         $perPage = min(60, max(1, (int) $request->query('per_page', 30)));
+        $sort = $request->query('sort', 'newest');
 
-        $paginated = Anime::query()
-            ->orderByDesc('updated_at')
-            ->paginate($perPage);
+        $query = Anime::query();
+
+        // Genre filter (JSON array column)
+        if ($genre = $request->query('genre')) {
+            $query->whereJsonContains('genres', $genre);
+        }
+
+        // Language filter (JSON array column)
+        if ($language = $request->query('language')) {
+            $query->whereJsonContains('languages', $language);
+        }
+
+        // Category filter (JSON array column)
+        if ($category = $request->query('category')) {
+            $query->whereJsonContains('categories', $category);
+        }
+
+        // Sorting
+        match ($sort) {
+            'oldest' => $query->orderBy('created_at'),
+            'name' => $query->orderBy('name'),
+            default => $query->orderByDesc('updated_at'),
+        };
+
+        $paginated = $query->paginate($perPage);
 
         $data = collect($paginated->items())->map(fn($a) => $this->animeToSummary($a))->values()->all();
 
@@ -58,6 +82,41 @@ class AnimeController extends Controller
             'current_page' => $paginated->currentPage(),
             'last_page' => $paginated->lastPage(),
             'total' => $paginated->total(),
+        ]);
+    }
+
+    /**
+     * Available filter options (genres, languages, categories) extracted from the DB.
+     */
+    public function filters(): JsonResponse
+    {
+        $animes = Anime::query()->get(['genres', 'languages', 'categories']);
+
+        $genres = [];
+        $languages = [];
+        $categories = [];
+
+        foreach ($animes as $anime) {
+            foreach (($anime->genres ?? []) as $g) {
+                $genres[$g] = ($genres[$g] ?? 0) + 1;
+            }
+            foreach (($anime->languages ?? []) as $l) {
+                $languages[$l] = ($languages[$l] ?? 0) + 1;
+            }
+            foreach (($anime->categories ?? []) as $c) {
+                $categories[$c] = ($categories[$c] ?? 0) + 1;
+            }
+        }
+
+        // Sort by frequency descending
+        arsort($genres);
+        arsort($languages);
+        arsort($categories);
+
+        return response()->json([
+            'genres' => array_keys($genres),
+            'languages' => array_keys($languages),
+            'categories' => array_keys($categories),
         ]);
     }
 
@@ -201,6 +260,38 @@ class AnimeController extends Controller
         $key = $this->findTrailerKey($validated['title']);
 
         return response()->json(['data' => ['youtube_key' => $key]]);
+    }
+
+    /**
+     * Public planning: weekly schedule of anime releases.
+     */
+    public function planning(): JsonResponse
+    {
+        $entries = \App\Models\Planning::query()
+            ->with('anime:id,name,image_url,url')
+            ->orderBy('day_of_week')
+            ->orderBy('time')
+            ->get();
+
+        $days = [];
+        for ($i = 0; $i < 7; $i++) {
+            $days[$i] = [];
+        }
+
+        foreach ($entries as $entry) {
+            $days[$entry->day_of_week][] = [
+                'id'        => $entry->id,
+                'time'      => $entry->time,
+                'note'      => $entry->note,
+                'anime'     => $entry->anime ? [
+                    'name'      => $entry->anime->name,
+                    'image_url' => $entry->anime->image_url,
+                    'url'       => $entry->anime->url,
+                ] : null,
+            ];
+        }
+
+        return response()->json(['data' => $days]);
     }
 
     /**
