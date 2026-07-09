@@ -76,9 +76,10 @@
                 <button class="btn" id="searchBtn">Rechercher</button>
                 <button class="btn btn--primary" id="createAnimeBtn">+ Nouvel anime</button>
                 <button class="btn" id="planningBtn">Planning</button>
+                <button class="btn" id="requestsBtn">Demandes</button>
             </div>
             <table>
-                <thead><tr><th></th><th>Nom</th><th>Saisons</th><th>Trailer</th><th>Synopsis</th><th></th></tr></thead>
+                <thead><tr><th>ID</th><th></th><th>Nom</th><th>Saisons</th><th>Trailer</th><th>Synopsis</th><th></th></tr></thead>
                 <tbody id="rows"></tbody>
             </table>
             <div class="pager">
@@ -168,6 +169,18 @@
                 <button type="button" class="btn" id="planningClose">Fermer</button>
             </div>
             <div id="planningList" style="margin-top:12px;max-height:60vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <!-- Content requests modal -->
+    <div class="modal" id="requestsModal">
+        <div class="card" style="width:700px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0">Demandes de contenu</h2>
+                <button type="button" class="btn" id="requestsClose">Fermer</button>
+            </div>
+            <p class="muted" style="margin:8px 0 12px">Animes demandés par les utilisateurs</p>
+            <div id="requestsList" style="max-height:60vh;overflow-y:auto"></div>
         </div>
     </div>
 

@@ -78,4 +78,9 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::post('/planning', [AdminController::class, 'storePlanning']);
     Route::put('/planning/{planning}', [AdminController::class, 'updatePlanning']);
     Route::delete('/planning/{planning}', [AdminController::class, 'destroyPlanning']);
+
+    // Content requests management
+    Route::get('/content-requests', [AdminController::class, 'contentRequests']);
+    Route::put('/content-requests/{contentRequest}', [AdminController::class, 'updateContentRequest']);
+    Route::delete('/content-requests/{contentRequest}', [AdminController::class, 'destroyContentRequest']);
 });

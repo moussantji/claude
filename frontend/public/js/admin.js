@@ -81,7 +81,7 @@
     async function loadStats() {
         try {
             const { data } = await api('/admin/stats');
-            const labels = { animes: 'Animes', seasons: 'Saisons', episodes: 'Épisodes', episode_links: 'Liens vidéo', uploads: 'Uploads', users: 'Utilisateurs' };
+            const labels = { animes: 'Animes', seasons: 'Saisons', episodes: '\u00c9pisodes', episode_links: 'Liens vid\u00e9o', uploads: 'Uploads', users: 'Utilisateurs', requests: 'Demandes' };
             $('#stats').innerHTML = Object.entries(labels)
                 .map(([k, label]) => `<div class="stat"><b>${data[k] ?? 0}</b><span>${label}</span></div>`).join('');
         } catch (_) { /* noop */ }
@@ -107,13 +107,14 @@
         const hasTrailer = a.trailer_url ? '\u2705' : '\u2014';
         const syn = a.synopsis ? (a.synopsis.length > 60 ? a.synopsis.slice(0, 60) + '\u2026' : a.synopsis) : '\u2014';
         return `<tr>
+            <td><code style="font-size:12px;color:var(--accent)">${a.id}</code></td>
             <td>${a.image_url ? `<img class="thumb" src="${escapeHtml(a.image_url)}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` : ''}</td>
             <td>${escapeHtml(a.name)}</td>
             <td>${a.seasons_count ?? '\u2014'}</td>
             <td>${hasTrailer}</td>
             <td class="muted">${escapeHtml(syn)}</td>
             <td><div class="row-actions">
-                <button class="btn" id="edit-${a.id}">Éditer</button>
+                <button class="btn" id="edit-${a.id}">\u00c9diter</button>
                 <button class="btn btn--danger" id="del-${a.id}">Suppr.</button>
             </div></td>
         </tr>`;
@@ -432,6 +433,11 @@
         $('#planningBtn').addEventListener('click', openPlanningAdmin);
         $('#planningClose').addEventListener('click', () => $('#planningModal').classList.remove('open'));
         $('#planningModal').addEventListener('click', (e) => { if (e.target === $('#planningModal')) $('#planningModal').classList.remove('open'); });
+
+        // Content requests
+        $('#requestsBtn').addEventListener('click', openRequestsAdmin);
+        $('#requestsClose').addEventListener('click', () => $('#requestsModal').classList.remove('open'));
+        $('#requestsModal').addEventListener('click', (e) => { if (e.target === $('#requestsModal')) $('#requestsModal').classList.remove('open'); });
     }
 
     /* ---- Planning Admin ---- */
@@ -504,6 +510,68 @@
             $('#planNote').value = '';
             reloadPlanning();
         } catch (e) { toast(e.message); }
+    }
+
+    /* ---- Content Requests Admin ---- */
+    async function openRequestsAdmin() {
+        $('#requestsModal').classList.add('open');
+        $('#requestsList').innerHTML = '<span class="muted">Chargement...</span>';
+        reloadRequests();
+    }
+
+    async function reloadRequests() {
+        try {
+            const { data } = await api('/admin/content-requests');
+            renderRequestsAdmin(data || []);
+        } catch (e) { $('#requestsList').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`; }
+    }
+
+    function renderRequestsAdmin(requests) {
+        const box = $('#requestsList');
+        if (!requests.length) { box.innerHTML = '<span class="muted">Aucune demande.</span>'; return; }
+
+        const statusColors = { pending: '#f0ad4e', approved: '#4fe0a0', rejected: '#ff4d6d' };
+        const statusLabels = { pending: 'En attente', approved: 'Approuv\u00e9', rejected: 'Rejet\u00e9' };
+
+        box.innerHTML = requests.map(r => `
+            <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+                <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                        <b style="font-size:14px">${escapeHtml(r.title)}</b>
+                        <span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${statusColors[r.status]||'#666'};color:#000;font-weight:700">${statusLabels[r.status]||r.status}</span>
+                    </div>
+                    ${r.message ? `<p class="muted" style="font-size:12px;margin:0">${escapeHtml(r.message)}</p>` : ''}
+                    <span class="muted" style="font-size:11px">${r.user ? escapeHtml(r.user.name) + ' (' + escapeHtml(r.user.email) + ')' : 'Visiteur'} \u2014 ${new Date(r.created_at).toLocaleDateString('fr-FR')}</span>
+                </div>
+                <div style="display:flex;gap:6px;flex-shrink:0">
+                    ${r.status === 'pending' ? `
+                        <button class="btn" data-rapprove="${r.id}" title="Approuver">\u2705</button>
+                        <button class="btn btn--danger" data-rreject="${r.id}" title="Rejeter">\u274c</button>
+                    ` : ''}
+                    <button class="btn btn--danger" data-rdel="${r.id}" title="Supprimer">\u00d7</button>
+                </div>
+            </div>`).join('');
+
+        // Wire buttons
+        box.querySelectorAll('[data-rapprove]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                try { await api(`/admin/content-requests/${btn.dataset.rapprove}`, { method: 'PUT', body: { status: 'approved' } }); toast('Approuv\u00e9'); reloadRequests(); }
+                catch (e) { toast(e.message); }
+            });
+        });
+        box.querySelectorAll('[data-rreject]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                try { await api(`/admin/content-requests/${btn.dataset.rreject}`, { method: 'PUT', body: { status: 'rejected' } }); toast('Rejet\u00e9'); reloadRequests(); }
+                catch (e) { toast(e.message); }
+            });
+        });
+        box.querySelectorAll('[data-rdel]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!confirm('Supprimer cette demande ?')) return;
+                try { await api(`/admin/content-requests/${btn.dataset.rdel}`, { method: 'DELETE' }); reloadRequests(); }
+                catch (e) { toast(e.message); }
+            });
+        });
     }
 
     document.addEventListener('DOMContentLoaded', boot);

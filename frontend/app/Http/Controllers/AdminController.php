@@ -30,6 +30,7 @@ class AdminController extends Controller
             'episode_links' => EpisodeLink::count(),
             'users' => User::count(),
             'uploads' => MediaUpload::count(),
+            'requests' => \App\Models\ContentRequest::where('status', 'pending')->count(),
         ]]);
     }
 
@@ -305,5 +306,37 @@ class AdminController extends Controller
         $planning->delete();
 
         return response()->json(['message' => 'Planning entry deleted.']);
+    }
+
+    /* ---- Content Requests ---- */
+
+    public function contentRequests(): JsonResponse
+    {
+        $requests = \App\Models\ContentRequest::query()
+            ->with('user:id,name,email')
+            ->orderByDesc('created_at')
+            ->limit(200)
+            ->get();
+
+        return response()->json(['data' => $requests]);
+    }
+
+    public function updateContentRequest(Request $request, \App\Models\ContentRequest $contentRequest): JsonResponse
+    {
+        $validated = $request->validate([
+            'status' => ['required', 'string', 'in:pending,approved,rejected'],
+        ]);
+
+        $contentRequest->status = $validated['status'];
+        $contentRequest->save();
+
+        return response()->json(['data' => $contentRequest->fresh()->load('user:id,name,email')]);
+    }
+
+    public function destroyContentRequest(\App\Models\ContentRequest $contentRequest): JsonResponse
+    {
+        $contentRequest->delete();
+
+        return response()->json(['message' => 'Request deleted.']);
     }
 }
