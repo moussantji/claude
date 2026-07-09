@@ -74,6 +74,7 @@
             <div class="searchbar">
                 <input id="q" placeholder="Rechercher un anime par nom…">
                 <button class="btn" id="searchBtn">Rechercher</button>
+                <button class="btn btn--primary" id="createAnimeBtn">+ Nouvel anime</button>
             </div>
             <table>
                 <thead><tr><th></th><th>Nom</th><th>Saisons</th><th>Trailer</th><th>Synopsis</th><th></th></tr></thead>
@@ -125,6 +126,32 @@
                 <button type="button" class="btn" id="epClose">Fermer</button>
             </div>
             <div id="epList" style="margin-top:12px"></div>
+        </div>
+    </div>
+
+    <!-- Create anime modal -->
+    <div class="modal" id="createAnimeModal">
+        <div class="card">
+            <form id="createAnimeForm">
+                <h2 style="margin:0 0 4px">Nouvel anime</h2>
+                <p class="muted" style="margin:0 0 16px">Créez un nouvel anime dans la bibliothèque locale.</p>
+                <label>Nom *</label>
+                <input name="name" required placeholder="Nom de l'anime">
+                <label>Image (URL)</label>
+                <input name="image_url" placeholder="https://…">
+                <label>Trailer (URL YouTube)</label>
+                <input name="trailer_url" placeholder="https://www.youtube.com/watch?v=…">
+                <label>Synopsis</label>
+                <textarea name="synopsis" placeholder="Description de l'anime…"></textarea>
+                <label style="display:flex;align-items:center;gap:8px;text-transform:none">
+                    <input type="checkbox" name="is_mature" style="width:auto"> Contenu 18+
+                </label>
+                <p class="err" id="createAnimeErr"></p>
+                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+                    <button type="button" class="btn" id="createAnimeCancel">Annuler</button>
+                    <button type="submit" class="btn btn--primary">Créer l'anime</button>
+                </div>
+            </form>
         </div>
     </div>
 

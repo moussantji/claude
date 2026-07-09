@@ -30,6 +30,7 @@
         authMode: 'login',
         currentEpisode: null,
         currentContext: null,        // { serieName, seasonUrl, seasonName }
+        preferredLang: null,         // Pre-selected language from detail page
         // Hero background trailer (sourced from the backend /anime/trailer -> TMDB).
         trailerCache: new Map(),     // title -> youtube key | null
         trailerTimer: null,
@@ -53,6 +54,7 @@
     };
     const initial = (s) => (s || '?').trim().charAt(0).toUpperCase();
     const catalogueUrlFromSeason = (url) => {
+        if (String(url).startsWith('local://')) return url;
         const m = String(url).match(/^(.*\/catalogue\/[^/]+\/)/);
         return m ? m[1] : url;
     };
@@ -402,13 +404,40 @@
         rows.style.marginTop = '0';
         rows.innerHTML = '';
         const view = el('section', 'view');
-        view.innerHTML = `<div class="view__head"><h1 class="view__title">${escapeHtml(title)}</h1><span class="view__sub">${escapeHtml(sub || '')}</span></div>`;
+        view.innerHTML = `
+            <div class="view__head">
+                <h1 class="view__title">${escapeHtml(title)}</h1>
+                <span class="view__sub">${escapeHtml(sub || '')}</span>
+                ${items.length > 1 ? `
+                <div class="view__sort">
+                    <button class="sort-btn is-active" data-sort="newest">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+                        Plus récent
+                    </button>
+                    <button class="sort-btn" data-sort="oldest">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                        Plus ancien
+                    </button>
+                </div>` : ''}
+            </div>`;
         if (!items.length) {
             view.appendChild(el('div', 'empty', escapeHtml(emptyMsg || 'Aucun résultat.')));
         } else {
             const grid = el('div', 'grid');
             items.forEach((it) => grid.appendChild(makeCard(it)));
             view.appendChild(grid);
+
+            // Sort button event listeners
+            const sortBtns = view.querySelectorAll('[data-sort]');
+            sortBtns.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    sortBtns.forEach((b) => b.classList.remove('is-active'));
+                    btn.classList.add('is-active');
+                    const sorted = btn.dataset.sort === 'oldest' ? [...items].reverse() : [...items];
+                    grid.innerHTML = '';
+                    sorted.forEach((it) => grid.appendChild(makeCard(it)));
+                });
+            });
         }
         rows.appendChild(view);
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -602,6 +631,35 @@
             wrap.innerHTML = '<div class="empty" style="padding:20px 0">Aucun épisode disponible.</div>';
             return;
         }
+
+        // Collect all available languages across episodes
+        const allLangs = new Set();
+        episodes.forEach((ep) => (ep.available_languages || []).forEach((l) => allLangs.add(l)));
+        const sortedLangs = orderLangs([...allLangs]);
+
+        // Default preferred language
+        if (!state.preferredLang || !allLangs.has(state.preferredLang)) {
+            state.preferredLang = sortedLangs.includes('VF') ? 'VF' : (sortedLangs[0] || null);
+        }
+
+        wrap.innerHTML = '';
+
+        // Language selector buttons (above episodes)
+        if (sortedLangs.length > 1) {
+            const langBar = el('div', 'detail__lang-bar');
+            langBar.innerHTML = `<span class="detail__lang-label">Langue :</span>`;
+            sortedLangs.forEach((lang) => {
+                const btn = el('button', 'lang-pill' + (lang === state.preferredLang ? ' is-active' : ''), escapeHtml(LANG_LABEL[lang] || lang));
+                btn.addEventListener('click', () => {
+                    state.preferredLang = lang;
+                    $$('.lang-pill', langBar).forEach((b) => b.classList.remove('is-active'));
+                    btn.classList.add('is-active');
+                });
+                langBar.appendChild(btn);
+            });
+            wrap.appendChild(langBar);
+        }
+
         const grid = el('div', 'episodes');
         episodes.forEach((ep) => {
             const langs = (ep.available_languages || []).join(' · ');
@@ -615,7 +673,6 @@
             item.addEventListener('click', () => openPlayer(ep, { serieName, seasonUrl: season.url, seasonName: season.name }));
             grid.appendChild(item);
         });
-        wrap.innerHTML = '';
         wrap.appendChild(grid);
     }
 
@@ -638,7 +695,13 @@
         openModal('player');
 
         const langs = orderLangs(ep.available_languages || []);
-        const defaultLang = langs.includes('VF') ? 'VF' : (langs[0] || null);
+        // Use the pre-selected language from the detail page if available and valid
+        let defaultLang;
+        if (state.preferredLang && langs.includes(state.preferredLang)) {
+            defaultLang = state.preferredLang;
+        } else {
+            defaultLang = langs.includes('VF') ? 'VF' : (langs[0] || null);
+        }
         renderPlayerBar(defaultLang, 0);
 
         const mirrors = defaultLang ? mirrorsForLanguage(ep, defaultLang) : [];

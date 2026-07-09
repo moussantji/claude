@@ -116,8 +116,9 @@ class AnimeController extends Controller
     /**
      * Build the local searchable catalogue index from everything already in the
      * DB: the full snapshot, plus any titles previously searched (cached search
-     * results) or opened (catalogue details). This makes anything already
-     * captured findable locally — even offline — without calling anime-sama.
+     * results) or opened (catalogue details), plus admin-created animes. This
+     * makes anything already captured findable locally — even offline —
+     * without calling anime-sama.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -153,6 +154,21 @@ class AnimeController extends Controller
                 }
             });
 
+        // Include admin-created animes (stored in the `animes` table).
+        Anime::query()->get(['url', 'name', 'alternative_names', 'image_url', 'genres', 'categories', 'languages'])->each(function ($anime) use (&$index) {
+            if (! isset($index[$anime->url])) {
+                $index[$anime->url] = [
+                    'url'              => $anime->url,
+                    'name'             => $anime->name,
+                    'alternative_names'=> $anime->alternative_names ?? [],
+                    'image_url'        => $anime->image_url,
+                    'genres'           => $anime->genres ?? [],
+                    'categories'       => $anime->categories ?? [],
+                    'languages'        => $anime->languages ?? [],
+                ];
+            }
+        });
+
         return array_values($index);
     }
 
@@ -161,14 +177,39 @@ class AnimeController extends Controller
      */
     public function newEpisodes(): JsonResponse
     {
-        $data = $this->store->remember(
-            'new_episodes',
-            'new-episodes',
-            null,
-            fn() => $this->client->newEpisodes()
-        );
+        try {
+            $data = $this->store->remember(
+                'new_episodes',
+                'new-episodes',
+                null,
+                fn() => $this->client->newEpisodes()
+            );
 
-        return response()->json(['data' => $data]);
+            return response()->json(['data' => $data]);
+        } catch (\Throwable $e) {
+            // Fallback: serve locally-stored animes when backend is down
+            $localAnimes = Anime::query()
+                ->orderByDesc('updated_at')
+                ->limit(30)
+                ->get();
+
+            if ($localAnimes->isNotEmpty()) {
+                $data = $localAnimes->map(fn($a) => [
+                    'url'              => $a->url,
+                    'name'             => $a->name,
+                    'categories'       => $a->categories ?? [],
+                    'languages'        => $a->languages ?? [],
+                    'image_url'        => $a->image_url,
+                    'alternative_names'=> $a->alternative_names ?? [],
+                    'genres'           => $a->genres ?? [],
+                    'descriptive'      => $a->synopsis ? \Illuminate\Support\Str::limit($a->synopsis, 120) : null,
+                ])->values()->all();
+
+                return response()->json(['data' => $data]);
+            }
+
+            throw $e;
+        }
     }
 
     /**
@@ -192,21 +233,32 @@ class AnimeController extends Controller
     public function catalogue(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'url' => ['required', 'url', 'max:2048'],
+            'url' => ['required', 'string', 'max:2048'],
         ]);
+
+        $url = $validated['url'];
+
+        // For local:// URLs (admin-created animes), serve directly from MySQL.
+        if (str_starts_with($url, 'local://')) {
+            $local = $this->localCatalogueDetail($url);
+            if ($local !== null) {
+                return response()->json(['data' => $local]);
+            }
+            return response()->json(['message' => 'Anime introuvable.'], 404);
+        }
 
         try {
             $data = $this->store->remember(
                 'catalogue',
-                'catalogue:' . $validated['url'],
+                'catalogue:' . $url,
                 null,
-                fn() => $this->client->catalogue($validated['url'])
+                fn() => $this->client->catalogue($url)
             );
 
-            return response()->json(['data' => $this->applyLocalOverrides($validated['url'], $data)]);
+            return response()->json(['data' => $this->applyLocalOverrides($url, $data)]);
         } catch (\Throwable $e) {
             // Backend FastAPI down / anime-sama HS : on sert depuis MySQL si on l'a.
-            $local = $this->localCatalogueDetail($validated['url']);
+            $local = $this->localCatalogueDetail($url);
             if ($local !== null) {
                 return response()->json(['data' => $local]);
             }
@@ -225,7 +277,14 @@ class AnimeController extends Controller
     {
         $anime = Anime::query()
             ->with(['seasons' => fn($q) => $q->orderBy('position')])
-            ->whereIn('url', [$url, rtrim($url, '/') . '/'])
+            ->where(function ($query) use ($url) {
+                $query->whereIn('url', [$url, rtrim($url, '/') . '/']);
+                // Also match by slug for local:// URLs
+                if (str_starts_with($url, 'local://anime/')) {
+                    $slug = str_replace('local://anime/', '', rtrim($url, '/'));
+                    $query->orWhere('slug', $slug);
+                }
+            })
             ->first();
 
         if (! $anime) {
@@ -244,6 +303,40 @@ class AnimeController extends Controller
                 'position' => $s->position,
             ])->values()->all(),
         ];
+    }
+
+    /**
+     * Serve episodes from the local DB for a given season URL.
+     * Used for admin-created seasons and as fallback when backend is down.
+     *
+     * @return array<int, array<string, mixed>>|null
+     */
+    protected function localSeasonEpisodes(string $url): ?array
+    {
+        $season = \App\Models\Season::query()
+            ->with(['episodes' => fn($q) => $q->with('links')->orderBy('index')])
+            ->whereIn('url', [$url, rtrim($url, '/') . '/'])
+            ->first();
+
+        if (! $season) {
+            return null;
+        }
+
+        return $season->episodes->map(function ($ep) {
+            // Group links by language
+            $languages = [];
+            foreach ($ep->links->sortBy('position') as $link) {
+                $languages[$link->language][] = $link->url;
+            }
+
+            return [
+                'index'               => $ep->index,
+                'name'                => $ep->name ?? ('Épisode ' . $ep->index),
+                'available_languages' => array_keys($languages),
+                'languages'           => $languages,
+                'best_player'         => $ep->links->first()?->url,
+            ];
+        })->values()->all();
     }
 
     /**
@@ -286,20 +379,40 @@ class AnimeController extends Controller
     public function episodes(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'url' => ['required', 'url', 'max:2048'],
+            'url' => ['required', 'string', 'max:2048'],
             'prefer' => ['sometimes', 'string', 'max:100'],
         ]);
 
+        $url = $validated['url'];
         $prefer = $validated['prefer'] ?? null;
 
-        $data = $this->store->remember(
-            'episodes',
-            'episodes:' . $validated['url'] . ':' . ($prefer ?? ''),
-            null,
-            fn() => $this->client->episodes($validated['url'], $prefer)
-        );
+        // For local:// URLs (admin-created seasons), serve directly from MySQL.
+        if (str_starts_with($url, 'local://')) {
+            $local = $this->localSeasonEpisodes($url);
+            if ($local !== null) {
+                return response()->json(['data' => $local]);
+            }
+            return response()->json(['data' => []]);
+        }
 
-        return response()->json(['data' => $data]);
+        try {
+            $data = $this->store->remember(
+                'episodes',
+                'episodes:' . $url . ':' . ($prefer ?? ''),
+                null,
+                fn() => $this->client->episodes($url, $prefer)
+            );
+
+            return response()->json(['data' => $data]);
+        } catch (\Throwable $e) {
+            // Fallback: serve from local DB if available
+            $local = $this->localSeasonEpisodes($url);
+            if ($local !== null) {
+                return response()->json(['data' => $local]);
+            }
+
+            throw $e;
+        }
     }
 
     /**
