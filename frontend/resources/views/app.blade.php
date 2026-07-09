@@ -65,9 +65,9 @@
             <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg>
             <span>Accueil</span>
         </button>
-        <button class="tabbar__item" data-tab="new">
-            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L6 13h5l-1 9 8-12h-5z"/></svg>
-            <span>Nouveautés</span>
+        <button class="tabbar__item" data-tab="planning">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span>Planning</span>
         </button>
         <button class="tabbar__item tabbar__item--fab" data-tab="search" aria-label="Rechercher">
             <span class="tabbar__fab">

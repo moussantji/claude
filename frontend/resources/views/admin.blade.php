@@ -30,8 +30,8 @@
         th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; }
         tr:hover td { background:rgba(124,92,255,.06); }
         .row-actions { display:flex; gap:8px; }
-        .searchbar { display:flex; gap:10px; margin-bottom:14px; }
-        .searchbar input { flex:1; }
+        .searchbar { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+        .searchbar input { flex:1; min-width:140px; }
         .pager { display:flex; gap:10px; align-items:center; margin-top:14px; }
         .center { min-height:70vh; display:grid; place-items:center; }
         .card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:24px; width:360px; max-width:92vw; }
@@ -44,6 +44,20 @@
         .hide { display:none; }
         .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--panel); border:1px solid var(--accent); padding:10px 16px; border-radius:10px; opacity:0; transition:opacity .3s; }
         .toast.show { opacity:1; }
+        @media (max-width:600px) {
+            header { flex-wrap:wrap; gap:8px; padding:10px 14px; }
+            header h1 { font-size:13px; }
+            .wrap { padding:12px; }
+            .searchbar { gap:6px; }
+            .searchbar input { font-size:13px; padding:8px; }
+            .btn { padding:7px 10px; font-size:12px; }
+            table { font-size:12px; }
+            th, td { padding:6px 4px; }
+            .thumb { width:30px; height:42px; }
+            .stat { min-width:80px; padding:10px 12px; }
+            .stat b { font-size:18px; }
+            .modal .card { width:96vw; padding:16px; }
+        }
     </style>
 </head>
 <body>
