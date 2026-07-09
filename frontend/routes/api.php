@@ -31,6 +31,7 @@ Route::prefix('anime')->group(function () {
     Route::get('/episodes', [AnimeController::class, 'episodes']);
     Route::get('/trailer', [AnimeController::class, 'trailer']);
     Route::get('/planning', [AnimeController::class, 'planning']);
+    Route::post('/request', [AnimeController::class, 'contentRequest']);
 });
 
 // --- Protected endpoints (require a valid Sanctum token) ---

@@ -23,6 +23,8 @@ class WatchHistory extends Model
         'player_url',
         'language',
         'position_seconds',
+        'image_url',
+        'catalogue_url',
     ];
 
     protected function casts(): array

@@ -295,6 +295,26 @@ class AnimeController extends Controller
     }
 
     /**
+     * Submit a content request (user wants an anime that's not available).
+     */
+    public function contentRequest(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'min:1', 'max:255'],
+            'message' => ['sometimes', 'nullable', 'string', 'max:1000'],
+        ]);
+
+        $entry = \App\Models\ContentRequest::create([
+            'user_id' => $request->user()?->id,
+            'title' => $validated['title'],
+            'message' => $validated['message'] ?? null,
+            'status' => 'pending',
+        ]);
+
+        return response()->json(['data' => $entry, 'message' => 'Demande envoyée !'], 201);
+    }
+
+    /**
      * Find a trailer whose anime name matches the title.
      */
     protected function findTrailerKey(string $title): ?string

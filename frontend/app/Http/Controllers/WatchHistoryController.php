@@ -36,6 +36,8 @@ class WatchHistoryController extends Controller
             'player_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'language' => ['sometimes', 'nullable', 'string', 'max:20'],
             'position_seconds' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'image_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
+            'catalogue_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
         ]);
 
         $entry = $request->user()->watchHistory()->updateOrCreate(
@@ -50,6 +52,8 @@ class WatchHistoryController extends Controller
                 'player_url' => $validated['player_url'] ?? null,
                 'language' => $validated['language'] ?? null,
                 'position_seconds' => $validated['position_seconds'] ?? 0,
+                'image_url' => $validated['image_url'] ?? null,
+                'catalogue_url' => $validated['catalogue_url'] ?? null,
             ]
         );
 

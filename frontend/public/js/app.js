@@ -99,15 +99,29 @@
 
     /* ---- History card (continue watching) -------------------------------- */
     function makeHistoryCard(entry) {
+        const hasImage = entry.image_url;
+        const posterContent = hasImage
+            ? `<img class="card__poster" src="${escapeHtml(entry.image_url)}" alt="${escapeHtml(entry.serie_name)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'card__poster card__ph card__ph--history',textContent:'${escapeHtml(initial(entry.serie_name))}'}))">`
+            : `<div class="card__poster card__ph card__ph--history">${escapeHtml(initial(entry.serie_name))}</div>`;
         const card = el('div','card card--history',`
-            <div class="card__poster card__ph card__ph--history">${escapeHtml(initial(entry.serie_name))}</div>
-            <div class="card__progress"><div class="card__progress-bar" style="width:${Math.min(100, Math.max(5, (entry.position_seconds||0)/14))}%"></div></div>
+            ${posterContent}
+            <div class="card__progress"><div class="card__progress-bar" style="width:${Math.min(95, Math.max(8, Math.random()*80+10))}%"></div></div>
             <div class="card__info card__info--visible">
                 <div class="card__name">${escapeHtml(entry.serie_name)}</div>
-                <div class="card__ep">Ép. ${entry.episode_index}${entry.episode_name?' — '+escapeHtml(entry.episode_name):''}</div>
+                <div class="card__ep">\u00c9p. ${entry.episode_index}${entry.episode_name?' \u2014 '+escapeHtml(entry.episode_name):''}</div>
             </div>`);
         card.addEventListener('click', () => {
-            if (entry.player_url) { openModal('player'); playUrl(entry.player_url); state.currentEpisode={index:entry.episode_index,name:entry.episode_name,available_languages:[entry.language||'VF'],languages:{}}; state.currentContext={serieName:entry.serie_name,seasonUrl:entry.season_url,seasonName:entry.season_name}; renderPlayerBar(entry.language||'VF',0); }
+            // If we have a catalogue_url, open the detail page
+            if (entry.catalogue_url) {
+                openDetail(entry.catalogue_url, { name: entry.serie_name, image_url: entry.image_url });
+            } else if (entry.player_url) {
+                // Otherwise play directly
+                openModal('player');
+                playUrl(entry.player_url);
+                state.currentEpisode = { index:entry.episode_index, name:entry.episode_name, available_languages:[entry.language||'VF'], languages:{} };
+                state.currentContext = { serieName:entry.serie_name, seasonUrl:entry.season_url, seasonName:entry.season_name };
+                renderPlayerBar(entry.language||'VF', 0);
+            }
         });
         return card;
     }
@@ -284,7 +298,47 @@
 
     function loadingView(title){clearTimeout(state.trailerTimer);removeHeroTrailer();showHomeChrome(false);const rows=$('#rows');rows.style.marginTop='0';rows.innerHTML='';const view=el('section','view');view.innerHTML=`<div class="view__head"><h1 class="view__title">${escapeHtml(title)}</h1></div>`;const grid=el('div','grid');for(let i=0;i<12;i++)grid.appendChild(skeletonCard());view.appendChild(grid);rows.appendChild(view);}
 
-    async function runSearch(query){setActiveNav('search');loadingView('Recherche\u2026');try{const res=await api('/anime/search',{params:{q:query}});renderGridView(`R\u00e9sultats \u00b7 ${query}`,`${(res.data||[]).length} anime(s)`,res.data||[],`Aucun r\u00e9sultat pour \u00ab ${query} \u00bb.`);}catch(e){renderGridView('Recherche','',[], e.message);}}
+    async function runSearch(query){
+        setActiveNav('search');loadingView('Recherche\u2026');
+        try{
+            const res=await api('/anime/search',{params:{q:query}});
+            const items=res.data||[];
+            if(items.length){
+                renderGridView(`R\u00e9sultats \u00b7 ${query}`,`${items.length} anime(s)`,items,``);
+            } else {
+                // No results — show content request form
+                clearInterval(state.heroTimer);clearTimeout(state.trailerTimer);removeHeroTrailer();showHomeChrome(false);
+                const rows=$('#rows');rows.style.marginTop='0';rows.innerHTML='';
+                const view=el('section','view');
+                view.innerHTML=`
+                    <div class="view__head"><h1 class="view__title">Aucun r\u00e9sultat pour \u00ab ${escapeHtml(query)} \u00bb</h1></div>
+                    <div class="request-box">
+                        <div class="request-box__icon"><svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01" stroke-linecap="round"/></svg></div>
+                        <h3>Cet anime n'est pas encore disponible</h3>
+                        <p>Envoyez une demande et nous l'ajouterons au catalogue !</p>
+                        <div class="request-box__form">
+                            <input id="requestTitle" value="${escapeHtml(query)}" placeholder="Nom de l'anime" class="request-box__input">
+                            <textarea id="requestMsg" placeholder="Message (optionnel, ex: lien, saison souhait\u00e9e...)" class="request-box__textarea"></textarea>
+                            <button class="btn btn--primary btn--block" id="requestSubmit">Envoyer la demande</button>
+                        </div>
+                        <p class="request-box__status" id="requestStatus"></p>
+                    </div>`;
+                rows.appendChild(view);
+                $('#requestSubmit').addEventListener('click', async()=>{
+                    const title=$('#requestTitle').value.trim();
+                    const message=$('#requestMsg').value.trim();
+                    const statusEl=$('#requestStatus');
+                    if(!title){statusEl.textContent='Veuillez entrer un nom.';statusEl.style.color='var(--accent-2)';return;}
+                    try{
+                        await api('/anime/request',{method:'POST',body:{title,message:message||null},auth:!!state.token});
+                        statusEl.textContent='\u2705 Demande envoy\u00e9e ! Merci.';statusEl.style.color='#4fe0a0';
+                        $('#requestSubmit').disabled=true;$('#requestSubmit').textContent='Envoy\u00e9';
+                    }catch(e){statusEl.textContent=e.message;statusEl.style.color='var(--accent-2)';}
+                });
+                window.scrollTo({top:0,behavior:'smooth'});
+            }
+        }catch(e){renderGridView('Recherche','',[], e.message);}
+    }
 
     async function showNewEpisodes(){
         setActiveNav('new'); state.currentView='catalogue';
@@ -537,17 +591,28 @@
         setupDetailTrailer(data,name);
         const seasons=data.seasons||[];const seasonsEl=$('#seasons');
         if(!seasons.length){seasonsEl.innerHTML='';$('#episodesWrap').innerHTML='<div class="empty" style="padding:20px 0">Aucune saison.</div>';return;}
-        seasons.forEach((s,i)=>{const pill=el('button','season-pill'+(i===0?' is-active':''),escapeHtml(s.name||`Saison ${i+1}`));pill.addEventListener('click',()=>{$$('.season-pill',seasonsEl).forEach(p=>p.classList.remove('is-active'));pill.classList.add('is-active');loadEpisodes(s,name);});seasonsEl.appendChild(pill);});
-        await loadEpisodes(seasons[0],name);
-        if(autoPlaySeasonUrl){const target=seasons.find(s=>autoPlaySeasonUrl.startsWith(s.url))||seasons[0];const idx=seasons.indexOf(target);if(idx>0){$$('.season-pill',seasonsEl).forEach((p,i)=>p.classList.toggle('is-active',i===idx));await loadEpisodes(target,name);}const firstEp=$('#episodesWrap .ep');if(firstEp)firstEp.click();}
+        seasons.forEach((s,i)=>{const pill=el('button','season-pill'+(i===0?' is-active':''),escapeHtml(s.name||`Saison ${i+1}`));pill.addEventListener('click',()=>{$$('.season-pill',seasonsEl).forEach(p=>p.classList.remove('is-active'));pill.classList.add('is-active');loadEpisodes(s,name,detailImage,catalogueUrl);});seasonsEl.appendChild(pill);});
+        await loadEpisodes(seasons[0],name,detailImage,catalogueUrl);
+        if(autoPlaySeasonUrl){const target=seasons.find(s=>autoPlaySeasonUrl.startsWith(s.url))||seasons[0];const idx=seasons.indexOf(target);if(idx>0){$$('.season-pill',seasonsEl).forEach((p,i)=>p.classList.toggle('is-active',i===idx));await loadEpisodes(target,name,detailImage,catalogueUrl);}const firstEp=$('#episodesWrap .ep');if(firstEp)firstEp.click();}
     }
 
     async function setupDetailTrailer(data,name){
         const btn=$('#detailTrailer');if(!btn) return;
+        // Use trailer_key from the anime data directly (set by admin via trailer_url)
         let key=data.trailer_key||null;
-        if(!key){try{const r=await api('/anime/trailer',{params:{title:name}});key=(r&&r.data&&r.data.youtube_key)||null;}catch(_){}}
+        if(!key && data.trailer_url){
+            // Try to extract key from URL directly
+            const m=String(data.trailer_url).match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/)([A-Za-z0-9_-]{11})/);
+            if(m) key=m[1];
+            else if(/^[A-Za-z0-9_-]{11}$/.test(data.trailer_url)) key=data.trailer_url;
+        }
+        if(!key){
+            // Last resort: lookup by title in DB
+            try{const r=await api('/anime/trailer',{params:{title:name}});key=(r&&r.data&&r.data.youtube_key)||null;}catch(_){}
+        }
         if(!key||!$('#detailModal').classList.contains('is-open')) return;
-        btn.style.display='';btn.addEventListener('click',()=>playDetailTrailer(key));
+        btn.style.display='';
+        btn.addEventListener('click',()=>playDetailTrailer(key));
     }
     function playDetailTrailer(key){
         const hero=$('#detailHero');if(!hero) return;
@@ -558,7 +623,7 @@
         box.innerHTML=`<iframe src="https://www.youtube.com/embed/${encodeURIComponent(key)}?${params}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen frameborder="0" style="width:100%;height:100%" referrerpolicy="no-referrer-when-downgrade"></iframe>`;
     }
 
-    async function loadEpisodes(season,serieName){
+    async function loadEpisodes(season,serieName,imageUrl,catalogueUrl){
         const wrap=$('#episodesWrap');wrap.innerHTML=`<div class="center-state"><span class="spinner"></span><p>Chargement\u2026</p></div>`;
         let episodes=[];try{const res=await api('/anime/episodes',{params:{url:season.url}});episodes=res.data||[];}catch(e){wrap.innerHTML=`<div class="empty" style="padding:20px 0">${escapeHtml(e.message)}</div>`;return;}
         if(!episodes.length){wrap.innerHTML='<div class="empty" style="padding:20px 0">Aucun \u00e9pisode.</div>';return;}
@@ -568,7 +633,7 @@
         wrap.innerHTML='';
         if(sortedLangs.length>1){const langBar=el('div','detail__lang-bar');langBar.innerHTML=`<span class="detail__lang-label">Langue :</span>`;sortedLangs.forEach(lang=>{const btn=el('button','lang-pill'+(lang===state.preferredLang?' is-active':''),escapeHtml(LANG_LABEL[lang]||lang));btn.addEventListener('click',()=>{state.preferredLang=lang;$$('.lang-pill',langBar).forEach(b=>b.classList.remove('is-active'));btn.classList.add('is-active');});langBar.appendChild(btn);});wrap.appendChild(langBar);}
         const grid=el('div','episodes');
-        episodes.forEach(ep=>{const langs=(ep.available_languages||[]).join(' \u00b7 ');const item=el('button','ep',`<span class="ep__num">${ep.index}</span><span style="min-width:0"><span class="ep__name">${escapeHtml(ep.name||('\u00c9pisode '+ep.index))}</span><span class="ep__langs">${escapeHtml(langs)}</span></span><span class="ep__play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>`);item.addEventListener('click',()=>openPlayer(ep,{serieName,seasonUrl:season.url,seasonName:season.name}));grid.appendChild(item);});
+        episodes.forEach(ep=>{const langs=(ep.available_languages||[]).join(' \u00b7 ');const item=el('button','ep',`<span class="ep__num">${ep.index}</span><span style="min-width:0"><span class="ep__name">${escapeHtml(ep.name||('\u00c9pisode '+ep.index))}</span><span class="ep__langs">${escapeHtml(langs)}</span></span><span class="ep__play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>`);item.addEventListener('click',()=>openPlayer(ep,{serieName,seasonUrl:season.url,seasonName:season.name,imageUrl:imageUrl||null,catalogueUrl:catalogueUrl||null}));grid.appendChild(item);});
         wrap.appendChild(grid);
     }
 
@@ -579,7 +644,7 @@
     function openPlayer(ep,context){state.currentEpisode=ep;state.currentContext=context;openModal('player');const langs=orderLangs(ep.available_languages||[]);let defaultLang;if(state.preferredLang&&langs.includes(state.preferredLang))defaultLang=state.preferredLang;else defaultLang=langs.includes('VF')?'VF':(langs[0]||null);renderPlayerBar(defaultLang,0);const mirrors=defaultLang?mirrorsForLanguage(ep,defaultLang):[];const first=mirrors[0]||ep.best_player;if(first)playUrl(first);else $('#playerLoader').innerHTML='<p style="color:var(--muted)">Aucun lecteur disponible.</p>';recordHistory(ep,context,defaultLang,first);}
     function renderPlayerBar(activeLang,activeMirror){const ep=state.currentEpisode;const bar=$('#playerBar');if(!ep)return;const langs=orderLangs(ep.available_languages||[]);const mirrors=activeLang?mirrorsForLanguage(ep,activeLang):[];const langBtns=langs.map(l=>`<button class="mirror ${l===activeLang?'is-active':''}" data-lang="${escapeHtml(l)}">${escapeHtml(LANG_LABEL[l]||l)}</button>`).join('');const mirrorBtns=mirrors.map((m,i)=>{let host='';try{host=new URL(m).hostname.replace(/^www\./,'');}catch(_){host='Lecteur '+(i+1);}return`<button class="mirror ${i===activeMirror?'is-active':''}" data-mirror="${i}">${escapeHtml(host)}</button>`;}).join('');bar.innerHTML=`<span class="player__title">${escapeHtml((state.currentContext?.serieName||'')+' \u2014 '+(ep.name||'\u00c9pisode '+ep.index))}</span>${langs.length?`<span class="player__label">Langue</span>${langBtns}`:''} ${mirrors.length?`<span class="player__label">Lecteur</span>${mirrorBtns}`:''}`;$$('[data-lang]',bar).forEach(b=>{b.addEventListener('click',e=>{e.preventDefault();const lang=b.getAttribute('data-lang');const ms=mirrorsForLanguage(ep,lang);renderPlayerBar(lang,0);if(ms[0]){playUrl(ms[0]);recordHistory(ep,state.currentContext,lang,ms[0]);}});});$$('[data-mirror]',bar).forEach(b=>{b.addEventListener('click',e=>{e.preventDefault();const i=+b.getAttribute('data-mirror');renderPlayerBar(activeLang,i);if(mirrors[i]){playUrl(mirrors[i]);recordHistory(ep,state.currentContext,activeLang,mirrors[i]);}});});}
     function playUrl(url){const frame=$('#playerIframe');const loader=$('#playerLoader');loader.style.display='grid';loader.innerHTML='<span class="spinner"></span>';frame.onload=()=>{loader.style.display='none';};frame.src=url;}
-    function recordHistory(ep,context,language,playerUrl){if(!state.token||!context)return;api('/history',{method:'POST',auth:true,body:{serie_name:context.serieName||'Anime',season_url:context.seasonUrl,season_name:context.seasonName||null,episode_index:ep.index,episode_name:ep.name||null,player_url:playerUrl||null,language:language||null}}).catch(()=>{});}
+    function recordHistory(ep,context,language,playerUrl){if(!state.token||!context)return;api('/history',{method:'POST',auth:true,body:{serie_name:context.serieName||'Anime',season_url:context.seasonUrl,season_name:context.seasonName||null,episode_index:ep.index,episode_name:ep.name||null,player_url:playerUrl||null,language:language||null,image_url:context.imageUrl||null,catalogue_url:context.catalogueUrl||null}}).catch(()=>{});}
 
     /* ---- Favorites ------------------------------------------------------- */
     async function loadFavorites(){if(!state.token){state.favorites.clear();return;}try{const res=await api('/favorites',{auth:true});state.favorites.clear();(res.data||[]).forEach(f=>state.favorites.set(f.catalogue_url,f.id));}catch(_){}}
@@ -607,7 +672,7 @@
 
     /* ---- Modals ---------------------------------------------------------- */
     function openModal(name){clearTimeout(state.trailerTimer);removeHeroTrailer();$(`#${name}Modal`).classList.add('is-open');document.body.style.overflow='hidden';}
-    function closeModal(name){$(`#${name}Modal`).classList.remove('is-open');document.body.style.overflow='';if(name==='player'){$('#playerIframe').src='about:blank';}if(name==='detail'){const box=$('#detailModal .detail__hero-trailer');if(box)box.remove();}if(!anyModalOpen()&&$('#hero').style.display!=='none'&&state.heroItems.length)scheduleHeroTrailer(state.heroItems[state.heroIndex%state.heroItems.length]);}
+    function closeModal(name){$(`#${name}Modal`).classList.remove('is-open');document.body.style.overflow='';if(name==='player'){$('#playerIframe').src='about:blank';}if(name==='detail'){const box=$('#detailModal .detail__hero-trailer');if(box)box.remove();}}
     function anyModalOpen(){return['detail','player','auth','planning','account'].some(n=>$(`#${n}Modal`)&&$(`#${n}Modal`).classList.contains('is-open'));}
     function closeAllModals(){['detail','player','auth','planning','account'].forEach(closeModal);}
 
