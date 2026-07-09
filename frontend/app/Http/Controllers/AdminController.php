@@ -10,6 +10,7 @@ use App\Models\Season;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
  * Admin area: manage the normalized library (animes/seasons/episodes/links),
@@ -56,7 +57,7 @@ class AdminController extends Controller
      */
     public function showAnime(Anime $anime): JsonResponse
     {
-        $anime->load(['seasons' => fn ($q) => $q->withCount('episodes')->orderBy('position')]);
+        $anime->load(['seasons' => fn($q) => $q->withCount('episodes')->orderBy('position')]);
 
         return response()->json(['data' => $anime]);
     }
@@ -79,6 +80,66 @@ class AdminController extends Controller
         return response()->json(['data' => $anime->fresh()]);
     }
 
+    public function storeAnime(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name'        => ['required', 'string', 'max:255'],
+            'synopsis'    => ['sometimes', 'nullable', 'string', 'max:20000'],
+            'image_url'   => ['sometimes', 'nullable', 'string', 'max:2048'],
+            'trailer_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
+            'is_mature'   => ['sometimes', 'boolean'],
+        ]);
+
+        $slug = Str::slug($validated['name']) . '-' . Str::lower(Str::random(6));
+
+        $anime = Anime::create([
+            ...$validated,
+            'slug' => $slug,
+            'url'  => 'local://anime/' . $slug,
+        ]);
+
+        return response()->json(['data' => $anime], 201);
+    }
+
+    public function storeSeason(Request $request, Anime $anime): JsonResponse
+    {
+        $validated = $request->validate([
+            'name'     => ['required', 'string', 'max:255'],
+            'position' => ['sometimes', 'integer', 'min:0'],
+        ]);
+
+        $position = $validated['position'] ?? ((int) $anime->seasons()->max('position') + 1);
+
+        $season = $anime->seasons()->create([
+            'name'     => $validated['name'],
+            'position' => $position,
+            'url'      => 'local://anime/' . $anime->slug . '/saison/' . $position . '-' . Str::lower(Str::random(4)),
+        ]);
+
+        return response()->json(['data' => $season], 201);
+    }
+
+    public function storeEpisode(Request $request, Season $season): JsonResponse
+    {
+        $validated = $request->validate([
+            'name'       => ['sometimes', 'nullable', 'string', 'max:255'],
+            'long_name'  => ['sometimes', 'nullable', 'string', 'max:255'],
+            'short_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'index'      => ['sometimes', 'integer', 'min:1'],
+        ]);
+
+        $index = $validated['index'] ?? ((int) $season->episodes()->max('index') + 1);
+
+        $episode = $season->episodes()->create([
+            'index'      => $index,
+            'name'       => $validated['name'] ?? null,
+            'long_name'  => $validated['long_name'] ?? null,
+            'short_name' => $validated['short_name'] ?? null,
+        ]);
+
+        return response()->json(['data' => $episode], 201);
+    }
+
     /**
      * Delete an anime (cascades to its seasons, episodes and links).
      */
@@ -94,7 +155,7 @@ class AdminController extends Controller
      */
     public function seasonEpisodes(Season $season): JsonResponse
     {
-        $season->load(['episodes' => fn ($q) => $q->with('links')->orderBy('index')]);
+        $season->load(['episodes' => fn($q) => $q->with('links')->orderBy('index')]);
 
         return response()->json(['data' => $season]);
     }

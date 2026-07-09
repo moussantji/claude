@@ -15,8 +15,7 @@ class AnimeController extends Controller
     public function __construct(
         protected AnimeSamaClient $client,
         protected AnimeCacheStore $store,
-    ) {
-    }
+    ) {}
 
     /**
      * Search the anime-sama catalogue.
@@ -46,9 +45,9 @@ class AnimeController extends Controller
 
         $data = $this->store->remember(
             'search',
-            'search:'.mb_strtolower($query),
+            'search:' . mb_strtolower($query),
             null,
-            fn () => $this->client->search($query)
+            fn() => $this->client->search($query)
         );
 
         return response()->json(['data' => $data]);
@@ -64,7 +63,7 @@ class AnimeController extends Controller
             'catalogues',
             'all-catalogues',
             null,
-            fn () => $this->client->allCatalogues()
+            fn() => $this->client->allCatalogues()
         );
 
         return response()->json(['data' => $data]);
@@ -166,7 +165,7 @@ class AnimeController extends Controller
             'new_episodes',
             'new-episodes',
             null,
-            fn () => $this->client->newEpisodes()
+            fn() => $this->client->newEpisodes()
         );
 
         return response()->json(['data' => $data]);
@@ -181,7 +180,7 @@ class AnimeController extends Controller
             'planning',
             'planning',
             null,
-            fn () => $this->client->planning()
+            fn() => $this->client->planning()
         );
 
         return response()->json(['data' => $data]);
@@ -196,14 +195,55 @@ class AnimeController extends Controller
             'url' => ['required', 'url', 'max:2048'],
         ]);
 
-        $data = $this->store->remember(
-            'catalogue',
-            'catalogue:'.$validated['url'],
-            null,
-            fn () => $this->client->catalogue($validated['url'])
-        );
+        try {
+            $data = $this->store->remember(
+                'catalogue',
+                'catalogue:' . $validated['url'],
+                null,
+                fn() => $this->client->catalogue($validated['url'])
+            );
 
-        return response()->json(['data' => $this->applyLocalOverrides($validated['url'], $data)]);
+            return response()->json(['data' => $this->applyLocalOverrides($validated['url'], $data)]);
+        } catch (\Throwable $e) {
+            // Backend FastAPI down / anime-sama HS : on sert depuis MySQL si on l'a.
+            $local = $this->localCatalogueDetail($validated['url']);
+            if ($local !== null) {
+                return response()->json(['data' => $local]);
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fallback : construit le détail d'un catalogue depuis la DB locale
+     * quand le backend est injoignable.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function localCatalogueDetail(string $url): ?array
+    {
+        $anime = Anime::query()
+            ->with(['seasons' => fn($q) => $q->orderBy('position')])
+            ->whereIn('url', [$url, rtrim($url, '/') . '/'])
+            ->first();
+
+        if (! $anime) {
+            return null;
+        }
+
+        return [
+            'url'         => $anime->url,
+            'name'        => $anime->name,
+            'synopsis'    => $anime->synopsis,
+            'image_url'   => $anime->image_url,
+            'trailer_url' => $anime->trailer_url,
+            'seasons'     => $anime->seasons->map(fn($s) => [
+                'name'     => $s->name,
+                'url'      => $s->url,
+                'position' => $s->position,
+            ])->values()->all(),
+        ];
     }
 
     /**
@@ -216,7 +256,7 @@ class AnimeController extends Controller
     protected function applyLocalOverrides(string $url, array $data): array
     {
         $anime = Anime::query()
-            ->whereIn('url', [$url, rtrim($url, '/').'/'])
+            ->whereIn('url', [$url, rtrim($url, '/') . '/'])
             ->first();
 
         if (! $anime) {
@@ -254,9 +294,9 @@ class AnimeController extends Controller
 
         $data = $this->store->remember(
             'episodes',
-            'episodes:'.$validated['url'].':'.($prefer ?? ''),
+            'episodes:' . $validated['url'] . ':' . ($prefer ?? ''),
             null,
-            fn () => $this->client->episodes($validated['url'], $prefer)
+            fn() => $this->client->episodes($validated['url'], $prefer)
         );
 
         return response()->json(['data' => $data]);
@@ -282,9 +322,9 @@ class AnimeController extends Controller
 
         $data = $this->store->remember(
             'trailer',
-            'trailer:'.mb_strtolower($validated['title']),
+            'trailer:' . mb_strtolower($validated['title']),
             null,
-            fn () => $this->client->trailer($validated['title'])
+            fn() => $this->client->trailer($validated['title'])
         );
 
         return response()->json(['data' => $data]);

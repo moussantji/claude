@@ -55,6 +55,9 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('/animes/{anime}', [AdminController::class, 'showAnime']);
     Route::put('/animes/{anime}', [AdminController::class, 'updateAnime']);
     Route::delete('/animes/{anime}', [AdminController::class, 'destroyAnime']);
+    Route::post('/animes', [AdminController::class, 'storeAnime']);
+    Route::post('/animes/{anime}/seasons', [AdminController::class, 'storeSeason']);
+    Route::post('/seasons/{season}/episodes', [AdminController::class, 'storeEpisode']);
 
     Route::get('/seasons/{season}/episodes', [AdminController::class, 'seasonEpisodes']);
     Route::put('/seasons/{season}', [AdminController::class, 'updateSeason']);
