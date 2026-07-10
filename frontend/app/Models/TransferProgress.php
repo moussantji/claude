@@ -18,16 +18,20 @@ class TransferProgress extends Model
         'anime_id',
         'host',
         'status',
+        'attempts',
         'new_url',
         'new_file_code',
         'error',
         'transferred_at',
+        'last_attempt_at',
     ];
 
     protected function casts(): array
     {
         return [
             'transferred_at' => 'date',
+            'last_attempt_at' => 'datetime',
+            'attempts' => 'integer',
         ];
     }
 
