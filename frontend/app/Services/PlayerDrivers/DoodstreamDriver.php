@@ -40,14 +40,24 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
             'title' => $title !== '' ? $title : null,
         ]);
 
-        if ($resp->failed() || (int) $resp->json('status') !== 200) {
-            throw new RuntimeException('Doodstream remote upload failed: '.($resp->json('msg') ?? $resp->status()));
+        // Short, readable source for error messages
+        $src = strlen($sourceUrl) > 70 ? substr($sourceUrl, 0, 70).'…' : $sourceUrl;
+
+        if ($resp->failed()) {
+            throw new RuntimeException("Doodstream HTTP {$resp->status()} (url: {$src})");
+        }
+
+        $status = $resp->json('status');
+        // Only treat as error when the host EXPLICITLY reports a non-200 status.
+        if ($status !== null && (int) $status !== 200) {
+            $msg = $resp->json('msg') ?: 'refused';
+            throw new RuntimeException("Doodstream refused ({$status}: {$msg}) — url: {$src}");
         }
 
         $result = $resp->json('result');
         // Result can be an object or a list; try to find a file code
         $entry = (is_array($result) && array_is_list($result) && isset($result[0])) ? $result[0] : $result;
-        $code = $entry['filecode'] ?? $entry['file_code'] ?? $entry['code'] ?? null;
+        $code = is_array($entry) ? ($entry['filecode'] ?? $entry['file_code'] ?? $entry['code'] ?? null) : null;
 
         if ($code) {
             return [
