@@ -24,3 +24,26 @@ Schedule::command('anime:ingest')
 
 Schedule::command('anime:cache-prune --days=30')
     ->daily();
+
+// =========================================================================
+// Episode transfer automation
+// =========================================================================
+// Runs the all-in-one transfer every night: reliable hosts → same-host
+// backup, unreliable hosts (sendvid/sibnet/myvi) → consolidated onto the
+// monetizing host (doodstream). Resumes from the last position (--auto),
+// respects the daily quota (50/host/anime), and auto-advances through animes.
+//
+// Configure target accounts in .env (TRANSFER_*_*) and verify with:
+//   php artisan episodes:check-connections
+//
+// Requires the scheduler to be running (cron: php artisan schedule:run, or
+// `php artisan schedule:work`).
+Schedule::command('episodes:auto --auto --consolidate-to=doodstream --update-db')
+    ->dailyAt('02:00')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Daily connection health check (logged) so you notice broken credentials.
+Schedule::command('episodes:check-connections')
+    ->dailyAt('01:55')
+    ->withoutOverlapping();
