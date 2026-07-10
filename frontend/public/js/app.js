@@ -699,7 +699,7 @@
         const heroPlay=$('#detailHeroPlay');if(heroPlay) heroPlay.style.display='none';
         const origin=location.origin;
         // controls:0 + no YouTube chrome — enablejsapi lets us drive play/pause ourselves.
-        const params=new URLSearchParams({autoplay:'1',mute:'0',controls:'0',modestbranding:'1',rel:'0',playsinline:'1',iv_load_policy:'3',disablekb:'1',fs:'0',enablejsapi:'1',origin:origin,widget_referrer:origin});
+        const params=new URLSearchParams({autoplay:'1',mute:'0',controls:'0',modestbranding:'1',rel:'0',showinfo:'0',playsinline:'1',iv_load_policy:'3',disablekb:'1',fs:'0',enablejsapi:'1',origin:origin,widget_referrer:origin});
         let box=hero.querySelector('.detail__hero-trailer');
         if(!box){box=el('div','detail__hero-trailer');hero.appendChild(box);}
         box.innerHTML=`<iframe id="detailTrailerFrame" src="https://www.youtube.com/embed/${encodeURIComponent(key)}?${params}" allow="autoplay; encrypted-media" frameborder="0" referrerpolicy="no-referrer-when-downgrade"></iframe><button class="detail__hero-toggle" id="detailTrailerToggle" aria-label="Pause">${ICON_PAUSE}</button>`;

@@ -397,12 +397,20 @@ a { color: inherit; text-decoration: none; }
     position: absolute; top: 50%; left: 50%;
     width: 100%; height: 100%; border: 0;
     /* Overscan so YouTube's startup title (top) & control bar (bottom) are cropped out */
-    transform: translate(-50%, -50%) scale(1.4);
+    transform: translate(-50%, -50%) scale(1.6);
     transform-origin: center center;
     pointer-events: none; /* block all native YouTube UI (title, share, big play button) */
 }
+/* Opaque bars that physically hide YouTube's title bar (top) and controls (bottom) */
+.detail__hero-trailer::before,
+.detail__hero-trailer::after {
+    content: ""; position: absolute; left: 0; right: 0; z-index: 4;
+    height: 18%; background: #000; pointer-events: none;
+}
+.detail__hero-trailer::before { top: 0; background: linear-gradient(180deg, #000 30%, transparent 100%); }
+.detail__hero-trailer::after { bottom: 0; background: linear-gradient(0deg, #000 30%, transparent 100%); }
 .detail__hero-toggle {
-    position: absolute; left: 16px; bottom: 16px; z-index: 5;
+    position: absolute; left: 16px; bottom: 16px; z-index: 6;
     width: 50px; height: 50px; border-radius: 50%;
     display: grid; place-items: center;
     background: rgba(0, 0, 0, 0.55); color: #fff;
@@ -579,6 +587,15 @@ a { color: inherit; text-decoration: none; }
     .card:hover { transform: none; box-shadow: none; }
     .card:hover::before { opacity: 0; }
     .card:active { transform: scale(0.97); }
+    /* Trailer: extra overscan + thicker masks on mobile to hide YouTube chrome completely */
+    .detail__hero-trailer iframe { transform: translate(-50%, -50%) scale(2); }
+    .detail__hero-trailer::before,
+    .detail__hero-trailer::after { height: 25%; }
+    .detail__hero-trailer::before { background: linear-gradient(180deg, #000 50%, transparent 100%); }
+    .detail__hero-trailer::after { background: linear-gradient(0deg, #000 50%, transparent 100%); }
+    .bg-trailer iframe { width: 200vw; height: 112.5vw; min-height: 200vh; min-width: 356vh; }
+    .bg-trailer::before { height: 25%; background: linear-gradient(180deg, var(--bg) 40%, transparent 100%); }
+    .bg-trailer::after { height: 25%; background: linear-gradient(0deg, var(--bg) 40%, transparent 100%); }
 }
 
 
@@ -628,11 +645,18 @@ a { color: inherit; text-decoration: none; }
 .bg-trailer.is-on { opacity: 1; }
 .bg-trailer iframe {
     position: absolute; top: 50%; left: 50%;
-    width: 135vw; height: 75.94vw;              /* 16:9, overscanned 1.35x */
-    min-height: 135vh; min-width: 240vh;        /* cover the viewport + overscan */
+    width: 160vw; height: 90vw;                 /* 16:9, overscanned 1.6x */
+    min-height: 160vh; min-width: 285vh;        /* cover the viewport + overscan */
     transform: translate(-50%, -50%);
     border: 0; pointer-events: none;
 }
+/* Masking bars to hide any YouTube UI that leaks through on mobile */
+.bg-trailer::before,
+.bg-trailer::after {
+    content: ""; position: absolute; left: 0; right: 0; z-index: 1; pointer-events: none;
+}
+.bg-trailer::before { top: 0; height: 20%; background: linear-gradient(180deg, var(--bg) 20%, transparent 100%); }
+.bg-trailer::after { bottom: 0; height: 20%; background: linear-gradient(0deg, var(--bg) 20%, transparent 100%); }
 
 
 /* ---- Mobile bottom navigation ------------------------------------------- */
