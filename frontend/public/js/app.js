@@ -6,7 +6,7 @@
     'use strict';
 
     const API = '/api';
-    const HERO_ROTATE_MS = 20000;
+    const HERO_ROTATE_MS = 10000;
     const INFINITE_SCROLL_THRESHOLD = 400;
 
     const state = {
@@ -178,11 +178,13 @@
         updateHeroMuteBtn();
         dots.innerHTML='';
         items.forEach((_,i)=>{const d=el('button','hero__dot'+(i===state.heroIndex%items.length?' is-active':''));d.addEventListener('click',()=>{state.heroIndex=i;renderHero();restartHeroTimer();});dots.appendChild(d);});
+        // Play the trailer of the current hero anime directly
+        scheduleHeroTrailer(item);
     }
     function restartHeroTimer(){clearInterval(state.heroTimer);if(state.heroItems.length>1){state.heroTimer=setInterval(()=>{state.heroIndex=(state.heroIndex+1)%state.heroItems.length;renderHero();},HERO_ROTATE_MS);}}
 
     /* ---- Hero trailer ---------------------------------------------------- */
-    function scheduleHeroTrailer(item){clearTimeout(state.trailerTimer);removeHeroTrailer();state.trailerTimer=setTimeout(()=>loadHeroTrailer(item),2000);}
+    function scheduleHeroTrailer(item){clearTimeout(state.trailerTimer);removeHeroTrailer();state.trailerTimer=setTimeout(()=>loadHeroTrailer(item),600);}
     async function loadHeroTrailer(item){
         const name=item&&item.name; if(!name) return;
         let key=state.trailerCache.get(name);
@@ -209,10 +211,12 @@
 
     async function renderHome() {
         setActiveNav('home'); showHomeChrome(true); state.currentView='home';
+        // Home no longer uses infinite scroll — drop any lingering handler
+        if(state._scrollHandler){window.removeEventListener('scroll',state._scrollHandler);state._scrollHandler=null;}
         const rows=$('#rows'); rows.style.marginTop=''; rows.innerHTML=''; rows.appendChild(skeletonRow());
 
         let latest=[];
-        try { const res=await api('/anime/new-episodes',{params:{per_page:30}}); latest=(res.data||[]).filter(x=>x.name); state.currentPage=res.current_page||1; state.lastPage=res.last_page||1; }
+        try { const res=await api('/anime/new-episodes',{params:{per_page:30}}); latest=(res.data||[]).filter(x=>x.name); }
         catch(e){ state.heroItems=[]; renderHero(); rows.innerHTML=`<div class="empty">Impossible de charger : ${escapeHtml(e.message)}</div>`; return; }
 
         state.heroItems=latest.filter(x=>x.image_url).slice(0,7);
@@ -232,12 +236,36 @@
 
         if(latest.length) rows.appendChild(makeRow('Ajouts récents',latest));
 
-        // Load more for infinite scroll
-        if(state.currentPage<state.lastPage){
-            const sentinel=el('div','scroll-sentinel'); sentinel.id='scrollSentinel';
-            rows.appendChild(sentinel);
-            setupInfiniteScroll();
-        }
+        // Genre-based rows (one carousel per genre) instead of repeated pages
+        await renderGenreRows(rows);
+    }
+
+    /* ---- Home genre rows ------------------------------------------------- */
+    async function renderGenreRows(rows){
+        let genres=[];
+        try{ const f=await api('/anime/filters'); genres=(f.genres||[]).filter(Boolean); }catch(_){}
+        if(!genres.length) return;
+        // Limit to a reasonable number of genre rows for the homepage
+        genres=genres.slice(0,14);
+
+        // Placeholder skeletons so the page doesn't look empty while loading
+        const loader=el('div','scroll-sentinel'); loader.innerHTML='<span class="spinner"></span>';
+        rows.appendChild(loader);
+
+        // Fetch every genre in parallel, then render in a stable order
+        const results=await Promise.all(genres.map(genre=>
+            api('/anime/all-catalogues',{params:{genre,per_page:20,sort:'newest'}})
+                .then(res=>({genre,items:(res.data||[]).filter(x=>x.name)}))
+                .catch(()=>({genre,items:[]}))
+        ));
+
+        // Bail out if the user navigated away while loading
+        if(state.currentView!=='home'){ if(loader.parentNode) loader.remove(); return; }
+        if(loader.parentNode) loader.remove();
+
+        results.forEach(({genre,items})=>{
+            if(items.length) rows.appendChild(makeRow(genre,items));
+        });
     }
 
     /* ---- Infinite scroll ------------------------------------------------- */
@@ -575,12 +603,12 @@
         const meta=[].concat((data.languages||[]).map(l=>`<span class="chip chip--lang">${escapeHtml(l)}</span>`)).concat((data.genres||[]).slice(0,5).map(g=>`<span class="chip">${escapeHtml(g)}</span>`)).concat(data.is_mature?['<span class="chip" style="border-color:rgba(255,90,120,.5);color:#ff9db0">18+</span>']:[]).join('');
         const detailImage=data.image_url||hint.image_url||'';
         body.innerHTML=`
-            <div class="detail__hero" id="detailHero" style="position:relative">${detailImage?`<img src="${escapeHtml(detailImage)}" alt="" referrerpolicy="no-referrer">`:'<div class="card__ph" style="position:relative;height:100%">'+escapeHtml(initial(name))+'</div>'}<div class="detail__heroText"><h2 class="detail__title">${escapeHtml(name)}</h2></div></div>
+            <div class="detail__hero" id="detailHero" style="position:relative">${detailImage?`<img src="${escapeHtml(detailImage)}" alt="" referrerpolicy="no-referrer">`:'<div class="card__ph" style="position:relative;height:100%">'+escapeHtml(initial(name))+'</div>'}<button class="detail__hero-play" id="detailHeroPlay" style="display:none" aria-label="Lire la bande-annonce"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><div class="detail__heroText"><h2 class="detail__title">${escapeHtml(name)}</h2></div></div>
             <div class="detail__content">
                 <div class="detail__meta">${meta}</div>
                 <div class="detail__actions">
                     <button class="btn btn--ghost" id="detailTrailer" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v12H4z"/><path d="M10 9l5 3-5 3z" fill="currentColor" stroke="none"/></svg> Bande-annonce</button>
-                    <button class="btn ${fav?'btn--primary':'btn--ghost'}" id="detailFav"><svg viewBox="0 0 24 24" fill="${fav?'currentColor':'none'}" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.35-9.5-8.5C1 9 2.5 5.5 6 5.5c2 0 3.2 1.2 4 2.3.8-1.1 2-2.3 4-2.3 3.5 0 5 3.5 3.5 7C19 16.65 12 21 12 21z"/></svg> ${fav?'Dans ma liste':'Ma liste'}</button>
+                    <button class="btn ${fav?'btn--primary':'btn--ghost'}" id="detailFav"><svg viewBox="0 0 24 24" fill="${fav?'currentColor':'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg> ${fav?'Dans ma liste':'Ma liste'}</button>
                 </div>
                 ${data.synopsis?`<p class="detail__synopsis">${escapeHtml(data.synopsis)}</p>`:''}
                 <div class="detail__section-title">Saisons & \u00e9pisodes</div>
@@ -613,9 +641,13 @@
         if(!key||!$('#detailModal').classList.contains('is-open')) return;
         btn.style.display='';
         btn.addEventListener('click',()=>playDetailTrailer(key));
+        // Big play button overlaid on the hero image → launches the trailer directly
+        const heroPlay=$('#detailHeroPlay');
+        if(heroPlay){heroPlay.style.display='';heroPlay.addEventListener('click',()=>playDetailTrailer(key));}
     }
     function playDetailTrailer(key){
         const hero=$('#detailHero');if(!hero) return;
+        const heroPlay=$('#detailHeroPlay');if(heroPlay) heroPlay.style.display='none';
         const origin=location.origin;
         const params=new URLSearchParams({autoplay:'1',rel:'0',modestbranding:'1',playsinline:'1',origin:origin});
         let box=hero.querySelector('.detail__hero-trailer');
@@ -648,7 +680,7 @@
 
     /* ---- Favorites ------------------------------------------------------- */
     async function loadFavorites(){if(!state.token){state.favorites.clear();return;}try{const res=await api('/favorites',{auth:true});state.favorites.clear();(res.data||[]).forEach(f=>state.favorites.set(f.catalogue_url,f.id));}catch(_){}}
-    async function toggleFavorite(url,name,image){if(!state.token){openAuth();return;}try{if(state.favorites.has(url)){const id=state.favorites.get(url);await api(`/favorites/${id}`,{method:'DELETE',auth:true});state.favorites.delete(url);toast('Retiré de ma liste');}else{const res=await api('/favorites',{method:'POST',auth:true,body:{catalogue_url:url,name,image_url:image||null}});state.favorites.set(url,res.data.id);toast('Ajouté à ma liste','ok');}const btn=$('#detailFav');if(btn){const fav=state.favorites.has(url);btn.className=`btn ${fav?'btn--primary':'btn--ghost'}`;btn.innerHTML=`<svg viewBox="0 0 24 24" fill="${fav?'currentColor':'none'}" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.35-9.5-8.5C1 9 2.5 5.5 6 5.5c2 0 3.2 1.2 4 2.3.8-1.1 2-2.3 4-2.3 3.5 0 5 3.5 3.5 7C19 16.65 12 21 12 21z"/></svg> ${fav?'Dans ma liste':'Ma liste'}`;}}catch(e){toast(e.message,'err');}}
+    async function toggleFavorite(url,name,image){if(!state.token){openAuth();return;}try{if(state.favorites.has(url)){const id=state.favorites.get(url);await api(`/favorites/${id}`,{method:'DELETE',auth:true});state.favorites.delete(url);toast('Retiré de ma liste');}else{const res=await api('/favorites',{method:'POST',auth:true,body:{catalogue_url:url,name,image_url:image||null}});state.favorites.set(url,res.data.id);toast('Ajouté à ma liste','ok');}const btn=$('#detailFav');if(btn){const fav=state.favorites.has(url);btn.className=`btn ${fav?'btn--primary':'btn--ghost'}`;btn.innerHTML=`<svg viewBox="0 0 24 24" fill="${fav?'currentColor':'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg> ${fav?'Dans ma liste':'Ma liste'}`;}}catch(e){toast(e.message,'err');}}
 
     /* ---- Auth ------------------------------------------------------------ */
     function openAuth(){setAuthMode('login');openModal('auth');$('#authError').textContent='';}

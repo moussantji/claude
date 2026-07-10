@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/css/app.css?v=4">
+    <link rel="stylesheet" href="/css/app.css?v=5">
 </head>
 <body>
     <!-- Animated cinematic backdrop -->
@@ -75,7 +75,7 @@
             </span>
         </button>
         <button class="tabbar__item" data-tab="list">
-            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.35-9.5-8.5C1 9 2.5 5.5 6 5.5c2 0 3.2 1.2 4 2.3.8-1.1 2-2.3 4-2.3 3.5 0 5 3.5 3.5 7C19 16.65 12 21 12 21z"/></svg>
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></svg>
             <span>Ma liste</span>
         </button>
         <button class="tabbar__item" data-tab="account">
@@ -164,6 +164,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=8"></script>
+    <script src="/js/app.js?v=9"></script>
 </body>
 </html>

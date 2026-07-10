@@ -254,7 +254,7 @@ a { color: inherit; text-decoration: none; }
 /* ---- Cards -------------------------------------------------------------- */
 .card {
     flex: 0 0 auto;
-    width: clamp(148px, 15vw, 210px);
+    width: clamp(230px, 26vw, 340px);
     border-radius: 14px;
     overflow: hidden;
     position: relative;
@@ -263,18 +263,18 @@ a { color: inherit; text-decoration: none; }
     transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s;
     border: 1px solid var(--border);
 }
-.card__poster { aspect-ratio: 2 / 3; width: 100%; object-fit: cover; background: #1a1a26; transition: transform 0.4s; }
+.card__poster { aspect-ratio: 16 / 9; width: 100%; object-fit: cover; background: #1a1a26; transition: transform 0.4s; }
 .card::after {
     content: "";
     position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(0,0,0,0) 45%, rgba(0,0,0,0.85) 100%);
-    opacity: 0; transition: opacity 0.28s;
+    background: linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.9) 100%);
+    opacity: 1; transition: opacity 0.28s;
 }
 .card__info {
     position: absolute; left: 0; right: 0; bottom: 0;
-    padding: 14px 13px;
+    padding: 13px 13px 12px;
     z-index: 2;
-    opacity: 0; transform: translateY(10px);
+    opacity: 1; transform: none;
     transition: opacity 0.28s, transform 0.28s;
 }
 .card__name { font-size: 14px; font-weight: 700; line-height: 1.25; margin-bottom: 7px;
@@ -344,6 +344,19 @@ a { color: inherit; text-decoration: none; }
 .detail__hero img { width: 100%; height: 100%; object-fit: cover; }
 .detail__hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(20,20,30,0) 30%, var(--panel-solid) 98%), linear-gradient(90deg, rgba(20,20,30,0.6), transparent 60%); }
 .detail__heroText { position: absolute; left: clamp(20px, 4vw, 44px); right: clamp(20px, 4vw, 44px); bottom: 22px; z-index: 2; }
+.detail__hero-play {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 4;
+    width: 76px; height: 76px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgba(255, 255, 255, 0.92); color: #0a0a12;
+    box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.7), var(--glow);
+    transition: transform 0.2s ease, background 0.2s ease;
+    animation: pulse-glow 3s infinite;
+}
+.detail__hero-play svg { width: 34px; height: 34px; fill: currentColor; margin-left: 3px; }
+.detail__hero-play:hover { transform: translate(-50%, -50%) scale(1.08); background: #fff; animation: none; }
+.detail__hero-play:active { transform: translate(-50%, -50%) scale(0.96); }
 .detail__title { font-size: clamp(26px, 4vw, 44px); font-weight: 800; letter-spacing: -0.5px; text-shadow: 0 4px 24px rgba(0,0,0,0.7); }
 .detail__content { padding: 22px clamp(20px, 4vw, 44px) 40px; }
 .detail__meta { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 18px; }
@@ -543,7 +556,7 @@ a { color: inherit; text-decoration: none; }
 .sort-btn svg { flex-shrink: 0; }
 .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 15vw, 200px), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(clamp(220px, 24vw, 300px), 1fr));
     gap: 18px;
     padding: 22px clamp(16px, 4vw, 56px) 60px;
 }
@@ -676,7 +689,7 @@ a { color: inherit; text-decoration: none; }
 .account__msg { text-align: center; font-size: 13px; margin-top: 12px; min-height: 18px; }
 
 /* ---- History / Continue watching cards ---------------------------------- */
-.card--history { min-width: clamp(200px, 25vw, 280px); }
+.card--history { min-width: clamp(230px, 26vw, 340px); }
 .card__ph--history { font-size: 28px; background: linear-gradient(135deg, #1a1a2e, #2d2b55); }
 .card__progress { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; background: rgba(255,255,255,0.1); z-index: 5; }
 .card__progress-bar { height: 100%; background: var(--accent-grad); border-radius: 2px; transition: width 0.3s; }
