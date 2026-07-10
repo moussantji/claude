@@ -54,6 +54,15 @@ Schedule::command('episodes:remote --spread=doodstream,streamtape,vidmoly,mp4upl
     ->withoutOverlapping()
     ->runInBackground();
 
+// Lightweight FINALIZE pass every 15 min: polls queued remote jobs and, once the
+// target host has finished fetching the video, writes the final URL into
+// episode_links (so the site serves the new host quickly). Very cheap — it only
+// makes small status API calls, no queuing of new jobs.
+Schedule::command('episodes:remote --finalize-only --update-db --max-minutes=5')
+    ->everyFifteenMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // (Optional legacy) download+re-upload approach — kept available but not scheduled:
 // Schedule::command('episodes:auto --auto --consolidate-to=doodstream --update-db --max-minutes=20')
 //     ->dailyAt('02:00')->withoutOverlapping()->runInBackground();
