@@ -8,63 +8,56 @@ use App\Models\TransferProgress;
 use App\Services\PlayerTransferService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
  * Daily quota-based transfer: max 50 requests per host per anime per day.
+ * Automatically advances to the next anime once the current one is fully done.
  * Resumes from where it left off on each re-launch.
  *
- * The command tracks progress in the `transfer_progress` table so it knows
- * exactly which links have been done, which failed, and which are pending.
+ * Progress is tracked in `transfer_progress` table + a cache key for the
+ * current anime ID so we know where we left off.
  *
  * Usage:
- *   # Transfer starting from anime ID 1 (processes all animes sequentially)
- *   php artisan episodes:daily-transfer --from-id=1
- *
- *   # Transfer a specific anime by name
- *   php artisan episodes:daily-transfer "Naruto"
- *
- *   # Transfer a specific anime by ID
- *   php artisan episodes:daily-transfer 42
- *
- *   # Specify quota per host per anime
- *   php artisan episodes:daily-transfer --from-id=1 --quota=100
- *
- *   # Only VF
- *   php artisan episodes:daily-transfer --from-id=1 --lang=VF
- *
- *   # See progress without transferring
- *   php artisan episodes:daily-transfer --from-id=1 --status
- *
- *   # Reset failed items to retry them
- *   php artisan episodes:daily-transfer "Naruto" --retry-failed
- *
- *   # Update DB links after transfer
+ *   # Start from ID 1, processes sequentially, auto-advances
  *   php artisan episodes:daily-transfer --from-id=1 --update-db
  *
- * Schedule it in app/Console/Kernel.php:
- *   $schedule->command('episodes:daily-transfer --from-id=1 --update-db')->daily();
+ *   # Resume from last position (uses cached current ID)
+ *   php artisan episodes:daily-transfer --auto --update-db
+ *
+ *   # See full progress report
+ *   php artisan episodes:daily-transfer --from-id=1 --status
+ *
+ * Scheduling (runs daily, resumes automatically):
+ *   $schedule->command('episodes:daily-transfer --auto --update-db')->dailyAt('02:00');
  */
 class EpisodesDailyTransfer extends Command
 {
     protected $signature = 'episodes:daily-transfer
         {anime? : Anime name (partial match) or ID}
-        {--from-id= : Start from this anime ID and process all animes sequentially}
+        {--from-id= : Start from this anime ID and process sequentially}
+        {--auto : Resume from last saved position (cached)}
         {--season= : Only this season (1-based)}
         {--lang= : Only this language (VF, VOSTFR, etc.)}
         {--quota=50 : Max transfers per host per anime per day}
+        {--max-failures=3 : Skip a link after this many failures}
         {--update-db : Update episode_links with new URLs}
         {--status : Show progress status only (no transfer)}
-        {--retry-failed : Reset failed items to pending so they get retried}
-        {--reset : Reset ALL progress for this anime (start over)}';
+        {--retry-failed : Reset failed items to pending}
+        {--reset : Reset ALL progress (start over)}';
 
-    protected $description = 'Transfer episodes with a daily quota (50/host/anime/day). Resumes from last position. Use --from-id=1 to process all animes.';
+    protected $description = 'Transfer episodes with daily quota. Auto-advances through animes. Resumes from last position.';
+
+    private const CACHE_KEY = 'episodes_daily_transfer_current_id';
 
     public function handle(PlayerTransferService $service): int
     {
         $animeArg = $this->argument('anime');
         $fromId = $this->option('from-id');
+        $auto = (bool) $this->option('auto');
         $quota = max(1, (int) $this->option('quota'));
+        $maxFailures = max(1, (int) $this->option('max-failures'));
         $lang = (string) $this->option('lang');
         $seasonPos = $this->option('season') !== null ? (int) $this->option('season') : null;
         $updateDb = (bool) $this->option('update-db');
@@ -73,108 +66,175 @@ class EpisodesDailyTransfer extends Command
         $reset = (bool) $this->option('reset');
         $today = Carbon::today();
 
-        // Determine which animes to process
-        $animes = $this->resolveAnimes($animeArg, $fromId);
+        // Resolve starting point
+        $startId = $this->resolveStartId($animeArg, $fromId, $auto);
+        if ($startId === null) {
+            return self::FAILURE;
+        }
+
+        // Get all animes from startId onwards
+        $animes = Anime::query()->where('id', '>=', $startId)->orderBy('id')->get();
         if ($animes->isEmpty()) {
-            $this->error('No anime found.');
+            $this->error("No animes found starting from ID {$startId}.");
 
             return self::FAILURE;
         }
 
         $this->info("═══ Daily Transfer ═══");
-        $this->line("  Animes: {$animes->count()} | Quota: {$quota}/host/anime/day");
+        $this->line("  Starting from: ID {$startId} | Animes: {$animes->count()} | Quota: {$quota}/host/anime/day");
         $this->newLine();
 
         $globalTransferred = 0;
         $globalFailed = 0;
         $globalSkipped = 0;
+        $emptyAnimes = [];
+        $failedAnimes = [];
+        $completedAnimes = [];
 
         foreach ($animes as $anime) {
-            $result = $this->processAnime($anime, $service, $quota, $lang, $seasonPos, $updateDb, $statusOnly, $retryFailed, $reset, $today);
+            $result = $this->processAnime(
+                $anime, $service, $quota, $maxFailures, $lang, $seasonPos,
+                $updateDb, $statusOnly, $retryFailed, $reset, $today
+            );
 
             $globalTransferred += $result['transferred'];
             $globalFailed += $result['failed'];
             $globalSkipped += $result['skipped'];
 
-            // If all hosts hit quota for this anime, it's done for today — move to next
+            if ($result['empty']) {
+                $emptyAnimes[] = $anime;
+            }
+            if ($result['has_failures']) {
+                $failedAnimes[] = $anime;
+            }
+
+            // Check if this anime is fully complete → auto-advance
+            if ($result['complete'] && !$statusOnly && !$reset && !$retryFailed) {
+                $completedAnimes[] = $anime;
+                // Save next ID for --auto resume
+                $nextId = $anime->id + 1;
+                Cache::forever(self::CACHE_KEY, $nextId);
+            } elseif (!$result['complete'] && !$statusOnly) {
+                // Not complete yet — save this ID as current position
+                Cache::forever(self::CACHE_KEY, $anime->id);
+            }
         }
 
-        // Global summary
+        // ══════ Summary ══════
         $this->newLine();
         $this->info("═══ DAILY SUMMARY ═══");
         $this->table(
             ['', 'Count'],
             [
                 ['Animes processed', $animes->count()],
+                ['Animes completed', count($completedAnimes)],
                 ['✓ Transferred', $globalTransferred],
                 ['✗ Failed', $globalFailed],
-                ['⊘ Quota/skipped', $globalSkipped],
+                ['⊘ Skipped (quota/no creds)', $globalSkipped],
             ]
         );
 
+        // Report animes with no episodes
+        if (!empty($emptyAnimes)) {
+            $this->newLine();
+            $this->warn("⚠ Animes without episodes (".count($emptyAnimes)."):");
+            foreach ($emptyAnimes as $a) {
+                $this->line("  <fg=yellow>[{$a->id}]</> {$a->name}");
+            }
+        }
+
+        // Report animes with failures
+        if (!empty($failedAnimes)) {
+            $this->newLine();
+            $this->warn("⚠ Animes with transfer failures (".count($failedAnimes)."):");
+            foreach ($failedAnimes as $a) {
+                $failCount = TransferProgress::where('anime_id', $a->id)->where('status', 'failed')->count();
+                $this->line("  <fg=red>[{$a->id}]</> {$a->name} — {$failCount} failed link(s)");
+            }
+            $this->line("  Use --retry-failed to retry them.");
+        }
+
+        // Show current position
+        $currentId = Cache::get(self::CACHE_KEY, $startId);
+        $this->newLine();
+        $this->line("📍 Current position: anime ID {$currentId}");
+        $this->line("   Next run will resume from here (use --auto).");
+
         if ($updateDb && $globalTransferred > 0) {
-            $this->info("Database updated with {$globalTransferred} new URL(s).");
+            $this->newLine();
+            $this->info("✓ Database updated with {$globalTransferred} new URL(s).");
         }
 
         return self::SUCCESS;
     }
 
     /**
-     * Resolve which animes to process based on arguments.
+     * Determine the starting anime ID.
      */
-    private function resolveAnimes(?string $animeArg, ?string $fromId)
+    private function resolveStartId(?string $animeArg, ?string $fromId, bool $auto): ?int
     {
-        // --from-id=N : all animes starting from ID N
+        // --auto: resume from cached position
+        if ($auto) {
+            $cached = Cache::get(self::CACHE_KEY);
+            if ($cached) {
+                $this->line("Resuming from cached position: ID {$cached}");
+
+                return (int) $cached;
+            }
+            // No cached position, start from 1
+            $this->line("No previous position found. Starting from ID 1.");
+
+            return 1;
+        }
+
+        // --from-id=N
         if ($fromId !== null && $fromId !== '') {
-            return Anime::query()
-                ->where('id', '>=', (int) $fromId)
-                ->orderBy('id')
-                ->get();
+            $id = (int) $fromId;
+            Cache::forever(self::CACHE_KEY, $id);
+
+            return $id;
         }
 
-        // No argument and no --from-id
-        if ($animeArg === null || $animeArg === '') {
-            $this->error('Provide an anime name/ID or use --from-id=1 to process all.');
+        // Specific anime by argument
+        if ($animeArg !== null && $animeArg !== '') {
+            if (is_numeric($animeArg)) {
+                $anime = Anime::find((int) $animeArg);
+                if (!$anime) {
+                    $this->error("Anime ID {$animeArg} not found.");
 
-            return collect();
-        }
+                    return null;
+                }
 
-        // Numeric argument → find by ID
-        if (is_numeric($animeArg)) {
-            $anime = Anime::find((int) $animeArg);
-            if (! $anime) {
-                $this->error("Anime with ID {$animeArg} not found.");
-
-                return collect();
+                return $anime->id;
             }
 
-            return collect([$anime]);
+            $anime = Anime::query()
+                ->where('name', 'like', "%{$animeArg}%")
+                ->orWhere('slug', 'like', "%{$animeArg}%")
+                ->first();
+
+            if (!$anime) {
+                $this->error("Anime not found: \"{$animeArg}\"");
+
+                return null;
+            }
+
+            return $anime->id;
         }
 
-        // String argument → search by name
-        $anime = Anime::query()
-            ->where('name', 'like', "%{$animeArg}%")
-            ->orWhere('slug', 'like', "%{$animeArg}%")
-            ->first();
+        $this->error('Provide an anime name/ID, --from-id=N, or --auto to resume.');
 
-        if (! $anime) {
-            $this->error("Anime not found: \"{$animeArg}\"");
-            $this->newLine();
-            Anime::query()->limit(10)->pluck('name')->each(fn ($n) => $this->line("  • {$n}"));
-
-            return collect();
-        }
-
-        return collect([$anime]);
+        return null;
     }
 
     /**
-     * Process a single anime: sync progress, respect quota, transfer.
+     * Process a single anime. Returns stats.
      */
     private function processAnime(
         Anime $anime,
         PlayerTransferService $service,
         int $quota,
+        int $maxFailures,
         string $lang,
         ?int $seasonPos,
         bool $updateDb,
@@ -183,7 +243,14 @@ class EpisodesDailyTransfer extends Command
         bool $reset,
         Carbon $today,
     ): array {
-        $result = ['transferred' => 0, 'failed' => 0, 'skipped' => 0];
+        $result = [
+            'transferred' => 0,
+            'failed' => 0,
+            'skipped' => 0,
+            'empty' => false,
+            'complete' => false,
+            'has_failures' => false,
+        ];
 
         $this->line("──────────────────────────────────────");
         $this->info("◉ [{$anime->id}] {$anime->name}");
@@ -191,7 +258,9 @@ class EpisodesDailyTransfer extends Command
         // Handle --reset
         if ($reset) {
             $deleted = TransferProgress::where('anime_id', $anime->id)->delete();
-            $this->warn("  Reset: {$deleted} record(s) deleted.");
+            if ($deleted) {
+                $this->warn("  Reset: {$deleted} record(s) deleted.");
+            }
 
             return $result;
         }
@@ -201,7 +270,22 @@ class EpisodesDailyTransfer extends Command
             $updated = TransferProgress::where('anime_id', $anime->id)
                 ->where('status', 'failed')
                 ->update(['status' => 'pending', 'error' => null]);
-            $this->line("  Reset {$updated} failed item(s) to pending.");
+            if ($updated) {
+                $this->line("  Reset {$updated} failed item(s) to pending.");
+            }
+
+            return $result;
+        }
+
+        // Check if anime has any episodes at all
+        $hasEpisodes = EpisodeLink::query()
+            ->whereHas('episode.season', fn ($q) => $q->where('anime_id', $anime->id))
+            ->exists();
+
+        if (!$hasEpisodes) {
+            $this->line("  <fg=yellow>⚠ No episodes/links found. Skipping.</>");
+            $result['empty'] = true;
+            $result['complete'] = true; // Nothing to do → consider it done
 
             return $result;
         }
@@ -209,29 +293,32 @@ class EpisodesDailyTransfer extends Command
         // Sync progress table
         $this->syncProgressTable($anime, $lang, $seasonPos);
 
-        // Get progress grouped by host
+        // Get progress
         $progressQuery = TransferProgress::where('anime_id', $anime->id);
         if ($lang !== '') {
             $progressQuery->whereHas('episodeLink', fn ($q) => $q->where('language', $lang));
         }
-
         $allProgress = $progressQuery->get();
+
         if ($allProgress->isEmpty()) {
-            $this->line("  No links found. Skipping.");
+            $this->line("  <fg=yellow>⚠ No links match filters. Skipping.</>");
+            $result['empty'] = true;
+            $result['complete'] = true;
 
             return $result;
         }
 
         $byHost = $allProgress->groupBy('host');
-
-        // Quick status line
         $totalDone = $allProgress->where('status', 'done')->count();
+        $totalFailed = $allProgress->where('status', 'failed')->count();
+        $totalPending = $allProgress->where('status', 'pending')->count();
         $totalAll = $allProgress->count();
         $pct = $totalAll > 0 ? round(($totalDone / $totalAll) * 100, 1) : 0;
-        $this->line("  Progress: {$totalDone}/{$totalAll} ({$pct}%) | Hosts: ".implode(', ', $byHost->keys()->all()));
 
+        $this->line("  Progress: {$totalDone}/{$totalAll} ({$pct}%) | Pending: {$totalPending} | Failed: {$totalFailed}");
+
+        // Status only mode
         if ($statusOnly) {
-            // Show detailed table
             foreach ($byHost as $host => $items) {
                 $done = $items->where('status', 'done')->count();
                 $pending = $items->where('status', 'pending')->count();
@@ -240,12 +327,18 @@ class EpisodesDailyTransfer extends Command
                 $this->line("    {$host}: ✓{$done} ⏳{$pending} ✗{$failed} (today: {$doneToday}/{$quota})");
             }
 
+            $result['complete'] = ($totalPending === 0);
+
             return $result;
         }
 
-        // If everything is done for this anime, skip
-        if ($allProgress->where('status', 'pending')->isEmpty()) {
+        // Already complete?
+        if ($totalPending === 0) {
             $this->line("  <fg=green>✓ Complete!</>");
+            $result['complete'] = true;
+            if ($totalFailed > 0) {
+                $result['has_failures'] = true;
+            }
 
             return $result;
         }
@@ -253,7 +346,9 @@ class EpisodesDailyTransfer extends Command
         // Process each host
         foreach ($byHost as $host => $items) {
             $driver = $service->driverForHost($host);
-            if (! $driver) {
+            if (!$driver) {
+                $this->line("  <fg=gray>[{$host}]</> No driver available. Skipping.");
+
                 continue;
             }
 
@@ -262,8 +357,11 @@ class EpisodesDailyTransfer extends Command
 
             $remaining = max(0, $quota - $doneToday);
             if ($remaining <= 0) {
-                $this->line("  <fg=yellow>[{$host}]</> Quota {$quota}/{$quota} reached. Next run.");
-                $result['skipped'] += $items->where('status', 'pending')->count();
+                $pendingCount = $items->where('status', 'pending')->count();
+                if ($pendingCount > 0) {
+                    $this->line("  <fg=yellow>[{$host}]</> Quota {$quota}/{$quota} atteint. Reprendra demain.");
+                    $result['skipped'] += $pendingCount;
+                }
 
                 continue;
             }
@@ -275,17 +373,26 @@ class EpisodesDailyTransfer extends Command
 
             $credentials = $this->getTargetCredentials($driver->name());
             if (empty($credentials)) {
-                $this->warn("  [{$host}] No credentials configured.");
+                $this->warn("  [{$host}] Pas de credentials. Configurer TRANSFER_".strtoupper($driver->name())."_* dans .env");
+                $result['skipped'] += $pending->count();
 
                 continue;
             }
 
-            $this->line("  <fg=cyan>[{$host}]</> {$pending->count()} to transfer (quota: {$doneToday}/{$quota})");
+            $this->line("  <fg=cyan>[{$host}]</> {$pending->count()} transfert(s) (aujourd'hui: {$doneToday}/{$quota})");
+
+            $consecutiveFailures = 0;
 
             foreach ($pending as $progress) {
+                // If too many consecutive failures on this host, stop to avoid rate-limiting
+                if ($consecutiveFailures >= $maxFailures) {
+                    $this->line("    <fg=red>⊘</> {$maxFailures} échecs consécutifs sur {$host}. Arrêt pour ce host.");
+                    break;
+                }
+
                 $link = $progress->episodeLink;
-                if (! $link) {
-                    $progress->update(['status' => 'failed', 'error' => 'Link deleted']);
+                if (!$link) {
+                    $progress->update(['status' => 'failed', 'error' => 'Link supprimé de la DB']);
                     $result['failed']++;
 
                     continue;
@@ -293,6 +400,10 @@ class EpisodesDailyTransfer extends Command
 
                 $episode = $link->episode;
                 $season = $episode?->season;
+
+                $epLabel = "S".str_pad((string)(($season?->position ?? 0)+1), 2, '0', STR_PAD_LEFT)
+                    ."E".str_pad((string)($episode?->index ?? 0), 2, '0', STR_PAD_LEFT)
+                    ." [{$link->language}]";
 
                 $title = sprintf('%s - S%02dE%02d %s [%s]',
                     $anime->name,
@@ -325,24 +436,35 @@ class EpisodesDailyTransfer extends Command
                     }
 
                     $result['transferred']++;
-                    $this->line("    <fg=green>✓</> S".str_pad((string)(($season?->position ?? 0)+1), 2, '0', STR_PAD_LEFT)."E".str_pad((string)($episode?->index ?? 0), 2, '0', STR_PAD_LEFT)." [{$link->language}]");
+                    $consecutiveFailures = 0; // Reset on success
+                    $this->line("    <fg=green>✓</> {$epLabel}");
                 } catch (Throwable $e) {
                     $progress->update([
                         'status' => 'failed',
                         'error' => $e->getMessage(),
                     ]);
                     $result['failed']++;
-                    $this->line("    <fg=red>✗</> S".str_pad((string)(($season?->position ?? 0)+1), 2, '0', STR_PAD_LEFT)."E".str_pad((string)($episode?->index ?? 0), 2, '0', STR_PAD_LEFT)." [{$link->language}]: {$e->getMessage()}");
+                    $consecutiveFailures++;
+                    $result['has_failures'] = true;
+                    $this->line("    <fg=red>✗</> {$epLabel}: ".substr($e->getMessage(), 0, 80));
                 }
             }
+        }
+
+        // Check if fully complete now
+        $remainingPending = TransferProgress::where('anime_id', $anime->id)
+            ->where('status', 'pending')->count();
+        $result['complete'] = ($remainingPending === 0);
+
+        if ($result['complete']) {
+            $this->line("  <fg=green>✓ Anime terminé !</>");
         }
 
         return $result;
     }
 
     /**
-     * Ensure every episode_link for this anime has a corresponding
-     * transfer_progress row. New links get status=pending.
+     * Ensure every episode_link for this anime has a progress row.
      */
     private function syncProgressTable(Anime $anime, string $lang, ?int $seasonPos): void
     {
@@ -379,12 +501,11 @@ class EpisodesDailyTransfer extends Command
             ];
         }
 
-        if (! empty($toInsert)) {
-            // Batch insert
+        if (!empty($toInsert)) {
             foreach (array_chunk($toInsert, 500) as $chunk) {
                 TransferProgress::insert($chunk);
             }
-            $this->line("  Synced: ".count($toInsert)." new link(s) added to progress tracker.");
+            $this->line("  Synced: ".count($toInsert)." nouveau(x) lien(s) ajouté(s).");
         }
     }
 
