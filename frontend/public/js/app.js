@@ -816,5 +816,39 @@
         }
         renderHome();
     }
-    document.addEventListener('DOMContentLoaded',boot);
+
+    /* ---- Interactive effects --------------------------------------------- */
+    function setupInteractiveEffects(){
+        // Mouse-following glow on buttons
+        document.addEventListener('mousemove', e => {
+            const btns = document.elementsFromPoint(e.clientX, e.clientY).filter(el => el.classList && el.classList.contains('btn'));
+            btns.forEach(btn => {
+                const rect = btn.getBoundingClientRect();
+                btn.style.setProperty('--x', Math.round(((e.clientX - rect.left) / rect.width) * 100) + '%');
+                btn.style.setProperty('--y', Math.round(((e.clientY - rect.top) / rect.height) * 100) + '%');
+            });
+        }, { passive: true });
+
+        // Parallax tilt on card hover (subtle)
+        document.addEventListener('mousemove', e => {
+            const card = e.target.closest('.card');
+            if (!card || card.classList.contains('card--sk')) return;
+            const rect = card.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width - 0.5;
+            const y = (e.clientY - rect.top) / rect.height - 0.5;
+            card.style.transform = `translateY(-12px) scale(1.06) perspective(600px) rotateX(${(-y * 4).toFixed(1)}deg) rotateY(${(x * 4).toFixed(1)}deg)`;
+        }, { passive: true });
+        document.addEventListener('mouseleave', e => {
+            const card = e.target.closest && e.target.closest('.card');
+            if (card) card.style.transform = '';
+        }, true);
+        // Reset transform when leaving cards
+        document.addEventListener('mouseout', e => {
+            if (e.target.classList && e.target.classList.contains('card')) {
+                e.target.style.transform = '';
+            }
+        }, { passive: true });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => { boot(); setupInteractiveEffects(); });
 })();
