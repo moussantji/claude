@@ -46,7 +46,7 @@ class EpisodesRemote extends Command
         {--from-id= : Start from this anime ID}
         {--auto : Resume from last saved position}
         {--lang= : Only this language}
-        {--quota=50 : Remote jobs queued per anime per day}
+        {--default-limit=200 : Default max remote jobs per HOST per day (override per host via env TRANSFER_<HOST>_DAILY_LIMIT)}
         {--finalize-only : Only poll/finalize queued jobs, do not queue new ones}
         {--update-db : Update episode_links with the final URLs}
         {--max-minutes=0 : Stop cleanly after N minutes (shared hosting)}
@@ -57,7 +57,7 @@ class EpisodesRemote extends Command
         $to = strtolower((string) $this->option('to'));
         $consolidateTo = strtolower((string) $this->option('consolidate-to'));
         $lang = (string) $this->option('lang');
-        $quota = max(1, (int) $this->option('quota'));
+        $defaultLimit = max(1, (int) $this->option('default-limit'));
         $updateDb = (bool) $this->option('update-db');
         $finalizeOnly = (bool) $this->option('finalize-only');
         $maxMinutes = max(0, (int) $this->option('max-minutes'));
@@ -94,7 +94,7 @@ class EpisodesRemote extends Command
 
         $animes = Anime::where('id', '>=', $startId)->orderBy('id')->get();
         $this->info('═══ Remote (server-to-server) transfer ═══');
-        $this->line("  From ID {$startId} | Quota: {$quota} jobs/anime/day | Finalized this run: {$finalized['done']}");
+        $this->line("  From ID {$startId} | Limit: per-host/day (default {$defaultLimit}) | Finalized this run: {$finalized['done']}");
         $this->newLine();
 
         if ($this->option('status')) {
@@ -105,10 +105,18 @@ class EpisodesRemote extends Command
 
         $queued = 0;
         $failed = 0;
+        $capped = [];
 
         foreach ($animes as $anime) {
             if ($deadline !== null && microtime(true) >= $deadline) {
                 $this->line("<fg=yellow>⏱ Time limit reached. Resume next run.</>");
+                break;
+            }
+
+            // If forcing a single target and it's already capped for today, stop.
+            if ($to !== '' && $this->dailyUsed($to, $today) >= $this->hostDailyLimit($to, $defaultLimit)) {
+                $this->line("<fg=yellow>Cap journalier atteint pour {$to}. Reprise demain.</>");
+                Cache::forever(self::CACHE_KEY, $anime->id);
                 break;
             }
 
@@ -120,28 +128,15 @@ class EpisodesRemote extends Command
                 ->get();
 
             if ($items->isEmpty()) {
-                // completed for now → advance
                 if (! TransferProgress::where('anime_id', $anime->id)->whereIn('status', ['pending', 'queued'])->exists()) {
                     Cache::forever(self::CACHE_KEY, $anime->id + 1);
                 }
                 continue;
             }
 
-            // Per-anime daily quota: count jobs queued/done today
-            $usedToday = TransferProgress::where('anime_id', $anime->id)
-                ->whereDate('last_attempt_at', $today->toDateString())
-                ->whereIn('status', ['queued', 'done'])
-                ->count();
-            $budget = max(0, $quota - $usedToday);
+            $this->line("◉ [{$anime->id}] {$anime->name} — {$items->count()} pending");
 
-            if ($budget <= 0) {
-                Cache::forever(self::CACHE_KEY, $anime->id);
-                continue;
-            }
-
-            $this->line("◉ [{$anime->id}] {$anime->name} — {$items->count()} pending (budget {$budget})");
-
-            foreach ($items->take($budget) as $progress) {
+            foreach ($items as $progress) {
                 if ($deadline !== null && microtime(true) >= $deadline) {
                     break 2;
                 }
@@ -156,6 +151,13 @@ class EpisodesRemote extends Command
                 $target = $this->resolveTarget($host, $to, $consolidateTo);
                 if ($target === null) {
                     continue; // unreliable but no target, and not forcing --to
+                }
+
+                // Per-HOST daily cap (each "lecteur" has its own max/day)
+                $limit = $this->hostDailyLimit($target, $defaultLimit);
+                if ($this->dailyUsed($target, $today) >= $limit) {
+                    $capped[$target] = true;
+                    continue; // stays pending → picked up next day
                 }
 
                 $credentials = $this->getTargetCredentials($target);
@@ -185,7 +187,7 @@ class EpisodesRemote extends Command
                         if ($updateDb) {
                             $link->update(['url' => $res['embed_url'], 'host' => $target]);
                         }
-                        $this->line("    <fg=green>✓</> {$label} (instant)");
+                        $this->line("    <fg=green>✓</> {$label} → {$target} (instant)");
                     } else {
                         $progress->update([
                             'status' => 'queued',
@@ -194,8 +196,9 @@ class EpisodesRemote extends Command
                             'last_attempt_at' => now(),
                             'error' => null,
                         ]);
-                        $this->line("    <fg=cyan>↑</> {$label} queued (job ".($res['job_id'] ?? '?').")");
+                        $this->line("    <fg=cyan>↑</> {$label} → {$target} queued");
                     }
+                    $this->bumpDaily($target, $today); // one request consumed for this host
                     $queued++;
                 } catch (Throwable $e) {
                     $progress->update(['status' => 'failed', 'error' => $e->getMessage(), 'last_attempt_at' => now()]);
@@ -204,14 +207,53 @@ class EpisodesRemote extends Command
                 }
             }
 
-            Cache::forever(self::CACHE_KEY, $anime->id);
+            // Advance only when this anime has nothing left to do
+            if (! TransferProgress::where('anime_id', $anime->id)->whereIn('status', ['pending', 'queued'])->exists()) {
+                Cache::forever(self::CACHE_KEY, $anime->id + 1);
+            } else {
+                Cache::forever(self::CACHE_KEY, $anime->id);
+            }
         }
 
         $this->newLine();
         $this->info("Queued: {$queued} | Finalized: {$finalized['done']} | Failed: {$failed}");
+
+        // Show per-host usage today
+        foreach (['doodstream', 'streamtape', 'vidmoly', 'mp4upload'] as $p) {
+            $used = $this->dailyUsed($p, $today);
+            if ($used > 0) {
+                $this->line("  {$p}: {$used}/{$this->hostDailyLimit($p, $defaultLimit)} today");
+            }
+        }
+        if (! empty($capped)) {
+            $this->line('<fg=yellow>Cap atteint aujourd\'hui: '.implode(', ', array_keys($capped)).'. Reprise demain.</>');
+        }
         $this->line('Re-run --finalize-only later to fetch URLs of queued jobs.');
 
         return self::SUCCESS;
+    }
+
+    /* ---- Per-host daily counters (reset by date automatically) ---- */
+    private function dailyKey(string $platform, Carbon $today): string
+    {
+        return "remote_daily:{$platform}:{$today->toDateString()}";
+    }
+
+    private function dailyUsed(string $platform, Carbon $today): int
+    {
+        return (int) Cache::get($this->dailyKey($platform, $today), 0);
+    }
+
+    private function bumpDaily(string $platform, Carbon $today): void
+    {
+        Cache::put($this->dailyKey($platform, $today), $this->dailyUsed($platform, $today) + 1, now()->endOfDay());
+    }
+
+    private function hostDailyLimit(string $platform, int $default): int
+    {
+        $env = env('TRANSFER_'.strtoupper($platform).'_DAILY_LIMIT');
+
+        return ($env !== null && $env !== '') ? max(1, (int) $env) : $default;
     }
 
     /**

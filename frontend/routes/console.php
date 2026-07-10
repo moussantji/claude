@@ -41,13 +41,19 @@ Schedule::command('anime:cache-prune --days=30')
 //
 // Requires the scheduler to be running (cron: php artisan schedule:run, or
 // `php artisan schedule:work`).
-// NOTE (shared hosting / LWS cPanel): downloading + re-uploading full video
-// files is heavy. --max-minutes makes the command stop cleanly before the host
-// kills it; it resumes next run. Lower it if your cron gets killed earlier.
-Schedule::command('episodes:auto --auto --consolidate-to=doodstream --update-db --max-minutes=20')
-    ->dailyAt('02:00')
+// SERVER-TO-SERVER (remote upload) — best for shared hosting / LWS cPanel.
+// The target host (doodstream) fetches each video itself; our server only makes
+// light API calls. Respects each host's daily cap (TRANSFER_<HOST>_DAILY_LIMIT),
+// resumes from where it stopped (--auto), and finalizes queued jobs each run.
+// Runs hourly so queued remote jobs get finalized quickly.
+Schedule::command('episodes:remote --to=doodstream --auto --update-db --max-minutes=10')
+    ->hourly()
     ->withoutOverlapping()
     ->runInBackground();
+
+// (Optional legacy) download+re-upload approach — kept available but not scheduled:
+// Schedule::command('episodes:auto --auto --consolidate-to=doodstream --update-db --max-minutes=20')
+//     ->dailyAt('02:00')->withoutOverlapping()->runInBackground();
 
 // Daily connection health check (logged) so you notice broken credentials.
 Schedule::command('episodes:check-connections')
