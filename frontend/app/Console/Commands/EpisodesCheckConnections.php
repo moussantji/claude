@@ -96,13 +96,16 @@ class EpisodesCheckConnections extends Command
         if ($key === '') {
             return ['no-creds', 'TRANSFER_VIDMOLY_API_KEY empty'];
         }
-        // Try the configured base first, then the .me / .to mirrors automatically.
+        // API host is api.vidmoly.to (api.vidmoly.me does not exist / won't resolve).
+        // Try the configured base first, then fall back to api.vidmoly.to.
         $configured = rtrim(env('TRANSFER_VIDMOLY_API_BASE', 'https://api.vidmoly.to'), '/');
-        $bases = array_values(array_unique([
+        $bases = array_values(array_unique(array_filter([
             $configured,
-            'https://api.vidmoly.me',
             'https://api.vidmoly.to',
-        ]));
+        ], fn ($b) => ! str_contains($b, 'vidmoly.me')))); // drop non-resolving .me API host
+        if (empty($bases)) {
+            $bases = ['https://api.vidmoly.to'];
+        }
 
         $lastMsg = 'key rejected';
 
