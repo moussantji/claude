@@ -83,4 +83,10 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('/content-requests', [AdminController::class, 'contentRequests']);
     Route::put('/content-requests/{contentRequest}', [AdminController::class, 'updateContentRequest']);
     Route::delete('/content-requests/{contentRequest}', [AdminController::class, 'destroyContentRequest']);
+
+    // Episode transfer monitoring (episodes:auto / :quota)
+    Route::get('/transfers/stats', [AdminController::class, 'transferStats']);
+    Route::get('/transfers/errors', [AdminController::class, 'transferErrors']);
+    Route::post('/transfers/retry', [AdminController::class, 'retryTransfers']);
+    Route::post('/transfers/redo', [AdminController::class, 'redoTransfers']);
 });

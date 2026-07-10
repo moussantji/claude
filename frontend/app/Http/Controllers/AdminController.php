@@ -7,9 +7,11 @@ use App\Models\Episode;
 use App\Models\EpisodeLink;
 use App\Models\MediaUpload;
 use App\Models\Season;
+use App\Models\TransferProgress;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 /**
@@ -338,5 +340,120 @@ class AdminController extends Controller
         $contentRequest->delete();
 
         return response()->json(['message' => 'Request deleted.']);
+    }
+
+    /* ---- Episode Transfers (episodes:auto / :quota) ---- */
+
+    /**
+     * Overall transfer progress + today's throughput + per-anime error counts.
+     */
+    public function transferStats(): JsonResponse
+    {
+        $today = Carbon::today()->toDateString();
+
+        $total = TransferProgress::count();
+        $done = TransferProgress::where('status', 'done')->count();
+        $pending = TransferProgress::where('status', 'pending')->count();
+        $failed = TransferProgress::where('status', 'failed')->count();
+        $doneToday = TransferProgress::where('status', 'done')
+            ->whereDate('transferred_at', $today)->count();
+
+        // Animes that currently have at least one failed transfer
+        $animesWithErrors = TransferProgress::query()
+            ->selectRaw('anime_id, COUNT(*) as errors')
+            ->where('status', 'failed')
+            ->groupBy('anime_id')
+            ->orderByDesc('errors')
+            ->limit(100)
+            ->with('anime:id,name')
+            ->get()
+            ->map(fn ($r) => [
+                'anime_id' => $r->anime_id,
+                'anime' => $r->anime?->name ?? ('#'.$r->anime_id),
+                'errors' => (int) $r->errors,
+            ]);
+
+        return response()->json(['data' => [
+            'total' => $total,
+            'done' => $done,
+            'pending' => $pending,
+            'failed' => $failed,
+            'done_today' => $doneToday,
+            'percent' => $total > 0 ? round($done / $total * 100, 1) : 0,
+            'animes_with_errors' => $animesWithErrors,
+        ]]);
+    }
+
+    /**
+     * Detailed list of failed transfers (with anime / episode / host / error).
+     */
+    public function transferErrors(Request $request): JsonResponse
+    {
+        $query = TransferProgress::query()
+            ->where('status', 'failed')
+            ->with(['episodeLink.episode.season', 'anime:id,name']);
+
+        if ($animeId = $request->query('anime_id')) {
+            $query->where('anime_id', (int) $animeId);
+        }
+
+        $items = $query->orderByDesc('last_attempt_at')
+            ->limit(300)
+            ->get()
+            ->map(function (TransferProgress $p) {
+                $ep = $p->episodeLink?->episode;
+                $season = $ep?->season;
+
+                return [
+                    'id' => $p->id,
+                    'anime' => $p->anime?->name ?? ('#'.$p->anime_id),
+                    'anime_id' => $p->anime_id,
+                    'season' => ($season?->position ?? 0) + 1,
+                    'episode' => $ep?->index,
+                    'language' => $p->episodeLink?->language,
+                    'host' => $p->host,
+                    'attempts' => $p->attempts,
+                    'error' => $p->error,
+                    'last_attempt_at' => $p->last_attempt_at,
+                ];
+            });
+
+        return response()->json(['data' => $items]);
+    }
+
+    /**
+     * Re-arm failed transfers so they get retried (all, or one anime).
+     */
+    public function retryTransfers(Request $request): JsonResponse
+    {
+        $q = TransferProgress::where('status', 'failed');
+        if ($animeId = $request->input('anime_id')) {
+            $q->where('anime_id', (int) $animeId);
+        }
+
+        $count = $q->update(['status' => 'pending', 'attempts' => 0, 'error' => null]);
+
+        return response()->json(['message' => "{$count} transfert(s) réarmé(s).", 'count' => $count]);
+    }
+
+    /**
+     * Re-do finished transfers: put completed ones back in the queue (at the end).
+     * Optionally scope to a single anime.
+     */
+    public function redoTransfers(Request $request): JsonResponse
+    {
+        $q = TransferProgress::where('status', 'done');
+        if ($animeId = $request->input('anime_id')) {
+            $q->where('anime_id', (int) $animeId);
+        }
+
+        $count = $q->update([
+            'status' => 'pending',
+            'attempts' => 0,
+            'transferred_at' => null,
+            'error' => null,
+        ]);
+
+        return response()->json(['message' => "{$count} transfert(s) terminé(s) remis en file.", 'count' => $count]);
     }
 }

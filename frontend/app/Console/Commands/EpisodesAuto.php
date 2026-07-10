@@ -48,12 +48,13 @@ class EpisodesAuto extends Command
         {--consolidate-to= : Target monetizing host for unreliable sources (doodstream, vidmoly, ...)}
         {--unreliable= : Override unreliable source hosts (comma-separated)}
         {--lang= : Only this language}
-        {--quota=50 : Max transfers per source host per anime per day}
+        {--quota=50 : Max EPISODES transferred per anime per day (all hosts combined)}
         {--max-failures=3 : Stop a host after this many consecutive failures}
         {--add-link : For consolidation, add a new link instead of replacing}
         {--update-db : Update episode_links with new URLs}
         {--status : Show progress report only (no transfer)}
         {--retry-failed : Reset failed items to pending}
+        {--redo-completed : Put finished (done) transfers back in the queue to redo them}
         {--reset : Reset ALL progress (start over)}';
 
     protected $description = 'All-in-one: same-host transfer for reliable hosts + consolidation for unreliable ones. Daily quota, auto-resume.';
@@ -70,6 +71,7 @@ class EpisodesAuto extends Command
         $updateDb = (bool) $this->option('update-db');
         $statusOnly = (bool) $this->option('status');
         $retryFailed = (bool) $this->option('retry-failed');
+        $redoCompleted = (bool) $this->option('redo-completed');
         $reset = (bool) $this->option('reset');
         $today = Carbon::today();
 
@@ -103,7 +105,7 @@ class EpisodesAuto extends Command
         }
 
         $this->info('═══ Episodes Auto ═══');
-        $this->line("  From ID: {$startId} | Animes: {$animes->count()} | Quota: {$quota}/host/anime/day");
+        $this->line("  From ID: {$startId} | Animes: {$animes->count()} | Quota: {$quota} episodes/anime/day");
         $this->line('  Reliable → same-host | Unreliable ('.implode(',', $unreliable).') → '.($consolidateTo ?: '(skipped: no --consolidate-to)'));
         $this->newLine();
 
@@ -115,7 +117,7 @@ class EpisodesAuto extends Command
         foreach ($animes as $anime) {
             $r = $this->processAnime(
                 $anime, $service, $consolidateTo, $unreliable, $quota, $maxFailures,
-                $lang, $addLink, $updateDb, $statusOnly, $retryFailed, $reset, $today
+                $lang, $addLink, $updateDb, $statusOnly, $retryFailed, $redoCompleted, $reset, $today
             );
 
             $totals['transferred'] += $r['transferred'];
@@ -184,6 +186,7 @@ class EpisodesAuto extends Command
         bool $updateDb,
         bool $statusOnly,
         bool $retryFailed,
+        bool $redoCompleted,
         bool $reset,
         Carbon $today,
     ): array {
@@ -210,6 +213,18 @@ class EpisodesAuto extends Command
                 ->update(['status' => 'pending', 'error' => null]);
             if ($updated) {
                 $this->line("  Reset {$updated} failed item(s).");
+            }
+
+            return $result;
+        }
+
+        // Re-do finished ones: put completed transfers back in the queue (at the end)
+        if ($redoCompleted) {
+            $updated = TransferProgress::where('anime_id', $anime->id)
+                ->where('status', 'done')
+                ->update(['status' => 'pending', 'transferred_at' => null, 'error' => null]);
+            if ($updated) {
+                $this->line("  Re-queued {$updated} finished transfer(s) to redo.");
             }
 
             return $result;
@@ -274,8 +289,24 @@ class EpisodesAuto extends Command
             return $result;
         }
 
-        // Process each host
+        // Daily quota is PER ANIME (all hosts combined): 50 episodes/anime/day.
+        $doneTodayAnime = $allProgress->where('status', 'done')
+            ->where('transferred_at', $today->toDateString())->count();
+        $animeBudget = max(0, $quota - $doneTodayAnime);
+
+        if ($animeBudget <= 0) {
+            $this->line("  <fg=yellow>Quota {$quota}/{$quota} atteint pour aujourd'hui. Reprise demain.</>");
+            $result['skipped'] += $totalPending;
+
+            return $result;
+        }
+
+        // Process each host (sharing the per-anime daily budget)
         foreach ($byHost as $host => $items) {
+            if ($animeBudget <= 0) {
+                $result['skipped'] += $items->where('status', 'pending')->count();
+                continue;
+            }
             $isUnreliable = $this->isUnreliable($host, $unreliable);
 
             // Decide target platform
@@ -307,28 +338,14 @@ class EpisodesAuto extends Command
                 continue;
             }
 
-            // Daily quota is per SOURCE host
-            $doneToday = $items->where('status', 'done')
-                ->where('transferred_at', $today->toDateString())->count();
-            $remaining = max(0, $quota - $doneToday);
-
-            if ($remaining <= 0) {
-                $pendingCount = $items->where('status', 'pending')->count();
-                if ($pendingCount > 0) {
-                    $this->line("  <fg=yellow>[{$host}]</> Quota {$quota}/{$quota} atteint. Demain.");
-                    $result['skipped'] += $pendingCount;
-                }
-
-                continue;
-            }
-
-            $pending = $items->where('status', 'pending')->sortBy('id')->take($remaining);
+            // Take from the shared per-anime daily budget
+            $pending = $items->where('status', 'pending')->sortBy('id')->take($animeBudget);
             if ($pending->isEmpty()) {
                 continue;
             }
 
             $action = $targetPlatform ? "→ {$targetPlatform} (consolidate)" : '→ same-host';
-            $this->line("  <fg=cyan>[{$host}]</> {$pending->count()} {$action} (aujourd'hui: {$doneToday}/{$quota})");
+            $this->line("  <fg=cyan>[{$host}]</> {$pending->count()} {$action} (budget anime: {$animeBudget})");
 
             $consecutiveFailures = 0;
 
@@ -390,7 +407,13 @@ class EpisodesAuto extends Command
                         $result['transferred']++;
                     }
                     $consecutiveFailures = 0;
+                    $animeBudget--; // consume one unit of the per-anime daily budget
                     $this->line("    <fg=green>✓</> {$epLabel}");
+
+                    if ($animeBudget <= 0) {
+                        $this->line("    <fg=yellow>Quota journalier de l'anime atteint ({$quota}). Reprise demain.</>");
+                        break 2; // stop this anime for today
+                    }
                 } catch (Throwable $e) {
                     $progress->update(['status' => 'failed', 'error' => $e->getMessage()]);
                     $result['failed']++;

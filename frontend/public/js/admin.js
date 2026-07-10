@@ -438,6 +438,70 @@
         $('#requestsBtn').addEventListener('click', openRequestsAdmin);
         $('#requestsClose').addEventListener('click', () => $('#requestsModal').classList.remove('open'));
         $('#requestsModal').addEventListener('click', (e) => { if (e.target === $('#requestsModal')) $('#requestsModal').classList.remove('open'); });
+
+        // Transfers monitoring
+        $('#transfersBtn').addEventListener('click', openTransfers);
+        $('#transfersClose').addEventListener('click', () => $('#transfersModal').classList.remove('open'));
+        $('#transfersModal').addEventListener('click', (e) => { if (e.target === $('#transfersModal')) $('#transfersModal').classList.remove('open'); });
+        $('#refreshTransfersBtn').addEventListener('click', reloadTransfers);
+        $('#retryAllBtn').addEventListener('click', () => transferAction('/admin/transfers/retry', 'Réessayer TOUS les échecs ?'));
+        $('#redoAllBtn').addEventListener('click', () => transferAction('/admin/transfers/redo', 'Remettre TOUS les terminés en file (re-upload) ?'));
+    }
+
+    /* ---- Transfers Admin ---- */
+    async function openTransfers() {
+        $('#transfersModal').classList.add('open');
+        $('#transferStats').innerHTML = '<span class="muted">Chargement...</span>';
+        $('#transferErrors').innerHTML = '';
+        reloadTransfers();
+    }
+
+    async function reloadTransfers() {
+        try {
+            const { data } = await api('/admin/transfers/stats');
+            const labels = { total: 'Total', done: 'Termin\u00e9s', pending: 'En attente', failed: 'Erreurs', done_today: "Aujourd'hui" };
+            $('#transferStats').innerHTML = Object.entries(labels)
+                .map(([k, label]) => {
+                    const color = k === 'failed' && data[k] > 0 ? 'color:var(--danger)' : (k === 'done' ? 'color:#4fe0a0' : '');
+                    return `<div class="stat"><b style="${color}">${data[k] ?? 0}</b><span>${label}</span></div>`;
+                }).join('') + `<div class="stat"><b>${data.percent ?? 0}%</b><span>Progression</span></div>`;
+        } catch (e) {
+            $('#transferStats').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+        loadTransferErrors();
+    }
+
+    async function loadTransferErrors() {
+        try {
+            const { data } = await api('/admin/transfers/errors');
+            const box = $('#transferErrors');
+            if (!data.length) { box.innerHTML = '<span class="muted">Aucune erreur \uD83C\uDF89</span>'; return; }
+            box.innerHTML = `<table><thead><tr><th>Anime</th><th>\u00c9p.</th><th>Lang</th><th>Host</th><th>Essais</th><th>Erreur</th><th></th></tr></thead><tbody>${
+                data.map(e => `<tr>
+                    <td>${escapeHtml(e.anime)}</td>
+                    <td>S${String(e.season).padStart(2,'0')}E${String(e.episode ?? 0).padStart(2,'0')}</td>
+                    <td>${escapeHtml(e.language || '')}</td>
+                    <td>${escapeHtml(e.host || '')}</td>
+                    <td>${e.attempts}</td>
+                    <td class="muted" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(e.error || '')}">${escapeHtml(e.error || '')}</td>
+                    <td><button class="btn" data-retry-anime="${e.anime_id}">↻</button></td>
+                </tr>`).join('')
+            }</tbody></table>`;
+            box.querySelectorAll('[data-retry-anime]').forEach(btn => {
+                btn.addEventListener('click', () => transferAction('/admin/transfers/retry', null, { anime_id: +btn.dataset.retryAnime }));
+            });
+        } catch (e) {
+            $('#transferErrors').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    async function transferAction(path, confirmMsg, body = {}) {
+        if (confirmMsg && !confirm(confirmMsg)) return;
+        try {
+            const res = await api(path, { method: 'POST', body });
+            toast(res.message || 'OK');
+            reloadTransfers();
+        } catch (e) { toast(e.message); }
     }
 
     /* ---- Planning Admin ---- */

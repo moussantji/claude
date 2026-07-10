@@ -91,6 +91,7 @@
                 <button class="btn btn--primary" id="createAnimeBtn">+ Nouvel anime</button>
                 <button class="btn" id="planningBtn">Planning</button>
                 <button class="btn" id="requestsBtn">Demandes</button>
+                <button class="btn" id="transfersBtn">Transferts</button>
             </div>
             <table>
                 <thead><tr><th>ID</th><th></th><th>Nom</th><th>Saisons</th><th>Trailer</th><th>Synopsis</th><th></th></tr></thead>
@@ -173,6 +174,25 @@
         </div>
     </div>
 
+    <!-- Transfers monitoring modal -->
+    <div class="modal" id="transfersModal">
+        <div class="card" style="width:760px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0">Transferts d'épisodes</h2>
+                <button type="button" class="btn" id="transfersClose">Fermer</button>
+            </div>
+            <p class="muted" style="margin:8px 0 12px">Progression des transferts (episodes:auto / :quota) et erreurs.</p>
+            <div class="stats" id="transferStats" style="margin-bottom:14px"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+                <button class="btn btn--primary" id="retryAllBtn" title="Remet tous les échecs en file">↻ Réessayer les erreurs</button>
+                <button class="btn" id="redoAllBtn" title="Remet les terminés en file (re-upload)">⟳ Refaire les terminés</button>
+                <button class="btn" id="refreshTransfersBtn">Actualiser</button>
+            </div>
+            <h3 style="margin:6px 0 8px;font-size:14px">Erreurs</h3>
+            <div id="transferErrors" style="max-height:48vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
     <div class="toast" id="toast"></div>
 
     <!-- Planning modal -->
@@ -198,6 +218,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=3"></script>
+    <script src="/js/admin.js?v=4"></script>
 </body>
 </html>
