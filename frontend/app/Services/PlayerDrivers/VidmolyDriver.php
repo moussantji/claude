@@ -182,37 +182,46 @@ class VidmolyDriver implements PlayerDriverInterface
 
     /**
      * Minimal JS p.a.c.k.e.r unpacker for extracting URLs from obfuscated code.
+     * Handles the standard Dean Edwards packer format:
+     *   eval(function(p,a,c,k,e,d){...}('payload',base,count,'kw1|kw2|...'.split('|')...))
      */
     private function unpackJs(string $packed): ?string
     {
-        if (! preg_match("/\}\('(.+)',(\d+),(\d+),'([^']+)'\.split/s", $packed, $m)) {
+        if (! preg_match("/\}\s*\(\s*'(.+?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([^']*)'\.split\('\|'\)/s", $packed, $m)) {
             return null;
         }
+
         $payload = $m[1];
         $base = (int) $m[2];
-        $count = (int) $m[3];
         $keywords = explode('|', $m[4]);
 
-        $decode = function (int $c) use ($base): string {
-            $result = '';
-            if ($c >= $base) {
-                $result = ($this->unpackBaseN)((int) ($c / $base), $base) ?? '';
-            }
-            $c = $c % $base;
-            $char = $c > 35 ? chr($c + 29) : base_convert((string) $c, 10, 36);
+        // Replace each token in the payload with its keyword from the dictionary.
+        return preg_replace_callback('/\b\w+\b/', function ($match) use ($keywords, $base) {
+            $n = $this->baseDecode($match[0], $base);
 
-            return $result.$char;
-        };
-
-        // Simple approach: replace word boundaries
-        return preg_replace_callback('/\b(\w+)\b/', function ($match) use ($keywords, $base) {
-            $word = $match[1];
-            $n = (int) base_convert($word, $base, 10);
-            if ($n < count($keywords) && $keywords[$n] !== '') {
-                return $keywords[$n];
-            }
-
-            return $word;
+            return ($n >= 0 && $n < count($keywords) && $keywords[$n] !== '')
+                ? $keywords[$n]
+                : $match[0];
         }, $payload);
+    }
+
+    /**
+     * Decode a string encoded in the given base (supports up to base 62).
+     */
+    private function baseDecode(string $str, int $base): int
+    {
+        $chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        $num = 0;
+        $len = strlen($str);
+
+        for ($i = 0; $i < $len; $i++) {
+            $pos = strpos($chars, $str[$i]);
+            if ($pos === false || $pos >= $base) {
+                return -1;
+            }
+            $num = $num * $base + $pos;
+        }
+
+        return $num;
     }
 }
