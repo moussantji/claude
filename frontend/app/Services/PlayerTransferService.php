@@ -76,13 +76,18 @@ class PlayerTransferService
     }
 
     /**
-     * Transfer a video from source to target account on the same platform.
+     * Transfer a video from a source URL to a target account.
+     *
+     * By default the target platform is the SAME as the source (vidmoly→vidmoly).
+     * Pass $targetPlatform to send it to a DIFFERENT platform (cross-host),
+     * e.g. sendvid→doodstream to consolidate onto a monetizing host.
      *
      * @param  string  $sourceEmbedUrl  Current embed URL (from the DB).
      * @param  string  $title           Title for the re-uploaded video.
      * @param  array   $targetCredentials  Target account credentials.
      * @param  string|null  $tempDir    Directory for temporary downloads.
-     * @return array{embed_url: string, file_code: string|null}
+     * @param  string|null  $targetPlatform  Force a different target platform (cross-host).
+     * @return array{embed_url: string, file_code: string|null, host: string}
      *
      * @throws RuntimeException
      */
@@ -91,14 +96,24 @@ class PlayerTransferService
         string $title,
         array $targetCredentials,
         ?string $tempDir = null,
+        ?string $targetPlatform = null,
     ): array {
-        // Determine the hosting platform from the URL
+        // Determine the source platform from the URL
         $host = parse_url($sourceEmbedUrl, PHP_URL_HOST) ?? '';
         $host = preg_replace('/^www\./', '', $host);
 
-        $driver = $this->driverForHost($host);
-        if (! $driver) {
-            throw new RuntimeException("No driver available for host: {$host}");
+        $sourceDriver = $this->driverForHost($host);
+        if (! $sourceDriver) {
+            throw new RuntimeException("No driver available for source host: {$host}");
+        }
+
+        // Target driver: same as source unless a target platform is specified
+        $targetDriver = $targetPlatform !== null
+            ? $this->driverByName($targetPlatform)
+            : $sourceDriver;
+
+        if (! $targetDriver) {
+            throw new RuntimeException("No driver available for target platform: {$targetPlatform}");
         }
 
         $tempDir = $tempDir ?? storage_path('app/temp-transfers');
@@ -109,20 +124,21 @@ class PlayerTransferService
         $tempFile = $tempDir.'/transfer_'.uniqid().'_'.time().'.mp4';
 
         try {
-            // Step 1: Extract direct video URL
-            $directUrl = $driver->extractDirectUrl($sourceEmbedUrl);
+            // Step 1: Extract direct video URL (using the SOURCE driver)
+            $directUrl = $sourceDriver->extractDirectUrl($sourceEmbedUrl);
             if (! $directUrl) {
                 throw new RuntimeException("Could not extract direct URL from: {$sourceEmbedUrl}");
             }
 
-            // Step 2: Download the video
-            $success = $driver->download($directUrl, $tempFile);
+            // Step 2: Download the video (using the SOURCE driver)
+            $success = $sourceDriver->download($directUrl, $tempFile);
             if (! $success) {
                 throw new RuntimeException("Download failed for: {$directUrl}");
             }
 
-            // Step 3: Upload to target account
-            $result = $driver->upload($tempFile, $title, $targetCredentials);
+            // Step 3: Upload to target account (using the TARGET driver)
+            $result = $targetDriver->upload($tempFile, $title, $targetCredentials);
+            $result['host'] = parse_url($result['embed_url'] ?? '', PHP_URL_HOST) ?? $targetDriver->name();
 
             return $result;
         } finally {
