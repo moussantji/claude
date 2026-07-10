@@ -252,6 +252,30 @@ class EpisodesTransfer extends Command
                 'api_key' => $this->option('target-api-key') ?: env('TRANSFER_SENDVID_API_KEY', ''),
                 'api_base' => env('TRANSFER_SENDVID_API_BASE', 'https://sendvid.com/api'),
             ]),
+            'doodstream' => array_filter([
+                'api_key' => $this->option('target-api-key') ?: env('TRANSFER_DOODSTREAM_API_KEY', ''),
+                'api_base' => env('TRANSFER_DOODSTREAM_API_BASE', 'https://doodapi.com/api'),
+            ]),
+            'streamtape' => array_filter([
+                'login' => $this->option('target-login') ?: env('TRANSFER_STREAMTAPE_LOGIN', ''),
+                'api_key' => $this->option('target-api-key') ?: env('TRANSFER_STREAMTAPE_API_KEY', ''),
+                'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
+            ]),
+            'mp4upload' => array_filter([
+                'api_key' => $this->option('target-api-key') ?: env('TRANSFER_MP4UPLOAD_API_KEY', ''),
+                'api_base' => env('TRANSFER_MP4UPLOAD_API_BASE', 'https://www.mp4upload.com/api'),
+            ]),
+            'myvi' => array_filter([
+                'login' => $this->option('target-login') ?: env('TRANSFER_MYVI_LOGIN', ''),
+                'password' => $this->option('target-password') ?: env('TRANSFER_MYVI_PASSWORD', ''),
+                'api_base' => env('TRANSFER_MYVI_API_BASE', 'https://myvi.tv'),
+            ]),
+            'dailymotion' => array_filter([
+                'api_key' => $this->option('target-api-key') ?: env('TRANSFER_DAILYMOTION_API_KEY', ''),
+                'api_secret' => env('TRANSFER_DAILYMOTION_API_SECRET', ''),
+                'username' => $this->option('target-login') ?: env('TRANSFER_DAILYMOTION_USERNAME', ''),
+                'password' => $this->option('target-password') ?: env('TRANSFER_DAILYMOTION_PASSWORD', ''),
+            ]),
             default => [],
         };
     }
