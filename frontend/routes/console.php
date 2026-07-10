@@ -45,12 +45,12 @@ Schedule::command('anime:cache-prune --days=30')
 // The target host (doodstream) fetches each video itself; our server only makes
 // light API calls. Respects each host's daily cap (TRANSFER_<HOST>_DAILY_LIMIT),
 // resumes from where it stopped (--auto), and finalizes queued jobs each run.
-// Runs hourly so queued remote jobs get finalized quickly.
+// Runs every 30 minutes so queued remote jobs get finalized quickly.
 // --spread distributes uploads across ALL your monetizing accounts (fills each
 // up to its per-host daily cap) instead of sending everything to one host.
 // Hosts without credentials in .env are skipped automatically.
 Schedule::command('episodes:remote --spread=doodstream,streamtape,vidmoly,mp4upload --auto --update-db --max-minutes=10')
-    ->hourly()
+    ->everyThirtyMinutes()
     ->withoutOverlapping()
     ->runInBackground();
 
