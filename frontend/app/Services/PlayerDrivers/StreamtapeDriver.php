@@ -12,11 +12,74 @@ use Throwable;
  * Extract: Streamtape hides the direct link in obfuscated JS. We reconstruct it.
  * Upload: Uses the Streamtape API.
  */
-class StreamtapeDriver implements PlayerDriverInterface
+class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface
 {
     public function name(): string
     {
         return 'streamtape';
+    }
+
+    /**
+     * Streamtape remote upload — the target server downloads the URL itself.
+     * Docs: /remotedl/add?login=&key=&url=&name=  → returns result.id
+     */
+    public function remoteUpload(string $sourceUrl, string $title, array $credentials): array
+    {
+        $login = $credentials['login'] ?? '';
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://api.streamtape.com', '/');
+
+        if ($login === '' || $key === '') {
+            throw new RuntimeException('Streamtape credentials (login/api_key) missing.');
+        }
+
+        $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/remotedl/add", [
+            'login' => $login,
+            'key' => $key,
+            'url' => $sourceUrl,
+            'name' => $title !== '' ? $title.'.mp4' : null,
+        ]);
+
+        if ($resp->failed() || (int) $resp->json('status') !== 200) {
+            throw new RuntimeException('Streamtape remote add failed: '.($resp->json('msg') ?? $resp->status()));
+        }
+
+        return [
+            'job_id' => $resp->json('result.id'),
+            'embed_url' => null,
+            'file_code' => null,
+            'state' => 'queued',
+        ];
+    }
+
+    public function remoteStatus(string $jobId, array $credentials): array
+    {
+        $login = $credentials['login'] ?? '';
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://api.streamtape.com', '/');
+
+        $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/remotedl/status", [
+            'login' => $login, 'key' => $key, 'id' => $jobId,
+        ]);
+
+        $entry = $resp->json("result.{$jobId}");
+        if (! is_array($entry)) {
+            return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
+        }
+
+        $status = $entry['status'] ?? 'new';
+        // Streamtape statuses: new, downloading, ... , finished
+        if (in_array($status, ['finished', 'completed'], true) || ! empty($entry['url'])) {
+            $fileId = $entry['extid'] ?: null;
+            $url = $entry['url'] ?: ($fileId ? "https://streamtape.com/e/{$fileId}" : null);
+
+            return ['state' => 'done', 'embed_url' => $url, 'file_code' => $fileId, 'error' => null];
+        }
+        if (in_array($status, ['error', 'failed'], true)) {
+            return ['state' => 'error', 'embed_url' => null, 'file_code' => null, 'error' => 'remote download failed'];
+        }
+
+        return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
     }
 
     public function matchesHost(string $host): bool

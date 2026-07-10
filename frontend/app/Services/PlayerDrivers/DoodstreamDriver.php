@@ -13,11 +13,79 @@ use Throwable;
  *          parse the embed page and reconstruct the download URL.
  * Upload: Uses the Doodstream API (XFileSharing derivative).
  */
-class DoodstreamDriver implements PlayerDriverInterface
+class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
 {
     public function name(): string
     {
         return 'doodstream';
+    }
+
+    /**
+     * Doodstream remote upload — its server fetches the URL directly.
+     * It can resolve many source hosts (sibnet, streamtape, direct mp4, ...).
+     * Endpoint: /upload/url?key=&url=
+     */
+    public function remoteUpload(string $sourceUrl, string $title, array $credentials): array
+    {
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.com/api', '/');
+
+        if ($key === '') {
+            throw new RuntimeException('Doodstream API key missing.');
+        }
+
+        $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/upload/url", [
+            'key' => $key,
+            'url' => $sourceUrl,
+            'title' => $title !== '' ? $title : null,
+        ]);
+
+        if ($resp->failed() || (int) $resp->json('status') !== 200) {
+            throw new RuntimeException('Doodstream remote upload failed: '.($resp->json('msg') ?? $resp->status()));
+        }
+
+        $result = $resp->json('result');
+        // Result can be an object or a list; try to find a file code
+        $entry = (is_array($result) && array_is_list($result) && isset($result[0])) ? $result[0] : $result;
+        $code = $entry['filecode'] ?? $entry['file_code'] ?? $entry['code'] ?? null;
+
+        if ($code) {
+            return [
+                'job_id' => $code,
+                'embed_url' => "https://dood.to/e/{$code}",
+                'file_code' => $code,
+                'state' => 'done',
+            ];
+        }
+
+        return [
+            'job_id' => $entry['id'] ?? null,
+            'embed_url' => null,
+            'file_code' => null,
+            'state' => 'queued',
+        ];
+    }
+
+    public function remoteStatus(string $jobId, array $credentials): array
+    {
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.com/api', '/');
+
+        // If jobId already looks like a file code, confirm it exists.
+        $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/info", [
+            'key' => $key, 'file_code' => $jobId,
+        ]);
+
+        $result = $resp->json('result');
+        $entry = (is_array($result) && array_is_list($result) && isset($result[0])) ? $result[0] : $result;
+
+        if (is_array($entry) && ! empty($entry['filecode'] ?? $entry['file_code'] ?? null)) {
+            $code = $entry['filecode'] ?? $entry['file_code'];
+
+            return ['state' => 'done', 'embed_url' => "https://dood.to/e/{$code}", 'file_code' => $code, 'error' => null];
+        }
+
+        return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
     }
 
     public function matchesHost(string $host): bool

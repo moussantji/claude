@@ -9,11 +9,44 @@ use Throwable;
 /**
  * Driver for Mp4upload.com (XFileSharing-based).
  */
-class Mp4uploadDriver implements PlayerDriverInterface
+class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface
 {
     public function name(): string
     {
         return 'mp4upload';
+    }
+
+    /** XFileSharing remote upload: {api}/upload/url?key=&url= */
+    public function remoteUpload(string $sourceUrl, string $title, array $credentials): array
+    {
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://www.mp4upload.com/api', '/');
+        if ($key === '') {
+            throw new RuntimeException('Mp4upload API key missing.');
+        }
+
+        $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/upload/url", [
+            'key' => $key, 'url' => $sourceUrl, 'file_title' => $title ?: null,
+        ]);
+
+        if ($resp->failed()) {
+            throw new RuntimeException('Mp4upload remote upload failed (HTTP '.$resp->status().').');
+        }
+
+        $data = $resp->json();
+        $entry = is_array($data) && isset($data[0]) ? $data[0] : $data;
+        $code = $entry['file_code'] ?? $entry['filecode'] ?? null;
+
+        return $code
+            ? ['job_id' => $code, 'embed_url' => "https://www.mp4upload.com/embed-{$code}.html", 'file_code' => $code, 'state' => 'done']
+            : ['job_id' => null, 'embed_url' => null, 'file_code' => null, 'state' => 'queued'];
+    }
+
+    public function remoteStatus(string $jobId, array $credentials): array
+    {
+        return $jobId
+            ? ['state' => 'done', 'embed_url' => "https://www.mp4upload.com/embed-{$jobId}.html", 'file_code' => $jobId, 'error' => null]
+            : ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
     }
 
     public function matchesHost(string $host): bool

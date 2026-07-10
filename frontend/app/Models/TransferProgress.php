@@ -21,6 +21,7 @@ class TransferProgress extends Model
         'attempts',
         'new_url',
         'new_file_code',
+        'remote_job_id',
         'error',
         'transferred_at',
         'last_attempt_at',

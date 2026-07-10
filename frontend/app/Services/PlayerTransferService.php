@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Services\PlayerDrivers\PlayerDriverInterface;
+use App\Services\PlayerDrivers\RemoteUploadInterface;
 use App\Services\PlayerDrivers\DailymotionDriver;
 use App\Services\PlayerDrivers\DoodstreamDriver;
 use App\Services\PlayerDrivers\Mp4uploadDriver;
@@ -73,6 +74,56 @@ class PlayerTransferService
         }
 
         return null;
+    }
+
+    /**
+     * Server-to-server (remote) transfer: the TARGET host fetches the video
+     * itself. Our server only makes lightweight API calls — ideal for shared
+     * hosting. Returns a queued job (finalize later via remoteStatus).
+     *
+     * @return array{job_id: string|null, embed_url: string|null, file_code: string|null, state: string, platform: string}
+     *
+     * @throws RuntimeException
+     */
+    public function transferRemote(
+        string $sourceEmbedUrl,
+        string $title,
+        array $targetCredentials,
+        ?string $targetPlatform = null,
+    ): array {
+        $host = preg_replace('/^www\./', '', parse_url($sourceEmbedUrl, PHP_URL_HOST) ?? '');
+        $sourceDriver = $this->driverForHost($host);
+        $targetDriver = $targetPlatform !== null ? $this->driverByName($targetPlatform) : $sourceDriver;
+
+        if (! $targetDriver instanceof RemoteUploadInterface) {
+            $name = $targetDriver?->name() ?? ($targetPlatform ?? $host);
+            throw new RuntimeException("Target '{$name}' does not support remote upload.");
+        }
+
+        // Try to get a direct URL (lightweight page fetch, NO video download).
+        // Fall back to the embed URL — hosts like Doodstream can resolve it.
+        $directUrl = $sourceDriver ? $sourceDriver->extractDirectUrl($sourceEmbedUrl) : null;
+        $urlToSend = $directUrl ?: $sourceEmbedUrl;
+
+        $result = $targetDriver->remoteUpload($urlToSend, $title, $targetCredentials);
+        $result['platform'] = $targetDriver->name();
+
+        return $result;
+    }
+
+    /**
+     * Poll the status of a queued remote upload on a target platform.
+     *
+     * @return array{state: string, embed_url: string|null, file_code: string|null, error: string|null}
+     */
+    public function remoteStatus(string $platform, string $jobId, array $credentials): array
+    {
+        $driver = $this->driverByName($platform);
+        if (! $driver instanceof RemoteUploadInterface) {
+            return ['state' => 'error', 'embed_url' => null, 'file_code' => null, 'error' => 'no remote support'];
+        }
+
+        return $driver->remoteStatus($jobId, $credentials);
     }
 
     /**

@@ -12,11 +12,47 @@ use Throwable;
  * Extract: parse the embed page JS to find the direct .mp4/.m3u8 source.
  * Upload: standard XFileSharing API flow (get upload server → POST file).
  */
-class VidmolyDriver implements PlayerDriverInterface
+class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface
 {
     public function name(): string
     {
         return 'vidmoly';
+    }
+
+    /** XFileSharing remote upload: /api/upload/url?key=&url= */
+    public function remoteUpload(string $sourceUrl, string $title, array $credentials): array
+    {
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://vidmoly.me', '/');
+        if ($key === '') {
+            throw new RuntimeException('Vidmoly API key missing.');
+        }
+
+        $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/api/upload/url", [
+            'key' => $key, 'url' => $sourceUrl, 'file_title' => $title ?: null,
+        ]);
+
+        if ($resp->failed()) {
+            throw new RuntimeException('Vidmoly remote upload failed (HTTP '.$resp->status().').');
+        }
+
+        $code = $this->extractFileCode($resp->json());
+        $embedBase = rtrim($credentials['embed_base'] ?? 'https://vidmoly.me', '/');
+
+        return $code
+            ? ['job_id' => $code, 'embed_url' => "{$embedBase}/embed-{$code}.html", 'file_code' => $code, 'state' => 'done']
+            : ['job_id' => null, 'embed_url' => null, 'file_code' => null, 'state' => 'queued'];
+    }
+
+    public function remoteStatus(string $jobId, array $credentials): array
+    {
+        // XFileSharing remote uploads usually return the code immediately; treat
+        // a known jobId (file code) as done.
+        $embedBase = rtrim($credentials['embed_base'] ?? 'https://vidmoly.me', '/');
+
+        return $jobId
+            ? ['state' => 'done', 'embed_url' => "{$embedBase}/embed-{$jobId}.html", 'file_code' => $jobId, 'error' => null]
+            : ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
     }
 
     public function matchesHost(string $host): bool
