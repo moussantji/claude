@@ -6,7 +6,8 @@
     'use strict';
 
     const API = '/api';
-    const HERO_ROTATE_MS = 10000;
+    const HERO_ROTATE_MS = 30000;
+    const ROW_AUTOSCROLL_MS = 10000;
     const INFINITE_SCROLL_THRESHOLD = 400;
 
     const state = {
@@ -136,6 +137,22 @@
         const scrollBy = () => Math.round(track.clientWidth * 0.8);
         $('.row__arrow--prev',row).addEventListener('click',()=>track.scrollBy({left:-scrollBy(),behavior:'smooth'}));
         $('.row__arrow--next',row).addEventListener('click',()=>track.scrollBy({left:scrollBy(),behavior:'smooth'}));
+
+        // Auto-scroll every 10s. Loops back to the start once the end is reached.
+        // Pauses on hover/touch and self-cleans when the row leaves the DOM.
+        let paused=false;
+        const tick=()=>{
+            if(!document.body.contains(track)){clearInterval(autoTimer);return;}
+            if(paused||document.hidden||anyModalOpen())return;
+            const maxScroll=track.scrollWidth-track.clientWidth;
+            if(maxScroll<=8)return; // nothing to scroll
+            if(track.scrollLeft>=maxScroll-8) track.scrollTo({left:0,behavior:'smooth'});
+            else track.scrollBy({left:scrollBy(),behavior:'smooth'});
+        };
+        const autoTimer=setInterval(tick,ROW_AUTOSCROLL_MS);
+        row.addEventListener('mouseenter',()=>{paused=true;});
+        row.addEventListener('mouseleave',()=>{paused=false;});
+        track.addEventListener('touchstart',()=>{paused=true;},{passive:true});
         return row;
     }
     function skeletonRow() {
@@ -488,9 +505,28 @@
     }
 
     async function showMyList(){
-        setActiveNav('list');if(!state.token){openAuth();return;}loadingView('Ma liste');
-        try{const res=await api('/favorites',{auth:true});const items=(res.data||[]).map(f=>({url:f.catalogue_url,_catalogueUrl:f.catalogue_url,name:f.name,image_url:f.image_url}));renderGridView('Ma liste',`${items.length} favori(s)`,items,'Votre liste est vide.');}
-        catch(e){renderGridView('Ma liste','',[], e.message);}
+        setActiveNav('list');if(!state.token){openAuth();return;}
+        state.currentView='list';loadingView('Ma liste');
+        let items=[];
+        try{const res=await api('/favorites',{auth:true});items=(res.data||[]).map(f=>({url:f.catalogue_url,_catalogueUrl:f.catalogue_url,name:f.name,image_url:f.image_url}));}
+        catch(e){renderGridView('Ma liste','',[], e.message);return;}
+        renderGridView('Ma liste',`${items.length} favori(s)`,items,'Votre liste est vide. Découvrez nos suggestions ci-dessous.');
+        appendMyListSuggestions(items);
+    }
+
+    /* Suggestions shown under "Ma liste" — newest animes not already in the list. */
+    async function appendMyListSuggestions(favItems){
+        const view=$('#rows .view'); if(!view) return;
+        const favUrls=new Set((favItems||[]).map(f=>f.url));
+        let suggestions=[];
+        try{
+            const res=await api('/anime/all-catalogues',{params:{per_page:40,sort:'newest'}});
+            suggestions=(res.data||[]).filter(x=>x.name && !favUrls.has(x.url)).slice(0,18);
+        }catch(_){return;}
+        // Bail if the user navigated away while loading
+        if(state.currentView!=='list'||!document.body.contains(view)) return;
+        if(!suggestions.length) return;
+        view.appendChild(makeRow('Suggestions pour vous',suggestions));
     }
 
 
@@ -645,14 +681,27 @@
         const heroPlay=$('#detailHeroPlay');
         if(heroPlay){heroPlay.style.display='';heroPlay.addEventListener('click',()=>playDetailTrailer(key));}
     }
+    const ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
+    const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+    function ytCommand(frame,func){try{frame.contentWindow.postMessage(JSON.stringify({event:'command',func,args:[]}),'*');}catch(_){}}
     function playDetailTrailer(key){
         const hero=$('#detailHero');if(!hero) return;
         const heroPlay=$('#detailHeroPlay');if(heroPlay) heroPlay.style.display='none';
         const origin=location.origin;
-        const params=new URLSearchParams({autoplay:'1',rel:'0',modestbranding:'1',playsinline:'1',origin:origin});
+        // controls:0 + no YouTube chrome — enablejsapi lets us drive play/pause ourselves.
+        const params=new URLSearchParams({autoplay:'1',mute:'0',controls:'0',modestbranding:'1',rel:'0',playsinline:'1',iv_load_policy:'3',disablekb:'1',fs:'0',enablejsapi:'1',origin:origin,widget_referrer:origin});
         let box=hero.querySelector('.detail__hero-trailer');
-        if(!box){box=el('div','detail__hero-trailer');box.style.cssText='position:absolute;inset:0;z-index:3;background:#000';hero.appendChild(box);}
-        box.innerHTML=`<iframe src="https://www.youtube.com/embed/${encodeURIComponent(key)}?${params}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen frameborder="0" style="width:100%;height:100%" referrerpolicy="no-referrer-when-downgrade"></iframe>`;
+        if(!box){box=el('div','detail__hero-trailer');hero.appendChild(box);}
+        box.innerHTML=`<iframe id="detailTrailerFrame" src="https://www.youtube.com/embed/${encodeURIComponent(key)}?${params}" allow="autoplay; encrypted-media" frameborder="0" referrerpolicy="no-referrer-when-downgrade"></iframe><button class="detail__hero-toggle" id="detailTrailerToggle" aria-label="Pause">${ICON_PAUSE}</button>`;
+        const frame=$('#detailTrailerFrame',box);
+        const toggle=$('#detailTrailerToggle',box);
+        let playing=true;
+        toggle.addEventListener('click',()=>{
+            playing=!playing;
+            ytCommand(frame,playing?'playVideo':'pauseVideo');
+            toggle.innerHTML=playing?ICON_PAUSE:ICON_PLAY;
+            toggle.setAttribute('aria-label',playing?'Pause':'Lecture');
+        });
     }
 
     async function loadEpisodes(season,serieName,imageUrl,catalogueUrl){
