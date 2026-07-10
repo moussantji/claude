@@ -46,6 +46,8 @@
     const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
     const el = (tag, cls, html) => { const n=document.createElement(tag); if(cls) n.className=cls; if(html!=null) n.innerHTML=html; return n; };
     const initial = (s) => (s||'?').trim().charAt(0).toUpperCase();
+    /** Capitalize the first letter of each word in a name */
+    function capitalize(s) { if(!s) return ''; return s.replace(/\b\w/g, c => c.toUpperCase()); }
 
     /* ---- API client ------------------------------------------------------ */
     async function api(path, { method='GET', params, body, auth=false }={}) {
@@ -92,7 +94,7 @@
     function makeCard(item) {
         const url = item._catalogueUrl || item.url;
         const tags = [].concat(item.languages||[]).concat(item.categories||[]).slice(0,3).map(t=>`<span class="card__tag">${escapeHtml(t)}</span>`).join('');
-        const card = el('div','card',`${posterHtml(item)}<button class="card__play" aria-label="Ouvrir"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><div class="card__info"><div class="card__name">${escapeHtml(item.name)}</div><div class="card__tags">${tags}</div></div>`);
+        const card = el('div','card',`${posterHtml(item)}<button class="card__play" aria-label="Ouvrir"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><div class="card__info"><div class="card__name">${escapeHtml(capitalize(item.name))}</div><div class="card__tags">${tags}</div></div>`);
         card.addEventListener('click', () => openDetail(url, item));
         return card;
     }
@@ -108,7 +110,7 @@
             ${posterContent}
             <div class="card__progress"><div class="card__progress-bar" style="width:${Math.min(95, Math.max(8, Math.random()*80+10))}%"></div></div>
             <div class="card__info card__info--visible">
-                <div class="card__name">${escapeHtml(entry.serie_name)}</div>
+                <div class="card__name">${escapeHtml(capitalize(entry.serie_name))}</div>
                 <div class="card__ep">\u00c9p. ${entry.episode_index}${entry.episode_name?' \u2014 '+escapeHtml(entry.episode_name):''}</div>
             </div>`);
         card.addEventListener('click', () => {
@@ -180,7 +182,7 @@
         content.classList.remove('fade-in'); void content.offsetWidth; content.classList.add('fade-in');
         content.innerHTML = `
             <div class="hero__badge">Ajout récent</div>
-            <h1 class="hero__title">${escapeHtml(item.name)}</h1>
+            <h1 class="hero__title">${escapeHtml(capitalize(item.name))}</h1>
             <div class="hero__meta">${tags}</div>
             <p class="hero__desc">${escapeHtml(item.descriptive||item.synopsis||'')}</p>
             <div class="hero__actions">
@@ -348,40 +350,48 @@
         try{
             const res=await api('/anime/search',{params:{q:query}});
             const items=res.data||[];
+
+            // Always show a grid view with results (even if empty)
+            clearInterval(state.heroTimer);clearTimeout(state.trailerTimer);removeHeroTrailer();showHomeChrome(false);
+            if(state._scrollHandler){window.removeEventListener('scroll',state._scrollHandler);state._scrollHandler=null;}
+            const rows=$('#rows');rows.style.marginTop='0';rows.innerHTML='';
+            const view=el('section','view');
+
             if(items.length){
-                renderGridView(`R\u00e9sultats \u00b7 ${query}`,`${items.length} anime(s)`,items,``);
+                // Show results
+                view.innerHTML=`<div class="view__head"><h1 class="view__title">R\u00e9sultats \u00b7 ${escapeHtml(query)}</h1><span class="view__sub">${items.length} anime(s)</span></div>`;
+                const grid=el('div','grid');items.forEach(it=>grid.appendChild(makeCard(it)));view.appendChild(grid);
             } else {
-                // No results — show content request form
-                clearInterval(state.heroTimer);clearTimeout(state.trailerTimer);removeHeroTrailer();showHomeChrome(false);
-                const rows=$('#rows');rows.style.marginTop='0';rows.innerHTML='';
-                const view=el('section','view');
-                view.innerHTML=`
-                    <div class="view__head"><h1 class="view__title">Aucun r\u00e9sultat pour \u00ab ${escapeHtml(query)} \u00bb</h1></div>
-                    <div class="request-box">
-                        <div class="request-box__icon"><svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01" stroke-linecap="round"/></svg></div>
-                        <h3>Cet anime n'est pas encore disponible</h3>
-                        <p>Envoyez une demande et nous l'ajouterons au catalogue !</p>
-                        <div class="request-box__form">
-                            <input id="requestTitle" value="${escapeHtml(query)}" placeholder="Nom de l'anime" class="request-box__input">
-                            <textarea id="requestMsg" placeholder="Message (optionnel, ex: lien, saison souhait\u00e9e...)" class="request-box__textarea"></textarea>
-                            <button class="btn btn--primary btn--block" id="requestSubmit">Envoyer la demande</button>
-                        </div>
-                        <p class="request-box__status" id="requestStatus"></p>
-                    </div>`;
-                rows.appendChild(view);
-                $('#requestSubmit').addEventListener('click', async()=>{
-                    const title=$('#requestTitle').value.trim();
-                    const message=$('#requestMsg').value.trim();
-                    const statusEl=$('#requestStatus');
-                    if(!title){statusEl.textContent='Veuillez entrer un nom.';statusEl.style.color='var(--accent-2)';return;}
-                    try{
-                        await api('/anime/request',{method:'POST',body:{title,message:message||null},auth:!!state.token});
-                        statusEl.textContent='\u2705 Demande envoy\u00e9e ! Merci.';statusEl.style.color='#4fe0a0';
-                        $('#requestSubmit').disabled=true;$('#requestSubmit').textContent='Envoy\u00e9';
-                    }catch(e){statusEl.textContent=e.message;statusEl.style.color='var(--accent-2)';}
-                });
-                window.scrollTo({top:0,behavior:'smooth'});
+                view.innerHTML=`<div class="view__head"><h1 class="view__title">Aucun r\u00e9sultat pour \u00ab ${escapeHtml(query)} \u00bb</h1></div>`;
             }
+
+            // Always show the request form below results (whether found or not)
+            const requestBox=el('div','request-box');
+            requestBox.innerHTML=`
+                <div class="request-box__icon"><svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01" stroke-linecap="round"/></svg></div>
+                <h3>${items.length?'Vous ne trouvez pas ce que vous cherchez ?':'Cet anime n\'est pas encore disponible'}</h3>
+                <p>Envoyez une demande et nous l'ajouterons au catalogue !</p>
+                <div class="request-box__form">
+                    <input id="requestTitle" value="${escapeHtml(query)}" placeholder="Nom de l'anime" class="request-box__input">
+                    <textarea id="requestMsg" placeholder="Message (optionnel, ex: lien, saison souhait\u00e9e...)" class="request-box__textarea"></textarea>
+                    <button class="btn btn--primary btn--block" id="requestSubmit">Envoyer la demande</button>
+                </div>
+                <p class="request-box__status" id="requestStatus"></p>`;
+            view.appendChild(requestBox);
+            rows.appendChild(view);
+
+            $('#requestSubmit').addEventListener('click', async()=>{
+                const title=$('#requestTitle').value.trim();
+                const message=$('#requestMsg').value.trim();
+                const statusEl=$('#requestStatus');
+                if(!title){statusEl.textContent='Veuillez entrer un nom.';statusEl.style.color='var(--accent-2)';return;}
+                try{
+                    await api('/anime/request',{method:'POST',body:{title,message:message||null},auth:!!state.token});
+                    statusEl.textContent='\u2705 Demande envoy\u00e9e ! Merci.';statusEl.style.color='#4fe0a0';
+                    $('#requestSubmit').disabled=true;$('#requestSubmit').textContent='Envoy\u00e9';
+                }catch(e){statusEl.textContent=e.message;statusEl.style.color='var(--accent-2)';}
+            });
+            window.scrollTo({top:0,behavior:'smooth'});
         }catch(e){renderGridView('Recherche','',[], e.message);}
     }
 
@@ -639,7 +649,7 @@
         const meta=[].concat((data.languages||[]).map(l=>`<span class="chip chip--lang">${escapeHtml(l)}</span>`)).concat((data.genres||[]).slice(0,5).map(g=>`<span class="chip">${escapeHtml(g)}</span>`)).concat(data.is_mature?['<span class="chip" style="border-color:rgba(255,90,120,.5);color:#ff9db0">18+</span>']:[]).join('');
         const detailImage=data.image_url||hint.image_url||'';
         body.innerHTML=`
-            <div class="detail__hero" id="detailHero" style="position:relative">${detailImage?`<img src="${escapeHtml(detailImage)}" alt="" referrerpolicy="no-referrer">`:'<div class="card__ph" style="position:relative;height:100%">'+escapeHtml(initial(name))+'</div>'}<button class="detail__hero-play" id="detailHeroPlay" style="display:none" aria-label="Lire la bande-annonce"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><div class="detail__heroText"><h2 class="detail__title">${escapeHtml(name)}</h2></div></div>
+            <div class="detail__hero" id="detailHero" style="position:relative">${detailImage?`<img src="${escapeHtml(detailImage)}" alt="" referrerpolicy="no-referrer">`:'<div class="card__ph" style="position:relative;height:100%">'+escapeHtml(initial(name))+'</div>'}<button class="detail__hero-play" id="detailHeroPlay" style="display:none" aria-label="Lire la bande-annonce"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><div class="detail__heroText"><h2 class="detail__title">${escapeHtml(capitalize(name))}</h2></div></div>
             <div class="detail__content">
                 <div class="detail__meta">${meta}</div>
                 <div class="detail__actions">
@@ -752,8 +762,21 @@
     }
 
     /* ---- Modals ---------------------------------------------------------- */
-    function openModal(name){clearTimeout(state.trailerTimer);removeHeroTrailer();$(`#${name}Modal`).classList.add('is-open');document.body.style.overflow='hidden';}
-    function closeModal(name){$(`#${name}Modal`).classList.remove('is-open');document.body.style.overflow='';if(name==='player'){$('#playerIframe').src='about:blank';}if(name==='detail'){const box=$('#detailModal .detail__hero-trailer');if(box)box.remove();}}
+    function openModal(name){
+        // Stop hero trailer audio
+        clearTimeout(state.trailerTimer);removeHeroTrailer();
+        // If opening a modal other than detail, pause/remove the detail trailer too
+        if(name!=='detail'){
+            const dtFrame=$('#detailTrailerFrame');
+            if(dtFrame) ytCommand(dtFrame,'pauseVideo');
+        }
+        $(`#${name}Modal`).classList.add('is-open');document.body.style.overflow='hidden';
+    }
+    function closeModal(name){
+        $(`#${name}Modal`).classList.remove('is-open');document.body.style.overflow='';
+        if(name==='player'){$('#playerIframe').src='about:blank';}
+        if(name==='detail'){const box=$('#detailModal .detail__hero-trailer');if(box)box.remove();}
+    }
     function anyModalOpen(){return['detail','player','auth','planning','account'].some(n=>$(`#${n}Modal`)&&$(`#${n}Modal`).classList.contains('is-open'));}
     function closeAllModals(){['detail','player','auth','planning','account'].forEach(closeModal);}
 
