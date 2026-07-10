@@ -28,11 +28,14 @@ Schedule::command('anime:cache-prune --days=30')
 // =========================================================================
 // Episode transfer automation
 // =========================================================================
-// Runs the all-in-one transfer every night: reliable hosts → same-host
-// backup, unreliable hosts (sendvid/sibnet/myvi) → consolidated onto the
-// monetizing host (doodstream). Resumes from the last position (--auto),
-// respects the daily quota (50/host/anime), and auto-advances through animes.
+// Runs the all-in-one transfer every night:
+//   • reliable hosts (vidmoly/doodstream/streamtape/mp4upload) → same-host backup
+//   • unreliable hosts (sendvid/sibnet/myvi) → consolidated onto doodstream (paid)
+// Quota: 50 EPISODES per anime per day. Resumes from the last position (--auto),
+// auto-advances through animes, and re-tries errors on later runs.
 //
+// Monitor progress & errors from the admin panel (/admin → "Transferts") or:
+//   php artisan episodes:auto --auto --status
 // Configure target accounts in .env (TRANSFER_*_*) and verify with:
 //   php artisan episodes:check-connections
 //
