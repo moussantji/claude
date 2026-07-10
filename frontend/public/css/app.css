@@ -361,8 +361,11 @@ a { color: inherit; text-decoration: none; }
 /* Trailer playing inside the detail hero — no YouTube chrome, custom controls */
 .detail__hero-trailer { position: absolute; inset: 0; z-index: 3; background: #000; overflow: hidden; }
 .detail__hero-trailer iframe {
-    position: absolute; inset: 0;
+    position: absolute; top: 50%; left: 50%;
     width: 100%; height: 100%; border: 0;
+    /* Overscan so YouTube's startup title (top) & control bar (bottom) are cropped out */
+    transform: translate(-50%, -50%) scale(1.4);
+    transform-origin: center center;
     pointer-events: none; /* block all native YouTube UI (title, share, big play button) */
 }
 .detail__hero-toggle {
@@ -592,8 +595,8 @@ a { color: inherit; text-decoration: none; }
 .bg-trailer.is-on { opacity: 1; }
 .bg-trailer iframe {
     position: absolute; top: 50%; left: 50%;
-    width: 100vw; height: 56.25vw;              /* keep 16:9 */
-    min-height: 100vh; min-width: 177.78vh;     /* cover the viewport */
+    width: 135vw; height: 75.94vw;              /* 16:9, overscanned 1.35x */
+    min-height: 135vh; min-width: 240vh;        /* cover the viewport + overscan */
     transform: translate(-50%, -50%);
     border: 0; pointer-events: none;
 }
