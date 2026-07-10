@@ -97,12 +97,27 @@ class EpisodesCheckConnections extends Command
             return ['no-creds', 'TRANSFER_VIDMOLY_API_KEY empty'];
         }
         $base = rtrim(env('TRANSFER_VIDMOLY_API_BASE', 'https://api.vidmoly.to'), '/');
-        $resp = Http::timeout(15)->acceptJson()->get("{$base}/api/upload/server", ['key' => $key]);
-        if ($resp->successful() && $resp->json('result')) {
-            return ['ok', 'upload server reachable'];
+
+        // Try the account/info endpoint first (best auth check), then upload/server.
+        foreach (['/api/account/info', '/api/upload/server'] as $path) {
+            $resp = Http::timeout(15)->acceptJson()->get("{$base}{$path}", ['key' => $key]);
+            $result = $resp->json('result');
+            $status = $resp->json('status');
+
+            if ($resp->successful() && $result && (int) ($status ?? 200) < 400) {
+                $email = is_array($result) ? ($result['email'] ?? '') : '';
+
+                return ['ok', $email ? "account: {$email}" : 'API reachable'];
+            }
+
+            // Surface the host's real message when present
+            $msg = $resp->json('msg') ?: $this->bodySnippet($resp->body());
+            if ($resp->status() !== 404) {
+                return ['auth-fail', "HTTP {$resp->status()}".($msg ? " — {$msg}" : ' — key rejected')];
+            }
         }
 
-        return ['auth-fail', 'HTTP '.$resp->status().' — check API key'];
+        return ['auth-fail', 'endpoint not found — check TRANSFER_VIDMOLY_API_BASE'];
     }
 
     private function checkDoodstream(): array
@@ -138,7 +153,21 @@ class EpisodesCheckConnections extends Command
             return ['ok', 'account: '.($email ?: 'authenticated')];
         }
 
-        return ['auth-fail', 'status '.($status ?? $resp->status()).' — check login/key'];
+        // Streamtape returns status 403 with a msg when login/key is wrong or swapped
+        $msg = $resp->json('msg') ?: $this->bodySnippet($resp->body());
+
+        return ['auth-fail', 'status '.($status ?? $resp->status()).($msg ? " — {$msg}" : '').' (login+key swapped?)'];
+    }
+
+    private function bodySnippet(?string $body): string
+    {
+        $body = trim((string) $body);
+        if ($body === '') {
+            return '';
+        }
+        $body = preg_replace('/\s+/', ' ', strip_tags($body));
+
+        return strlen($body) > 60 ? substr($body, 0, 60).'…' : $body;
     }
 
     private function checkMp4upload(): array
