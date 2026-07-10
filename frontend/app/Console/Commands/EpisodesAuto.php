@@ -55,6 +55,7 @@ class EpisodesAuto extends Command
         {--status : Show progress report only (no transfer)}
         {--retry-failed : Reset failed items to pending}
         {--redo-completed : Put finished (done) transfers back in the queue to redo them}
+        {--max-minutes=0 : Stop cleanly after N minutes (0 = no limit). Use on shared hosting/cPanel.}
         {--reset : Reset ALL progress (start over)}';
 
     protected $description = 'All-in-one: same-host transfer for reliable hosts + consolidation for unreliable ones. Daily quota, auto-resume.';
@@ -73,6 +74,8 @@ class EpisodesAuto extends Command
         $retryFailed = (bool) $this->option('retry-failed');
         $redoCompleted = (bool) $this->option('redo-completed');
         $reset = (bool) $this->option('reset');
+        $maxMinutes = max(0, (int) $this->option('max-minutes'));
+        $deadline = $maxMinutes > 0 ? microtime(true) + $maxMinutes * 60 : null;
         $today = Carbon::today();
 
         $unreliable = $this->option('unreliable')
@@ -114,7 +117,17 @@ class EpisodesAuto extends Command
         $failedAnimes = [];
         $completed = 0;
 
+        $stoppedForTime = false;
+
         foreach ($animes as $anime) {
+            // Stop cleanly before the host kills the process (shared hosting / cPanel cron)
+            if ($deadline !== null && microtime(true) >= $deadline) {
+                $stoppedForTime = true;
+                $this->newLine();
+                $this->line("<fg=yellow>⏱ Limite de {$maxMinutes} min atteinte. Arrêt propre — reprise au prochain run.</>");
+                break;
+            }
+
             $r = $this->processAnime(
                 $anime, $service, $consolidateTo, $unreliable, $quota, $maxFailures,
                 $lang, $addLink, $updateDb, $statusOnly, $retryFailed, $redoCompleted, $reset, $today

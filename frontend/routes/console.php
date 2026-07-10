@@ -41,7 +41,10 @@ Schedule::command('anime:cache-prune --days=30')
 //
 // Requires the scheduler to be running (cron: php artisan schedule:run, or
 // `php artisan schedule:work`).
-Schedule::command('episodes:auto --auto --consolidate-to=doodstream --update-db')
+// NOTE (shared hosting / LWS cPanel): downloading + re-uploading full video
+// files is heavy. --max-minutes makes the command stop cleanly before the host
+// kills it; it resumes next run. Lower it if your cron gets killed earlier.
+Schedule::command('episodes:auto --auto --consolidate-to=doodstream --update-db --max-minutes=20')
     ->dailyAt('02:00')
     ->withoutOverlapping()
     ->runInBackground();
