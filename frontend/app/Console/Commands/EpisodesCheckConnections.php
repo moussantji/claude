@@ -96,28 +96,42 @@ class EpisodesCheckConnections extends Command
         if ($key === '') {
             return ['no-creds', 'TRANSFER_VIDMOLY_API_KEY empty'];
         }
-        $base = rtrim(env('TRANSFER_VIDMOLY_API_BASE', 'https://api.vidmoly.to'), '/');
+        // Try the configured base first, then the .me / .to mirrors automatically.
+        $configured = rtrim(env('TRANSFER_VIDMOLY_API_BASE', 'https://api.vidmoly.to'), '/');
+        $bases = array_values(array_unique([
+            $configured,
+            'https://api.vidmoly.me',
+            'https://api.vidmoly.to',
+        ]));
 
-        // Try the account/info endpoint first (best auth check), then upload/server.
-        foreach (['/api/account/info', '/api/upload/server'] as $path) {
-            $resp = Http::timeout(15)->acceptJson()->get("{$base}{$path}", ['key' => $key]);
-            $result = $resp->json('result');
-            $status = $resp->json('status');
+        $lastMsg = 'key rejected';
 
-            if ($resp->successful() && $result && (int) ($status ?? 200) < 400) {
-                $email = is_array($result) ? ($result['email'] ?? '') : '';
+        foreach ($bases as $base) {
+            foreach (['/api/account/info', '/api/upload/server'] as $path) {
+                try {
+                    $resp = Http::timeout(12)->acceptJson()->get("{$base}{$path}", ['key' => $key]);
+                } catch (Throwable) {
+                    continue;
+                }
 
-                return ['ok', $email ? "account: {$email}" : 'API reachable'];
-            }
+                $result = $resp->json('result');
+                $status = $resp->json('status');
 
-            // Surface the host's real message when present
-            $msg = $resp->json('msg') ?: $this->bodySnippet($resp->body());
-            if ($resp->status() !== 404) {
-                return ['auth-fail', "HTTP {$resp->status()}".($msg ? " — {$msg}" : ' — key rejected')];
+                if ($resp->successful() && $result && (int) ($status ?? 200) < 400) {
+                    $email = is_array($result) ? ($result['email'] ?? '') : '';
+                    $hint = $base === $configured ? '' : " (use {$base})";
+
+                    return ['ok', ($email ? "account: {$email}" : 'API reachable').$hint];
+                }
+
+                $msg = $resp->json('msg') ?: $this->bodySnippet($resp->body());
+                if ($msg) {
+                    $lastMsg = $msg;
+                }
             }
         }
 
-        return ['auth-fail', 'endpoint not found — check TRANSFER_VIDMOLY_API_BASE'];
+        return ['auth-fail', $lastMsg." — check key (vidmoly.me API access may be uploader-only)"];
     }
 
     private function checkDoodstream(): array

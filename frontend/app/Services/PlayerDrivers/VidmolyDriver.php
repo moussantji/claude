@@ -157,9 +157,12 @@ class VidmolyDriver implements PlayerDriverInterface
 
     private function normalizeEmbedUrl(string $url): string
     {
-        // Convert page URL to embed if needed
-        if (preg_match('/vidmoly\.to\/(?:embed-)?([a-z0-9]+)/i', $url, $m)) {
-            return "https://vidmoly.to/embed-{$m[1]}.html";
+        // Convert page URL to embed if needed — supports vidmoly.to AND vidmoly.me
+        if (preg_match('#(vidmoly\.(?:to|me|net))/(?:embed-|w/|)([a-z0-9]+)#i', $url, $m)) {
+            $domain = $m[1];
+            $id = preg_replace('/\.html$/', '', $m[2]);
+
+            return "https://{$domain}/embed-{$id}.html";
         }
 
         return $url;
