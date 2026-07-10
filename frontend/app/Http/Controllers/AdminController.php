@@ -355,8 +355,21 @@ class AdminController extends Controller
         $done = TransferProgress::where('status', 'done')->count();
         $pending = TransferProgress::where('status', 'pending')->count();
         $failed = TransferProgress::where('status', 'failed')->count();
+        $queued = TransferProgress::where('status', 'queued')->count();
         $doneToday = TransferProgress::where('status', 'done')
             ->whereDate('transferred_at', $today)->count();
+
+        // Per-host remote-upload usage today (from the cache counters set by episodes:remote)
+        $perHost = [];
+        foreach (['doodstream', 'streamtape', 'vidmoly', 'mp4upload'] as $p) {
+            $used = (int) \Illuminate\Support\Facades\Cache::get("remote_daily:{$p}:{$today}", 0);
+            $limitEnv = env('TRANSFER_'.strtoupper($p).'_DAILY_LIMIT');
+            $perHost[] = [
+                'host' => $p,
+                'used_today' => $used,
+                'limit' => ($limitEnv !== null && $limitEnv !== '') ? (int) $limitEnv : null,
+            ];
+        }
 
         // Animes that currently have at least one failed transfer
         $animesWithErrors = TransferProgress::query()
@@ -377,9 +390,11 @@ class AdminController extends Controller
             'total' => $total,
             'done' => $done,
             'pending' => $pending,
+            'queued' => $queued,
             'failed' => $failed,
             'done_today' => $doneToday,
             'percent' => $total > 0 ? round($done / $total * 100, 1) : 0,
+            'per_host' => $perHost,
             'animes_with_errors' => $animesWithErrors,
         ]]);
     }

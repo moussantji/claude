@@ -42,6 +42,7 @@ class EpisodesRemote extends Command
 
     protected $signature = 'episodes:remote
         {--to= : Send ALL links to this single target host (e.g. doodstream)}
+        {--spread= : Distribute links across these hosts (comma-separated), filling each up to its daily cap}
         {--consolidate-to= : Only unreliable sources → this host; reliable stay same-host}
         {--from-id= : Start from this anime ID}
         {--auto : Resume from last saved position}
@@ -56,6 +57,7 @@ class EpisodesRemote extends Command
     {
         $to = strtolower((string) $this->option('to'));
         $consolidateTo = strtolower((string) $this->option('consolidate-to'));
+        $spread = array_values(array_filter(array_map('trim', explode(',', strtolower((string) $this->option('spread'))))));
         $lang = (string) $this->option('lang');
         $defaultLimit = max(1, (int) $this->option('default-limit'));
         $updateDb = (bool) $this->option('update-db');
@@ -73,6 +75,13 @@ class EpisodesRemote extends Command
             $this->error("Unknown consolidate target: {$consolidateTo}");
 
             return self::FAILURE;
+        }
+        foreach ($spread as $p) {
+            if (! $service->driverByName($p)) {
+                $this->error("Unknown spread target: {$p}");
+
+                return self::FAILURE;
+            }
         }
 
         // ---- PHASE 1: finalize queued jobs (cheap, always run) ----
@@ -119,6 +128,12 @@ class EpisodesRemote extends Command
                 Cache::forever(self::CACHE_KEY, $anime->id);
                 break;
             }
+            // Spread mode: if every spread host is capped, nothing more can run today.
+            if (! empty($spread) && $this->pickSpreadTarget($spread, $defaultLimit, $today) === null) {
+                $this->line('<fg=yellow>Tous les hosts spread ont atteint leur cap. Reprise demain.</>');
+                Cache::forever(self::CACHE_KEY, $anime->id);
+                break;
+            }
 
             $items = TransferProgress::where('anime_id', $anime->id)
                 ->where('status', 'pending')
@@ -148,16 +163,23 @@ class EpisodesRemote extends Command
                 }
 
                 $host = $progress->host ?? $link->host ?? '';
-                $target = $this->resolveTarget($host, $to, $consolidateTo);
-                if ($target === null) {
-                    continue; // unreliable but no target, and not forcing --to
-                }
 
-                // Per-HOST daily cap (each "lecteur" has its own max/day)
-                $limit = $this->hostDailyLimit($target, $defaultLimit);
-                if ($this->dailyUsed($target, $today) >= $limit) {
-                    $capped[$target] = true;
-                    continue; // stays pending → picked up next day
+                if (! empty($spread)) {
+                    // Distribute: pick the least-used spread host with capacity left
+                    $target = $this->pickSpreadTarget($spread, $defaultLimit, $today);
+                    if ($target === null) {
+                        break 2; // all spread hosts capped for today
+                    }
+                } else {
+                    $target = $this->resolveTarget($host, $to, $consolidateTo);
+                    if ($target === null) {
+                        continue; // unreliable but no target, and not forcing --to
+                    }
+                    // Per-HOST daily cap (each "lecteur" has its own max/day)
+                    if ($this->dailyUsed($target, $today) >= $this->hostDailyLimit($target, $defaultLimit)) {
+                        $capped[$target] = true;
+                        continue; // stays pending → picked up next day
+                    }
                 }
 
                 $credentials = $this->getTargetCredentials($target);
@@ -254,6 +276,34 @@ class EpisodesRemote extends Command
         $env = env('TRANSFER_'.strtoupper($platform).'_DAILY_LIMIT');
 
         return ($env !== null && $env !== '') ? max(1, (int) $env) : $default;
+    }
+
+    /**
+     * Pick the spread target with the most remaining capacity (least used ratio),
+     * skipping hosts without credentials or already capped. Null if all full.
+     */
+    private function pickSpreadTarget(array $hosts, int $default, Carbon $today): ?string
+    {
+        $best = null;
+        $bestRatio = 1.0;
+
+        foreach ($hosts as $h) {
+            if (empty($this->getTargetCredentials($h))) {
+                continue;
+            }
+            $limit = $this->hostDailyLimit($h, $default);
+            $used = $this->dailyUsed($h, $today);
+            if ($used >= $limit) {
+                continue;
+            }
+            $ratio = $used / $limit;
+            if ($ratio < $bestRatio) {
+                $bestRatio = $ratio;
+                $best = $h;
+            }
+        }
+
+        return $best;
     }
 
     /**

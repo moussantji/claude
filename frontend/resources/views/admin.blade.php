@@ -182,7 +182,9 @@
                 <button type="button" class="btn" id="transfersClose">Fermer</button>
             </div>
             <p class="muted" style="margin:8px 0 12px">Progression des transferts (episodes:auto / :quota) et erreurs.</p>
-            <div class="stats" id="transferStats" style="margin-bottom:14px"></div>
+            <div class="stats" id="transferStats" style="margin-bottom:10px"></div>
+            <div class="muted" style="font-size:12px;margin-bottom:4px">Envois par host aujourd'hui (remote upload)</div>
+            <div class="stats" id="transferPerHost" style="margin-bottom:14px"></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
                 <button class="btn btn--primary" id="retryAllBtn" title="Remet tous les échecs en file">↻ Réessayer les erreurs</button>
                 <button class="btn" id="redoAllBtn" title="Remet les terminés en file (re-upload)">⟳ Refaire les terminés</button>
@@ -218,6 +220,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=4"></script>
+    <script src="/js/admin.js?v=5"></script>
 </body>
 </html>

@@ -459,12 +459,24 @@
     async function reloadTransfers() {
         try {
             const { data } = await api('/admin/transfers/stats');
-            const labels = { total: 'Total', done: 'Termin\u00e9s', pending: 'En attente', failed: 'Erreurs', done_today: "Aujourd'hui" };
-            $('#transferStats').innerHTML = Object.entries(labels)
+            const labels = { total: 'Total', done: 'Termin\u00e9s', queued: 'En file', pending: 'En attente', failed: 'Erreurs', done_today: "Aujourd'hui" };
+            let html = Object.entries(labels)
                 .map(([k, label]) => {
-                    const color = k === 'failed' && data[k] > 0 ? 'color:var(--danger)' : (k === 'done' ? 'color:#4fe0a0' : '');
+                    const color = k === 'failed' && data[k] > 0 ? 'color:var(--danger)' : (k === 'done' ? 'color:#4fe0a0' : (k === 'queued' && data[k] > 0 ? 'color:#4fb0ff' : ''));
                     return `<div class="stat"><b style="${color}">${data[k] ?? 0}</b><span>${label}</span></div>`;
                 }).join('') + `<div class="stat"><b>${data.percent ?? 0}%</b><span>Progression</span></div>`;
+            $('#transferStats').innerHTML = html;
+
+            // Per-host usage today
+            const ph = data.per_host || [];
+            const phBox = $('#transferPerHost');
+            if (phBox) {
+                phBox.innerHTML = ph.map(h => {
+                    const cap = h.limit ? `/${h.limit}` : '';
+                    const full = h.limit && h.used_today >= h.limit;
+                    return `<div class="stat" style="${full ? 'border-color:var(--danger)' : ''}"><b>${h.used_today}${cap}</b><span>${escapeHtml(h.host)} auj.</span></div>`;
+                }).join('');
+            }
         } catch (e) {
             $('#transferStats').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
         }
