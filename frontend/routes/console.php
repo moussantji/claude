@@ -25,49 +25,10 @@ Schedule::command('anime:ingest')
 Schedule::command('anime:cache-prune --days=30')
     ->daily();
 
-// =========================================================================
-// Episode transfer automation
-// =========================================================================
-// Runs the all-in-one transfer every night:
-//   • reliable hosts (vidmoly/doodstream/streamtape/mp4upload) → same-host backup
-//   • unreliable hosts (sendvid/sibnet/myvi) → consolidated onto doodstream (paid)
-// Quota: 50 EPISODES per anime per day. Resumes from the last position (--auto),
-// auto-advances through animes, and re-tries errors on later runs.
-//
-// Monitor progress & errors from the admin panel (/admin → "Transferts") or:
-//   php artisan episodes:auto --auto --status
-// Configure target accounts in .env (TRANSFER_*_*) and verify with:
-//   php artisan episodes:check-connections
-//
-// Requires the scheduler to be running (cron: php artisan schedule:run, or
-// `php artisan schedule:work`).
-// SERVER-TO-SERVER (remote upload) — best for shared hosting / LWS cPanel.
-// The target host (doodstream) fetches each video itself; our server only makes
-// light API calls. Respects each host's daily cap (TRANSFER_<HOST>_DAILY_LIMIT),
-// resumes from where it stopped (--auto), and finalizes queued jobs each run.
-// Runs every 30 minutes so queued remote jobs get finalized quickly.
-// --spread distributes uploads across ALL your monetizing accounts (fills each
-// up to its per-host daily cap) instead of sending everything to one host.
-// Hosts without credentials in .env are skipped automatically.
-Schedule::command('episodes:remote --spread=doodstream,streamtape,vidmoly,mp4upload --auto --update-db --max-minutes=10')
-    ->everyThirtyMinutes()
-    ->withoutOverlapping()
-    ->runInBackground();
-
-// Lightweight FINALIZE pass every 15 min: polls queued remote jobs and, once the
-// target host has finished fetching the video, writes the final URL into
-// episode_links (so the site serves the new host quickly). Very cheap — it only
-// makes small status API calls, no queuing of new jobs.
-Schedule::command('episodes:remote --finalize-only --update-db --max-minutes=5')
-    ->everyFifteenMinutes()
-    ->withoutOverlapping()
-    ->runInBackground();
-
-// (Optional legacy) download+re-upload approach — kept available but not scheduled:
-// Schedule::command('episodes:auto --auto --consolidate-to=doodstream --update-db --max-minutes=20')
-//     ->dailyAt('02:00')->withoutOverlapping()->runInBackground();
-
-// Daily connection health check (logged) so you notice broken credentials.
-Schedule::command('episodes:check-connections')
-    ->dailyAt('01:55')
-    ->withoutOverlapping();
+// -------------------------------------------------------------------------
+// Episode transfer commands (episodes:auto / :remote / :quota / :consolidate)
+// are NOT scheduled: run them manually from a machine with bandwidth
+// (VPS / local PC) pointing at the same database, e.g.:
+//   php artisan episodes:auto --from-id=1 --consolidate-to=doodstream --update-db
+// See the admin panel (/admin → "Transferts") to monitor progress & errors.
+// -------------------------------------------------------------------------
