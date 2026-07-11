@@ -89,4 +89,9 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('/transfers/errors', [AdminController::class, 'transferErrors']);
     Route::post('/transfers/retry', [AdminController::class, 'retryTransfers']);
     Route::post('/transfers/redo', [AdminController::class, 'redoTransfers']);
+
+    // Team manual task tracking (download/upload by hand)
+    Route::get('/tasks', [AdminController::class, 'tasksIndex']);
+    Route::get('/tasks/stats', [AdminController::class, 'tasksStats']);
+    Route::put('/tasks/{anime}', [AdminController::class, 'updateTask']);
 });

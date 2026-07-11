@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Anime;
+use App\Models\AnimeTask;
 use App\Models\Episode;
 use App\Models\EpisodeLink;
 use App\Models\MediaUpload;
@@ -470,5 +471,136 @@ class AdminController extends Controller
         ]);
 
         return response()->json(['message' => "{$count} transfert(s) terminé(s) remis en file.", 'count' => $count]);
+    }
+
+    /* ---- Team manual task tracking (download/upload done by hand) ---- */
+
+    /** Animes with more episodes than this are flagged "big" (do later). */
+    private const BIG_EPISODES = 25;
+
+    /** SQL that counts episodes of the current anime row. */
+    private function bigEpisodesExpr(): string
+    {
+        return '(select count(*) from episodes e join seasons s on s.id = e.season_id where s.anime_id = animes.id)';
+    }
+
+    /**
+     * Counters for the team dashboard.
+     */
+    public function tasksStats(): JsonResponse
+    {
+        $total = Anime::count();
+        $done = AnimeTask::where('status', 'done')->count();
+        $inProgress = AnimeTask::where('status', 'in_progress')->count();
+        $modified = AnimeTask::where('is_modified', true)->count();
+        $deferred = AnimeTask::where('is_deferred', true)->count();
+        $big = Anime::whereRaw($this->bigEpisodesExpr().' > ?', [self::BIG_EPISODES])->count();
+
+        return response()->json(['data' => [
+            'total' => $total,
+            'todo' => max(0, $total - $done - $inProgress),
+            'in_progress' => $inProgress,
+            'done' => $done,
+            'modified' => $modified,
+            'deferred' => $deferred,
+            'big' => $big,
+        ]]);
+    }
+
+    /**
+     * Paginated anime list with episode count, +25 flag and manual task status.
+     * Filters: ?filter=todo|in_progress|done|modified|deferred|big  &  ?q=name
+     */
+    public function tasksIndex(Request $request): JsonResponse
+    {
+        $perPage = min(100, max(1, (int) $request->query('per_page', 40)));
+        $q = trim((string) $request->query('q', ''));
+        $filter = (string) $request->query('filter', '');
+
+        $query = Anime::query()->withCount('episodes')->with('task');
+
+        if ($q !== '') {
+            $query->where('name', 'like', "%{$q}%");
+        }
+
+        switch ($filter) {
+            case 'todo':
+                $query->where(function ($w) {
+                    $w->whereDoesntHave('task')
+                      ->orWhereHas('task', fn ($t) => $t->where('status', 'todo'));
+                });
+                break;
+            case 'in_progress':
+                $query->whereHas('task', fn ($t) => $t->where('status', 'in_progress'));
+                break;
+            case 'done':
+                $query->whereHas('task', fn ($t) => $t->where('status', 'done'));
+                break;
+            case 'modified':
+                $query->whereHas('task', fn ($t) => $t->where('is_modified', true));
+                break;
+            case 'deferred':
+                $query->whereHas('task', fn ($t) => $t->where('is_deferred', true));
+                break;
+            case 'big':
+                $query->whereRaw($this->bigEpisodesExpr().' > ?', [self::BIG_EPISODES]);
+                break;
+        }
+
+        $paginated = $query->orderBy('id')->paginate($perPage);
+
+        $data = collect($paginated->items())->map(function (Anime $a) {
+            $t = $a->task;
+
+            return [
+                'id' => $a->id,
+                'name' => $a->name,
+                'image_url' => $a->image_url,
+                'episodes_count' => (int) $a->episodes_count,
+                'is_big' => (int) $a->episodes_count > self::BIG_EPISODES,
+                'status' => $t->status ?? 'todo',
+                'is_modified' => (bool) ($t->is_modified ?? false),
+                'is_deferred' => (bool) ($t->is_deferred ?? false),
+                'assigned_to' => $t->assigned_to ?? null,
+                'note' => $t->note ?? null,
+                'updated_by' => $t->updated_by ?? null,
+                'updated_at' => $t?->updated_at?->toDateTimeString(),
+            ];
+        })->values()->all();
+
+        return response()->json([
+            'data' => $data,
+            'current_page' => $paginated->currentPage(),
+            'last_page' => $paginated->lastPage(),
+            'total' => $paginated->total(),
+            'big_threshold' => self::BIG_EPISODES,
+        ]);
+    }
+
+    /**
+     * Create/update the manual task status for one anime.
+     */
+    public function updateTask(Request $request, Anime $anime): JsonResponse
+    {
+        $validated = $request->validate([
+            'status' => ['nullable', 'in:todo,in_progress,done'],
+            'is_modified' => ['nullable', 'boolean'],
+            'is_deferred' => ['nullable', 'boolean'],
+            'assigned_to' => ['nullable', 'string', 'max:100'],
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $task = AnimeTask::firstOrNew(['anime_id' => $anime->id]);
+
+        foreach (['status', 'is_modified', 'is_deferred', 'assigned_to', 'note'] as $field) {
+            if ($request->has($field)) {
+                $task->{$field} = $validated[$field] ?? (in_array($field, ['is_modified', 'is_deferred'], true) ? false : null);
+            }
+        }
+
+        $task->updated_by = $request->user()?->name;
+        $task->save();
+
+        return response()->json(['data' => $task, 'message' => 'Enregistré']);
     }
 }

@@ -92,6 +92,7 @@
                 <button class="btn" id="planningBtn">Planning</button>
                 <button class="btn" id="requestsBtn">Demandes</button>
                 <button class="btn" id="transfersBtn">Transferts</button>
+                <button class="btn btn--primary" id="teamBtn">👥 Équipe</button>
             </div>
             <table>
                 <thead><tr><th>ID</th><th></th><th>Nom</th><th>Saisons</th><th>Trailer</th><th>Synopsis</th><th></th></tr></thead>
@@ -195,6 +196,45 @@
         </div>
     </div>
 
+    <!-- Team manual tracking modal -->
+    <div class="modal" id="teamModal">
+        <div class="card" style="width:1000px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0">👥 Suivi équipe — téléchargement / upload manuel</h2>
+                <button type="button" class="btn" id="teamClose">Fermer</button>
+            </div>
+            <p class="muted" style="margin:8px 0 12px">Cochez les animes traités ou modifiés. Les animes de +25 épisodes sont marqués pour être faits plus tard.</p>
+
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                <label style="margin:0;text-transform:none;color:var(--muted);font-size:13px">Votre nom&nbsp;:</label>
+                <input id="teamMember" placeholder="Votre prénom (pour signer votre travail)" style="max-width:260px" autocomplete="off">
+            </div>
+
+            <div class="stats" id="teamStats" style="margin-bottom:12px"></div>
+
+            <div class="searchbar" style="margin-bottom:10px">
+                <input id="teamQ" placeholder="Rechercher un anime…">
+                <button class="btn" id="teamSearchBtn">Rechercher</button>
+            </div>
+            <div id="teamFilters" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
+
+            <div style="max-height:52vh;overflow-y:auto">
+                <table>
+                    <thead><tr>
+                        <th>ID</th><th>Anime</th><th>Épisodes</th>
+                        <th>Fait ✅</th><th>Modifié ✏️</th><th>+ tard ⏳</th><th>Qui</th>
+                    </tr></thead>
+                    <tbody id="teamRows"></tbody>
+                </table>
+            </div>
+            <div class="pager">
+                <button class="btn" id="teamPrev">← Précédent</button>
+                <span class="muted" id="teamPageInfo"></span>
+                <button class="btn" id="teamNext">Suivant →</button>
+            </div>
+        </div>
+    </div>
+
     <div class="toast" id="toast"></div>
 
     <!-- Planning modal -->
@@ -220,6 +260,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=5"></script>
+    <script src="/js/admin.js?v=6"></script>
 </body>
 </html>

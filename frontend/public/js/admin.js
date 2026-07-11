@@ -8,6 +8,7 @@
 
     const $ = (s) => document.querySelector(s);
     const state = { page: 1, lastPage: 1, q: '', editing: null, season: null };
+    const team = { page: 1, lastPage: 1, q: '', filter: '' };
 
     async function api(path, { method = 'GET', body } = {}) {
         const headers = { Accept: 'application/json' };
@@ -446,6 +447,16 @@
         $('#refreshTransfersBtn').addEventListener('click', reloadTransfers);
         $('#retryAllBtn').addEventListener('click', () => transferAction('/admin/transfers/retry', 'Réessayer TOUS les échecs ?'));
         $('#redoAllBtn').addEventListener('click', () => transferAction('/admin/transfers/redo', 'Remettre TOUS les terminés en file (re-upload) ?'));
+
+        // Team manual tracking
+        $('#teamBtn').addEventListener('click', openTeam);
+        $('#teamClose').addEventListener('click', () => $('#teamModal').classList.remove('open'));
+        $('#teamModal').addEventListener('click', (e) => { if (e.target === $('#teamModal')) $('#teamModal').classList.remove('open'); });
+        $('#teamSearchBtn').addEventListener('click', () => { team.q = $('#teamQ').value.trim(); team.page = 1; loadTeamTasks(); });
+        $('#teamQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { team.q = $('#teamQ').value.trim(); team.page = 1; loadTeamTasks(); } });
+        $('#teamPrev').addEventListener('click', () => { if (team.page > 1) { team.page--; loadTeamTasks(); } });
+        $('#teamNext').addEventListener('click', () => { if (team.page < team.lastPage) { team.page++; loadTeamTasks(); } });
+        $('#teamMember').addEventListener('change', () => localStorage.setItem('as_team_member', teamMember()));
     }
 
     /* ---- Transfers Admin ---- */
@@ -648,6 +659,98 @@
                 catch (e) { toast(e.message); }
             });
         });
+    }
+
+    /* ---- Team manual tracking ---- */
+    const teamMember = () => (($('#teamMember') && $('#teamMember').value) || '').trim();
+
+    async function openTeam() {
+        $('#teamModal').classList.add('open');
+        $('#teamMember').value = localStorage.getItem('as_team_member') || '';
+        team.page = 1; team.q = ''; team.filter = '';
+        $('#teamQ').value = '';
+        renderTeamFilters();
+        loadTeamStats();
+        loadTeamTasks();
+    }
+
+    function renderTeamFilters() {
+        const filters = [['', 'Tout'], ['todo', '\u00c0 faire'], ['in_progress', 'En cours'], ['done', 'Fait'], ['modified', 'Modifi\u00e9s'], ['big', '+25 \u00e9p'], ['deferred', 'Plus tard']];
+        $('#teamFilters').innerHTML = filters.map(([v, label]) =>
+            `<button class="btn ${team.filter === v ? 'btn--primary' : ''}" data-tf="${v}">${label}</button>`).join('');
+        $('#teamFilters').querySelectorAll('[data-tf]').forEach((b) => b.addEventListener('click', () => {
+            team.filter = b.dataset.tf; team.page = 1; renderTeamFilters(); loadTeamTasks();
+        }));
+    }
+
+    async function loadTeamStats() {
+        try {
+            const { data } = await api('/admin/tasks/stats');
+            const labels = { total: 'Total', todo: '\u00c0 faire', in_progress: 'En cours', done: 'Fait', modified: 'Modifi\u00e9s', deferred: 'Plus tard', big: '+25 \u00e9p' };
+            $('#teamStats').innerHTML = Object.entries(labels).map(([k, l]) => {
+                const color = k === 'done' ? 'color:#4fe0a0' : (k === 'big' ? 'color:#f0ad4e' : (k === 'modified' ? 'color:#4fb0ff' : ''));
+                return `<div class="stat"><b style="${color}">${data[k] ?? 0}</b><span>${l}</span></div>`;
+            }).join('');
+        } catch (_) { /* noop */ }
+    }
+
+    async function loadTeamTasks() {
+        $('#teamRows').innerHTML = '<tr><td colspan="7" class="muted">Chargement\u2026</td></tr>';
+        try {
+            const res = await api(`/admin/tasks?q=${encodeURIComponent(team.q)}&filter=${team.filter}&per_page=40&page=${team.page}`);
+            team.lastPage = res.last_page || 1;
+            team.page = res.current_page || 1;
+            renderTeamRows(res.data || []);
+            $('#teamPageInfo').textContent = `Page ${team.page}/${team.lastPage} \u00b7 ${res.total ?? 0} animes`;
+        } catch (e) {
+            $('#teamRows').innerHTML = `<tr><td colspan="7" class="err">${escapeHtml(e.message)}</td></tr>`;
+        }
+    }
+
+    function renderTeamRows(rows) {
+        if (!rows.length) { $('#teamRows').innerHTML = '<tr><td colspan="7" class="muted">Aucun anime.</td></tr>'; return; }
+        $('#teamRows').innerHTML = rows.map((a) => {
+            const done = a.status === 'done';
+            const inProg = a.status === 'in_progress';
+            const bigBadge = a.is_big ? ' <span style="font-size:10px;background:#f0ad4e;color:#000;padding:1px 6px;border-radius:999px;font-weight:700">+25</span>' : '';
+            const who = a.assigned_to || a.updated_by || '';
+            const whoWhen = who ? (a.updated_at ? `${escapeHtml(who)} \u00b7 ${escapeHtml(a.updated_at.slice(0, 10))}` : escapeHtml(who)) : '';
+            return `<tr data-id="${a.id}" style="${done ? 'opacity:.5' : (inProg ? 'background:rgba(240,173,78,.06)' : '')}">
+                <td><code style="color:var(--accent)">${a.id}</code></td>
+                <td>${escapeHtml(a.name)}${inProg ? ' <span class="muted" style="font-size:11px">(en cours)</span>' : ''}</td>
+                <td>${a.episodes_count}${bigBadge}</td>
+                <td style="text-align:center"><input type="checkbox" data-act="done" ${done ? 'checked' : ''} title="Marquer comme fait"></td>
+                <td style="text-align:center"><input type="checkbox" data-act="modified" ${a.is_modified ? 'checked' : ''} title="Anime modifié"></td>
+                <td style="text-align:center"><input type="checkbox" data-act="deferred" ${a.is_deferred ? 'checked' : ''} title="À faire plus tard"></td>
+                <td class="muted" style="font-size:12px">${whoWhen}</td>
+            </tr>`;
+        }).join('');
+        $('#teamRows').querySelectorAll('input[type=checkbox]').forEach((cb) => cb.addEventListener('change', () => onTeamCheck(cb)));
+    }
+
+    async function onTeamCheck(cb) {
+        const tr = cb.closest('tr');
+        const id = tr.dataset.id;
+        const act = cb.dataset.act;
+        const member = teamMember();
+        if (member) localStorage.setItem('as_team_member', member);
+
+        const body = { assigned_to: member || null };
+        if (act === 'done') body.status = cb.checked ? 'done' : 'todo';
+        if (act === 'modified') body.is_modified = cb.checked;
+        if (act === 'deferred') body.is_deferred = cb.checked;
+
+        try {
+            await api(`/admin/tasks/${id}`, { method: 'PUT', body });
+            toast('Enregistr\u00e9' + (member ? ' \u2014 ' + member : ''));
+            if (act === 'done') tr.style.opacity = cb.checked ? '.5' : '';
+            const whoCell = tr.children[6];
+            if (whoCell && member) whoCell.textContent = member + ' \u00b7 ' + new Date().toISOString().slice(0, 10);
+            loadTeamStats();
+        } catch (e) {
+            toast(e.message);
+            cb.checked = !cb.checked; // revert on error
+        }
     }
 
     document.addEventListener('DOMContentLoaded', boot);
