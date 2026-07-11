@@ -58,6 +58,18 @@
             .stat b { font-size:18px; }
             .modal .card { width:96vw; padding:16px; }
         }
+        .genre-tag {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 5px 12px; border-radius: 999px;
+            font-size: 12px; font-weight: 600;
+            background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+            color: var(--muted); cursor: pointer; transition: all 0.15s;
+        }
+        .genre-tag:hover { border-color: var(--accent); color: var(--text); }
+        .genre-tag.active {
+            background: var(--accent); border-color: var(--accent); color: #fff;
+            box-shadow: 0 2px 8px rgba(124,92,255,0.3);
+        }
     </style>
 </head>
 <body>
@@ -125,6 +137,8 @@
                 <label style="display:flex;align-items:center;gap:8px;text-transform:none">
                     <input type="checkbox" name="is_mature" style="width:auto"> Contenu 18+
                 </label>
+                <label>Genres <span class="muted" style="font-size:11px;text-transform:none">(cliquez pour sélectionner, plusieurs possibles)</span></label>
+                <div id="genreSelector"></div>
                 <p class="err" id="editErr"></p>
                 <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
                     <button type="button" class="btn" id="editCancel">Fermer</button>
@@ -260,6 +274,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=6"></script>
+    <script src="/js/admin.js?v=7"></script>
 </body>
 </html>

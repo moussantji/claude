@@ -152,8 +152,19 @@
         }
     }
 
+    /** All known genres (loaded once from the public filters API). */
+    let allGenres = [];
+    async function loadGenres() {
+        if (allGenres.length) return;
+        try {
+            const f = await api('/anime/filters');
+            allGenres = f.genres || [];
+        } catch (_) { /* noop */ }
+    }
+
     /* ---- Editor ---- */
     async function openEditor(id) {
+        await loadGenres();
         try {
             const { data } = await api(`/admin/animes/${id}`);
             state.editing = data;
@@ -167,9 +178,65 @@
             f.synopsis.value = data.synopsis || '';
             f.is_mature.checked = !!data.is_mature;
             $('#editErr').textContent = '';
+            renderGenreSelector(data.genres || []);
             renderSeasons(data.seasons || []);
             $('#editModal').classList.add('open');
         } catch (e) { toast(e.message); }
+    }
+
+    /** Multi-select genre tags (click to toggle, type to add new). */
+    function renderGenreSelector(selectedGenres) {
+        const container = document.getElementById('genreSelector');
+        if (!container) return;
+        const selected = new Set(selectedGenres.map(g => g.trim()).filter(Boolean));
+        const combined = [...new Set([...allGenres, ...selected])].sort();
+
+        let html = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="genreTags">`;
+        combined.forEach(g => {
+            const active = selected.has(g);
+            html += `<button type="button" class="genre-tag ${active ? 'active' : ''}" data-genre="${escapeHtml(g)}">${escapeHtml(g)}</button>`;
+        });
+        html += `</div>`;
+        html += `<div style="display:flex;gap:8px;align-items:center">
+            <input id="genreCustom" placeholder="Ajouter un genre…" style="flex:1">
+            <button type="button" class="btn" id="genreAddBtn">+</button>
+        </div>`;
+        container.innerHTML = html;
+
+        // Toggle genre on click
+        container.querySelectorAll('.genre-tag').forEach(tag => {
+            tag.addEventListener('click', () => tag.classList.toggle('active'));
+        });
+
+        // Add custom genre
+        const addCustom = () => {
+            const input = document.getElementById('genreCustom');
+            const val = input.value.trim();
+            if (!val) return;
+            // Check if already exists
+            const existing = container.querySelector(`[data-genre="${CSS.escape(val)}"]`);
+            if (existing) { existing.classList.add('active'); input.value = ''; return; }
+            // Add new tag
+            const tag = document.createElement('button');
+            tag.type = 'button';
+            tag.className = 'genre-tag active';
+            tag.dataset.genre = val;
+            tag.textContent = val;
+            tag.addEventListener('click', () => tag.classList.toggle('active'));
+            document.getElementById('genreTags').appendChild(tag);
+            input.value = '';
+        };
+        document.getElementById('genreAddBtn').addEventListener('click', addCustom);
+        document.getElementById('genreCustom').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); addCustom(); }
+        });
+    }
+
+    /** Read the currently selected genres from the tag UI. */
+    function getSelectedGenres() {
+        const container = document.getElementById('genreTags');
+        if (!container) return [];
+        return Array.from(container.querySelectorAll('.genre-tag.active')).map(t => t.dataset.genre);
     }
 
     async function refreshEditor() {
@@ -372,6 +439,7 @@
                     image_url: f.image_url.value.trim() || null,
                     synopsis: f.synopsis.value.trim() || null,
                     is_mature: f.is_mature.checked,
+                    genres: getSelectedGenres(),
                 },
             });
             $('#editModal').classList.remove('open');

@@ -78,6 +78,10 @@ class AdminController extends Controller
             'trailer_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'url' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'is_mature' => ['sometimes', 'boolean'],
+            'genres' => ['sometimes', 'nullable', 'array'],
+            'genres.*' => ['string', 'max:100'],
+            'categories' => ['sometimes', 'nullable', 'array'],
+            'categories.*' => ['string', 'max:100'],
         ]);
 
         $anime->fill($validated)->save();
@@ -93,6 +97,10 @@ class AdminController extends Controller
             'image_url'   => ['sometimes', 'nullable', 'string', 'max:2048'],
             'trailer_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'is_mature'   => ['sometimes', 'boolean'],
+            'genres'      => ['sometimes', 'nullable', 'array'],
+            'genres.*'    => ['string', 'max:100'],
+            'categories'  => ['sometimes', 'nullable', 'array'],
+            'categories.*' => ['string', 'max:100'],
         ]);
 
         $slug = Str::slug($validated['name']) . '-' . Str::lower(Str::random(6));
