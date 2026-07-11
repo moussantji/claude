@@ -42,6 +42,9 @@ class EpisodesAuto extends Command
 
     /** Source hosts to skip (set from --skip-hosts). */
     private array $skipHosts = [];
+
+    /** One copy per episode+language (set from --dedupe). */
+    private bool $dedupe = false;
     private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape', 'mp4upload'];
     private const CACHE_KEY = 'episodes_auto_current_id';
 
@@ -52,6 +55,7 @@ class EpisodesAuto extends Command
         {--consolidate-to= : Target monetizing host for unreliable sources (doodstream, vidmoly, ...)}
         {--unreliable= : Override unreliable source hosts (comma-separated)}
         {--skip-hosts= : Source hosts to ignore (unsupported by yt-dlp, e.g. embed4me,minochinos,lpayer)}
+        {--dedupe : Transfer each episode+language ONCE — reuse the result for its other source links (no duplicates on the target)}
         {--lang= : Only this language}
         {--quota=50 : Max EPISODES transferred per anime per day (all hosts combined)}
         {--max-failures=3 : Stop a host after this many consecutive failures}
@@ -72,6 +76,7 @@ class EpisodesAuto extends Command
         $to = strtolower((string) $this->option('to'));
         $consolidateTo = strtolower((string) $this->option('consolidate-to'));
         $this->skipHosts = array_values(array_filter(array_map('trim', explode(',', strtolower((string) $this->option('skip-hosts'))))));
+        $this->dedupe = (bool) $this->option('dedupe');
         $quota = max(1, (int) $this->option('quota'));
         $maxFailures = max(1, (int) $this->option('max-failures'));
         $lang = (string) $this->option('lang');
@@ -119,7 +124,7 @@ class EpisodesAuto extends Command
         $this->line('  Reliable → same-host | Unreliable ('.implode(',', $unreliable).') → '.($consolidateTo ?: '(skipped: no --consolidate-to)'));
         $this->newLine();
 
-        $totals = ['transferred' => 0, 'consolidated' => 0, 'failed' => 0, 'skipped' => 0];
+        $totals = ['transferred' => 0, 'consolidated' => 0, 'failed' => 0, 'skipped' => 0, 'deduped' => 0];
         $emptyAnimes = [];
         $failedAnimes = [];
         $completed = 0;
@@ -144,6 +149,7 @@ class EpisodesAuto extends Command
             $totals['consolidated'] += $r['consolidated'];
             $totals['failed'] += $r['failed'];
             $totals['skipped'] += $r['skipped'];
+            $totals['deduped'] += ($r['deduped'] ?? 0);
 
             if ($r['empty']) {
                 $emptyAnimes[] = $anime;
@@ -212,7 +218,7 @@ class EpisodesAuto extends Command
         Carbon $today,
     ): array {
         $result = [
-            'transferred' => 0, 'consolidated' => 0, 'failed' => 0, 'skipped' => 0,
+            'transferred' => 0, 'consolidated' => 0, 'failed' => 0, 'skipped' => 0, 'deduped' => 0,
             'empty' => false, 'complete' => false, 'has_failures' => false,
         ];
 
@@ -401,6 +407,39 @@ class EpisodesAuto extends Command
                 $epLabel = 'S'.str_pad((string) (($season?->position ?? 0) + 1), 2, '0', STR_PAD_LEFT)
                     .'E'.str_pad((string) ($episode?->index ?? 0), 2, '0', STR_PAD_LEFT)." [{$link->language}]";
 
+                // Dedupe: if this episode+language was already transferred via another
+                // source link, reuse that result instead of uploading a duplicate.
+                if ($this->dedupe) {
+                    $sibling = TransferProgress::where('anime_id', $anime->id)
+                        ->where('status', 'done')
+                        ->whereNotNull('new_url')
+                        ->where('episode_link_id', '!=', $progress->episode_link_id)
+                        ->whereHas('episodeLink', fn ($q) => $q
+                            ->where('episode_id', $link->episode_id)
+                            ->where('language', $link->language))
+                        ->first();
+
+                    if ($sibling) {
+                        $progress->update([
+                            'status' => 'done',
+                            'new_url' => $sibling->new_url,
+                            'new_file_code' => $sibling->new_file_code,
+                            'transferred_at' => $today,
+                            'error' => 'deduped (already on target via another source)',
+                        ]);
+                        if ($updateDb) {
+                            $link->update([
+                                'url' => $sibling->new_url,
+                                'host' => parse_url($sibling->new_url, PHP_URL_HOST) ?? $link->host,
+                            ]);
+                        }
+                        $result['deduped'] = ($result['deduped'] ?? 0) + 1;
+                        $this->line("    <fg=gray>≡</> {$epLabel} (déjà transféré, réutilisé)");
+
+                        continue; // no re-upload, no budget consumed
+                    }
+                }
+
                 $title = sprintf('%s - S%02dE%02d %s [%s]',
                     $anime->name,
                     ($season?->position ?? 0) + 1,
@@ -487,6 +526,7 @@ class EpisodesAuto extends Command
             ['Animes completed', $completed],
             ['✓ Same-host transferred', $totals['transferred']],
             ['✓ Consolidated (cross-host)', $totals['consolidated']],
+            ['≡ Deduped (reused)', $totals['deduped'] ?? 0],
             ['✗ Failed', $totals['failed']],
             ['⊘ Skipped (quota/creds)', $totals['skipped']],
         ]);
