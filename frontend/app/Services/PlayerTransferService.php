@@ -153,18 +153,15 @@ class PlayerTransferService
         $host = parse_url($sourceEmbedUrl, PHP_URL_HOST) ?? '';
         $host = preg_replace('/^www\./', '', $host);
 
+        // Source driver is OPTIONAL: yt-dlp can download most hosts even without
+        // a dedicated driver. Only a valid TARGET driver is required to upload.
         $sourceDriver = $this->driverForHost($host);
-        if (! $sourceDriver) {
-            throw new RuntimeException("No driver available for source host: {$host}");
-        }
-
-        // Target driver: same as source unless a target platform is specified
         $targetDriver = $targetPlatform !== null
             ? $this->driverByName($targetPlatform)
             : $sourceDriver;
 
         if (! $targetDriver) {
-            throw new RuntimeException("No driver available for target platform: {$targetPlatform}");
+            throw new RuntimeException('No driver available for target platform: '.($targetPlatform ?? $host));
         }
 
         $tempDir = $tempDir ?? storage_path('app/temp-transfers');
@@ -175,16 +172,22 @@ class PlayerTransferService
         $tempFile = $tempDir.'/transfer_'.uniqid().'_'.time().'.mp4';
 
         try {
-            // Step 1: Extract direct video URL (using the SOURCE driver)
-            $directUrl = $sourceDriver->extractDirectUrl($sourceEmbedUrl);
-            if (! $directUrl) {
-                throw new RuntimeException("Could not extract direct URL from: {$sourceEmbedUrl}");
-            }
+            // Step 1+2: Download the video.
+            // Prefer yt-dlp (handles vidmoly HLS, sibnet, uqload, referers, ...).
+            // Fall back to the source driver's own extract+download if needed.
+            $downloaded = $this->downloadWithYtDlp($sourceEmbedUrl, $tempFile);
 
-            // Step 2: Download the video (using the SOURCE driver)
-            $success = $sourceDriver->download($directUrl, $tempFile);
-            if (! $success) {
-                throw new RuntimeException("Download failed for: {$directUrl}");
+            if (! $downloaded) {
+                if (! $sourceDriver) {
+                    throw new RuntimeException("Download failed (yt-dlp unavailable/failed) and no driver for host: {$host}");
+                }
+                $directUrl = $sourceDriver->extractDirectUrl($sourceEmbedUrl);
+                if (! $directUrl) {
+                    throw new RuntimeException("Could not extract/download: {$sourceEmbedUrl}");
+                }
+                if (! $sourceDriver->download($directUrl, $tempFile)) {
+                    throw new RuntimeException("Download failed for: {$directUrl}");
+                }
             }
 
             // Step 3: Upload to target account (using the TARGET driver)
@@ -198,5 +201,75 @@ class PlayerTransferService
                 @unlink($tempFile);
             }
         }
+    }
+
+    /**
+     * Download an embed/source URL with yt-dlp (handles hundreds of hosts, HLS,
+     * referers). Requires yt-dlp (+ ffmpeg for HLS) on the machine.
+     * Returns false if yt-dlp is unavailable or the download failed.
+     */
+    public function downloadWithYtDlp(string $url, string $destPath): bool
+    {
+        if (! $this->ytDlpAvailable()) {
+            return false;
+        }
+
+        try {
+            $result = \Illuminate\Support\Facades\Process::timeout((int) env('YTDLP_TIMEOUT', 1800))
+                ->run([
+                    $this->ytDlpBinary(),
+                    '--no-playlist',
+                    '--no-warnings',
+                    '--no-progress',
+                    '--retries', '3',
+                    '--fragment-retries', '10',
+                    '-f', 'best[ext=mp4]/bestvideo*+bestaudio/best',
+                    '--merge-output-format', 'mp4',
+                    '--referer', $url,
+                    '-o', $destPath,
+                    $url,
+                ]);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        if ($result->successful() && is_file($destPath) && filesize($destPath) > 100000) {
+            return true;
+        }
+
+        // yt-dlp may have written a slightly different filename (e.g. .mp4.mp4)
+        $base = preg_replace('/\.mp4$/', '', $destPath);
+        foreach ((array) glob($base.'*') as $f) {
+            if (is_file($f) && filesize($f) > 100000) {
+                if ($f !== $destPath) {
+                    @rename($f, $destPath);
+                }
+
+                return is_file($destPath);
+            }
+        }
+
+        return false;
+    }
+
+    private function ytDlpBinary(): string
+    {
+        return (string) env('YTDLP_PATH', 'yt-dlp');
+    }
+
+    private function ytDlpAvailable(): bool
+    {
+        static $available = null;
+        if ($available !== null) {
+            return $available;
+        }
+        try {
+            $r = \Illuminate\Support\Facades\Process::timeout(15)->run([$this->ytDlpBinary(), '--version']);
+            $available = $r->successful();
+        } catch (\Throwable) {
+            $available = false;
+        }
+
+        return $available;
     }
 }

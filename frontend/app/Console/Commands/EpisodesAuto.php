@@ -45,6 +45,7 @@ class EpisodesAuto extends Command
     protected $signature = 'episodes:auto
         {--from-id= : Start from this anime ID and process sequentially}
         {--auto : Resume from last saved position (cached)}
+        {--to= : Send ALL sources to this single host (e.g. doodstream) — simplest with yt-dlp}
         {--consolidate-to= : Target monetizing host for unreliable sources (doodstream, vidmoly, ...)}
         {--unreliable= : Override unreliable source hosts (comma-separated)}
         {--lang= : Only this language}
@@ -64,6 +65,7 @@ class EpisodesAuto extends Command
     {
         $fromId = $this->option('from-id');
         $auto = (bool) $this->option('auto');
+        $to = strtolower((string) $this->option('to'));
         $consolidateTo = strtolower((string) $this->option('consolidate-to'));
         $quota = max(1, (int) $this->option('quota'));
         $maxFailures = max(1, (int) $this->option('max-failures'));
@@ -129,7 +131,7 @@ class EpisodesAuto extends Command
             }
 
             $r = $this->processAnime(
-                $anime, $service, $consolidateTo, $unreliable, $quota, $maxFailures,
+                $anime, $service, $to, $consolidateTo, $unreliable, $quota, $maxFailures,
                 $lang, $addLink, $updateDb, $statusOnly, $retryFailed, $redoCompleted, $reset, $today
             );
 
@@ -190,6 +192,7 @@ class EpisodesAuto extends Command
     private function processAnime(
         Anime $anime,
         PlayerTransferService $service,
+        string $to,
         string $consolidateTo,
         array $unreliable,
         int $quota,
@@ -324,7 +327,9 @@ class EpisodesAuto extends Command
 
             // Decide target platform
             $targetPlatform = null; // same-host by default
-            if ($isUnreliable) {
+            if ($to !== '') {
+                $targetPlatform = $to; // --to forces EVERYTHING to one host
+            } elseif ($isUnreliable) {
                 if ($consolidateTo === '') {
                     $this->line("  <fg=gray>[{$host}]</> Unreliable, no --consolidate-to. Skipping.");
                     $result['skipped'] += $items->where('status', 'pending')->count();
@@ -334,15 +339,17 @@ class EpisodesAuto extends Command
                 $targetPlatform = $consolidateTo;
             }
 
-            // Which driver name governs the credentials + quota?
+            // Source driver is optional (yt-dlp downloads driverless hosts too).
+            // We only need a valid TARGET: either --to/consolidate, or the source
+            // host itself (same-host) when it has a driver to upload to.
             $sourceDriver = $service->driverForHost($host);
-            if (! $sourceDriver) {
-                $this->line("  <fg=gray>[{$host}]</> No driver. Skipping.");
+            $credPlatform = $targetPlatform ?? $sourceDriver?->name();
+            if ($credPlatform === null) {
+                $this->line("  <fg=gray>[{$host}]</> No driver & no target (use --to=doodstream or --unreliable). Skipping.");
+                $result['skipped'] += $items->where('status', 'pending')->count();
 
                 continue;
             }
-
-            $credPlatform = $targetPlatform ?? $sourceDriver->name();
             $credentials = $this->getTargetCredentials($credPlatform);
             if (empty($credentials)) {
                 $this->warn("  [{$host}] No credentials for target '{$credPlatform}'. Set TRANSFER_".strtoupper($credPlatform)."_* in .env");
