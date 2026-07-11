@@ -39,6 +39,9 @@ use Throwable;
 class EpisodesAuto extends Command
 {
     private const UNRELIABLE = ['sendvid', 'sibnet', 'myvi'];
+
+    /** Source hosts to skip (set from --skip-hosts). */
+    private array $skipHosts = [];
     private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape', 'mp4upload'];
     private const CACHE_KEY = 'episodes_auto_current_id';
 
@@ -48,6 +51,7 @@ class EpisodesAuto extends Command
         {--to= : Send ALL sources to this single host (e.g. doodstream) — simplest with yt-dlp}
         {--consolidate-to= : Target monetizing host for unreliable sources (doodstream, vidmoly, ...)}
         {--unreliable= : Override unreliable source hosts (comma-separated)}
+        {--skip-hosts= : Source hosts to ignore (unsupported by yt-dlp, e.g. embed4me,minochinos,lpayer)}
         {--lang= : Only this language}
         {--quota=50 : Max EPISODES transferred per anime per day (all hosts combined)}
         {--max-failures=3 : Stop a host after this many consecutive failures}
@@ -67,6 +71,7 @@ class EpisodesAuto extends Command
         $auto = (bool) $this->option('auto');
         $to = strtolower((string) $this->option('to'));
         $consolidateTo = strtolower((string) $this->option('consolidate-to'));
+        $this->skipHosts = array_values(array_filter(array_map('trim', explode(',', strtolower((string) $this->option('skip-hosts'))))));
         $quota = max(1, (int) $this->option('quota'));
         $maxFailures = max(1, (int) $this->option('max-failures'));
         $lang = (string) $this->option('lang');
@@ -323,6 +328,14 @@ class EpisodesAuto extends Command
                 $result['skipped'] += $items->where('status', 'pending')->count();
                 continue;
             }
+            // Skip explicitly-excluded / unsupported source hosts
+            foreach ($this->skipHosts as $sk) {
+                if ($sk !== '' && str_contains($host, $sk)) {
+                    $this->line("  <fg=gray>[{$host}]</> Ignoré (--skip-hosts).");
+                    continue 2;
+                }
+            }
+
             $isUnreliable = $this->isUnreliable($host, $unreliable);
 
             // Decide target platform
