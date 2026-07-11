@@ -24,6 +24,9 @@ class PlayerTransferService
     /** @var PlayerDriverInterface[] */
     protected array $drivers;
 
+    /** Last yt-dlp failure reason (surfaced in transfer errors). */
+    public ?string $lastYtDlpError = null;
+
     public function __construct()
     {
         $this->drivers = [
@@ -178,15 +181,16 @@ class PlayerTransferService
             $downloaded = $this->downloadWithYtDlp($sourceEmbedUrl, $tempFile);
 
             if (! $downloaded) {
+                $reason = $this->lastYtDlpError ?: 'yt-dlp failed';
                 if (! $sourceDriver) {
-                    throw new RuntimeException("Download failed (yt-dlp unavailable/failed) and no driver for host: {$host}");
+                    throw new RuntimeException("{$reason} (host {$host}, no PHP driver)");
                 }
                 $directUrl = $sourceDriver->extractDirectUrl($sourceEmbedUrl);
                 if (! $directUrl) {
-                    throw new RuntimeException("Could not extract/download: {$sourceEmbedUrl}");
+                    throw new RuntimeException("yt-dlp: {$reason}; and driver could not extract: {$sourceEmbedUrl}");
                 }
                 if (! $sourceDriver->download($directUrl, $tempFile)) {
-                    throw new RuntimeException("Download failed for: {$directUrl}");
+                    throw new RuntimeException("yt-dlp: {$reason}; and driver download failed: {$directUrl}");
                 }
             }
 
@@ -210,7 +214,11 @@ class PlayerTransferService
      */
     public function downloadWithYtDlp(string $url, string $destPath): bool
     {
+        $this->lastYtDlpError = null;
+
         if (! $this->ytDlpAvailable()) {
+            $this->lastYtDlpError = "yt-dlp introuvable (binaire '".$this->ytDlpBinary()."'). Mets le CHEMIN ABSOLU dans .env YTDLP_PATH (ex: /usr/local/bin/yt-dlp).";
+
             return false;
         }
 
@@ -229,12 +237,23 @@ class PlayerTransferService
                     '-o', $destPath,
                     $url,
                 ]);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $this->lastYtDlpError = 'yt-dlp process error: '.$e->getMessage();
+
             return false;
         }
 
         if ($result->successful() && is_file($destPath) && filesize($destPath) > 100000) {
             return true;
+        }
+
+        // Capture yt-dlp's real reason (unsupported host, 403, geo, etc.)
+        $err = trim($result->errorOutput() ?: $result->output());
+        if ($err !== '') {
+            $err = preg_replace('/\s+/', ' ', $err);
+            $this->lastYtDlpError = 'yt-dlp: '.(strlen($err) > 140 ? substr($err, -140) : $err);
+        } else {
+            $this->lastYtDlpError = 'yt-dlp a échoué (aucune vidéo récupérée)';
         }
 
         // yt-dlp may have written a slightly different filename (e.g. .mp4.mp4)
