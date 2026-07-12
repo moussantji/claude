@@ -724,26 +724,16 @@ class AdminController extends Controller
         // aria2 (free, self-hosted) by default; realdebrid if explicitly chosen.
         $provider = $validated['provider'] ?? TorrentService::defaultProvider();
 
-        if ($isTorrent) {
-            if (! preg_match('#^(magnet:|https?://)#i', $torrentUrl)) {
-                return response()->json([
-                    'message' => 'Lien invalide.',
-                    'errors' => ['torrent_url' => ['Fournissez un magnet: ou une URL http(s) vers un .torrent.']],
-                ], 422);
-            }
-            // Real-Debrid provider needs a token; aria2 needs the binary/RPC.
-            if ($provider === 'realdebrid' && ! (new \App\Services\RealDebridClient())->isConfigured()) {
-                return response()->json([
-                    'message' => 'Real-Debrid non configuré (REALDEBRID_API_TOKEN manquant dans .env).',
-                    'errors' => ['torrent_url' => ['Configurez Real-Debrid ou choisissez le fournisseur aria2 (gratuit).']],
-                ], 422);
-            }
-            if ($provider === 'aria2' && ! (new \App\Services\Aria2Client())->isAvailable()) {
-                return response()->json([
-                    'message' => 'aria2c indisponible sur le serveur.',
-                    'errors' => ['torrent_url' => ['Installez aria2 (ARIA2_* dans .env) ou choisissez Real-Debrid.']],
-                ], 422);
-            }
+        // Only validate the URL format here. We do NOT require the provider
+        // (aria2/Real-Debrid) to be available ON THIS web server: the torrent
+        // is merely queued, and a WORKER (which may run on another machine,
+        // e.g. your PC) is what actually downloads/resolves it. If no capable
+        // worker ever runs, the job is marked failed with a clear message.
+        if ($isTorrent && ! preg_match('#^(magnet:|https?://)#i', $torrentUrl)) {
+            return response()->json([
+                'message' => 'Lien invalide.',
+                'errors' => ['torrent_url' => ['Fournissez un magnet: ou une URL http(s) vers un .torrent.']],
+            ], 422);
         }
 
         $links = $isTorrent ? [] : $this->normalizeLinks($request->input('links'));

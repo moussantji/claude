@@ -915,9 +915,9 @@
         if (warn) {
             let msg = '';
             if (isAria2 && data.aria2_ready === false) {
-                msg = '⚠ aria2c introuvable sur le serveur — les magnets/torrents échoueront. Installez aria2 (ARIA2_* dans .env). Les liens HTTP directs restent utilisables.';
+                msg = 'ℹ aria2c n\'est pas sur CE serveur : les magnets seront traités par un worker externe (ex. ton PC exécutant « torrents:process »). Tu peux quand même les soumettre — ils attendent en file. Les liens HTTP directs marchent directement ici.';
             } else if (!isAria2 && data.debrid_ready === false) {
-                msg = '⚠ Real-Debrid non configuré (REALDEBRID_API_TOKEN) — les magnets/torrents échoueront. Les liens HTTP directs restent utilisables.';
+                msg = 'ℹ Real-Debrid non configuré sur CE serveur — le worker qui traite la file doit avoir le token. Tu peux soumettre : les jobs attendent en file. Les liens HTTP directs marchent directement ici.';
             }
             warn.textContent = msg;
             warn.classList.toggle('hide', msg === '');
