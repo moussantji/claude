@@ -5,17 +5,17 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Torrent download jobs submitted by the admin.
+ * "Torrent" remote-upload jobs submitted by the admin.
  *
- * A single torrent can be a SEASON PACK containing many episodes, so the
- * schema is split in two:
+ * The admin provides direct DOWNLOAD LINKS (e.g. DDL/seedbox HTTP URLs to the
+ * episode files of a torrent). We do NOT download them on our server. Instead
+ * each link is sent to the TARGET player host (Doodstream, Vidmoly, Streamtape,
+ * Mp4upload) which fetches it itself (server-to-server "remote upload"). Once
+ * the host finishes, the resulting embed URL is attached to the episode.
  *
- *   torrent_downloads : the torrent itself (one .torrent / magnet link)
- *   torrent_files     : each video file found inside it (one row per episode)
- *
- * Flow: admin submits torrent/magnet → aria2c downloads ALL files → each video
- * file is uploaded to the target player (doodstream, vidmoly, ...) → each is
- * attached to the matching episode (episode number parsed from the filename).
+ * Because a torrent can be a SEASON PACK, the schema is split in two:
+ *   torrent_downloads : one batch (a set of links for a season / an episode)
+ *   torrent_files     : one row per download link (→ one episode)
  */
 return new class extends Migration
 {
@@ -24,43 +24,29 @@ return new class extends Migration
         Schema::create('torrent_downloads', function (Blueprint $table) {
             $table->id();
 
-            // The torrent source (URL to a .torrent file OR a magnet: URI)
-            $table->text('torrent_url');
-
-            // Target mapping. For a SEASON PACK, set season_id: each downloaded
-            // file is auto-matched to an episode of this season by its number.
-            // For a SINGLE episode torrent, set episode_id instead.
+            // Target mapping. Season pack → season_id (each link auto-matched to
+            // an episode by its number). Single episode → episode_id.
             $table->unsignedBigInteger('season_id')->nullable()->index();
             $table->unsignedBigInteger('episode_id')->nullable()->index();
             $table->string('language', 16)->default('VOSTFR');
 
-            // Target player platform (doodstream, vidmoly, streamtape, mp4upload)
+            // Target player host that will fetch the links (must support remote
+            // upload): doodstream, vidmoly, streamtape, mp4upload.
             $table->string('target_platform', 50)->default('doodstream');
 
-            // Job status: pending → downloading → uploading → done / failed
-            //   (uploading = iterating over torrent_files and pushing each one)
+            // Batch status: pending → processing → done / failed
             $table->string('status', 20)->default('pending')->index();
 
-            // aria2c GID (used to poll the download progress)
-            $table->string('aria2_gid', 64)->nullable();
-
-            // Download progress (0-100) across the whole torrent
-            $table->unsignedTinyInteger('progress')->default(0);
-
-            // File counters (populated once the torrent is scanned)
+            // Per-file counters (link-level results)
             $table->unsignedSmallInteger('files_total')->default(0);
             $table->unsignedSmallInteger('files_done')->default(0);
             $table->unsignedSmallInteger('files_failed')->default(0);
 
-            // Metadata
+            // Metadata / errors
             $table->string('title', 500)->nullable();
-            $table->unsignedBigInteger('total_size')->nullable(); // bytes
-
-            // Error tracking (job-level: download stage errors)
             $table->unsignedTinyInteger('attempts')->default(0);
             $table->text('error')->nullable();
 
-            // Admin who submitted
             $table->unsignedBigInteger('submitted_by')->nullable();
 
             $table->timestamps();
@@ -76,21 +62,25 @@ return new class extends Migration
 
             $table->unsignedBigInteger('torrent_download_id')->index();
 
-            // The video file inside the torrent
-            $table->string('file_name', 1024);
-            $table->string('local_path', 1024)->nullable();
-            $table->unsignedBigInteger('file_size')->nullable(); // bytes
+            // The direct download link the admin provides. Sent as-is to the
+            // target host's remote-upload API (the host downloads it).
+            $table->text('source_url');
+            $table->string('file_name', 1024)->nullable(); // basename, for ep detection
 
             // Episode matching
-            $table->unsignedInteger('detected_episode')->nullable(); // parsed from filename
-            $table->unsignedBigInteger('episode_id')->nullable()->index(); // matched episode
+            $table->unsignedInteger('detected_episode')->nullable();
+            $table->unsignedBigInteger('episode_id')->nullable()->index();
             $table->string('language', 16)->default('VOSTFR');
 
-            // Per-file status: pending → uploading → done / failed / skipped
-            //   skipped = no matching episode found and no episode_id set
+            // Per-link status: pending → queued (host is fetching) → done
+            //   failed  = host refused / errored
+            //   skipped = no episode matched (needs manual mapping first)
             $table->string('status', 20)->default('pending')->index();
 
-            // Upload result
+            // Remote job id returned by the host (polled via remoteStatus)
+            $table->string('remote_job_id', 255)->nullable();
+
+            // Result once the host finishes
             $table->string('embed_url', 2048)->nullable();
             $table->string('file_code', 255)->nullable();
 

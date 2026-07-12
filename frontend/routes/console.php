@@ -34,9 +34,9 @@ Schedule::command('anime:cache-prune --days=30')
 // -------------------------------------------------------------------------
 
 // -------------------------------------------------------------------------
-// Torrent downloads: process the admin-submitted queue every 2 minutes.
-// Requires aria2c (daemon or CLI) on the machine running the scheduler.
-// The command is non-blocking with --limit controlling max concurrent jobs.
+// Torrent remote-upload: advance the admin-submitted queue every 2 minutes.
+// Sends the download links to the target player host (which fetches them) and
+// polls until each episode is live. No local download — lightweight API calls.
 // -------------------------------------------------------------------------
 Schedule::command('torrents:process --limit=5')
     ->everyTwoMinutes()

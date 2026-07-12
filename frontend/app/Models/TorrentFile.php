@@ -6,14 +6,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * A single video file inside a downloaded torrent.
+ * A single download link inside a "torrent" batch → one episode.
  *
- * One torrent (TorrentDownload) can contain many episodes, so each video file
- * gets its own row here — with its own upload status, matched episode and
- * resulting embed URL.
+ * The link (source_url) is sent to the target player host which fetches it
+ * itself (remote upload). We never download it on our server.
  *
- * Per-file lifecycle: pending → uploading → done / failed
- *                     skipped = no episode could be matched (needs manual map)
+ * Lifecycle: pending → queued (host is fetching) → done / failed
+ *            skipped = no episode matched yet (needs manual mapping)
  */
 class TorrentFile extends Model
 {
@@ -21,13 +20,13 @@ class TorrentFile extends Model
 
     protected $fillable = [
         'torrent_download_id',
+        'source_url',
         'file_name',
-        'local_path',
-        'file_size',
         'detected_episode',
         'episode_id',
         'language',
         'status',
+        'remote_job_id',
         'embed_url',
         'file_code',
         'attempts',
@@ -37,7 +36,6 @@ class TorrentFile extends Model
     protected function casts(): array
     {
         return [
-            'file_size' => 'integer',
             'detected_episode' => 'integer',
             'attempts' => 'integer',
         ];
@@ -62,6 +60,11 @@ class TorrentFile extends Model
         return $this->status === 'pending';
     }
 
+    public function isQueued(): bool
+    {
+        return $this->status === 'queued';
+    }
+
     public function isDone(): bool
     {
         return $this->status === 'done';
@@ -79,9 +82,14 @@ class TorrentFile extends Model
 
     /* ---- Actions ---- */
 
-    public function markUploading(): void
+    /** Host accepted the link and is fetching it (async). */
+    public function markQueued(?string $remoteJobId): void
     {
-        $this->update(['status' => 'uploading', 'error' => null]);
+        $this->update([
+            'status' => 'queued',
+            'remote_job_id' => $remoteJobId,
+            'error' => null,
+        ]);
     }
 
     public function markDone(string $embedUrl, ?string $fileCode = null): void

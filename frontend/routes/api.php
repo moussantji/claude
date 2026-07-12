@@ -95,9 +95,9 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('/tasks/stats', [AdminController::class, 'tasksStats']);
     Route::put('/tasks/{anime}', [AdminController::class, 'updateTask']);
 
-    // Torrent downloads (admin submits torrent/magnet → download → upload to player)
-    // A torrent may be a season pack: each video file becomes a torrent_file
-    // mapped to an episode. Fixed routes are declared before /{torrent}.
+    // Torrent remote-upload (admin submits download links → host fetches them)
+    // A batch may be a season pack: each link becomes a torrent_file mapped to
+    // an episode. Fixed routes are declared before /{torrent}.
     Route::get('/torrents', [AdminController::class, 'torrentIndex']);
     Route::get('/torrents/stats', [AdminController::class, 'torrentStats']);
     Route::post('/torrents', [AdminController::class, 'torrentStore']);

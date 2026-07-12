@@ -3,37 +3,37 @@
 namespace App\Console\Commands;
 
 use App\Models\TorrentDownload;
+use App\Models\TorrentFile;
 use App\Services\TorrentService;
 use Illuminate\Console\Command;
 use Throwable;
 
 /**
- * Process the torrent download queue.
+ * Process the "torrent" remote-upload queue.
  *
- * A torrent can be a SEASON PACK (many episodes). Each invocation:
- *   1. Starts pending downloads (aria2c)
- *   2. Polls active downloads; when complete, scans files & matches episodes
- *   3. Uploads a batch of the torrent's video files to the target platform
+ * The admin submits direct download links; each is sent to the target player
+ * host which fetches it itself. This command advances each batch: it submits
+ * pending links and polls the ones the host is still fetching.
  *
  * Designed to run frequently via the scheduler (every 2 minutes).
  *
  * Examples:
- *   php artisan torrents:process               # process the queue
- *   php artisan torrents:process --limit=10    # more torrents per run
- *   php artisan torrents:process --status      # queue report only
+ *   php artisan torrents:process               # advance the queue
+ *   php artisan torrents:process --limit=10    # more batches per run
+ *   php artisan torrents:process --status      # report only
  *   php artisan torrents:process --retry-failed
  *   php artisan torrents:process --max-minutes=5
  */
 class TorrentsProcess extends Command
 {
     protected $signature = 'torrents:process
-        {--limit=5 : Max torrents to advance per invocation}
+        {--limit=5 : Max batches to advance per invocation}
         {--max-minutes=0 : Stop cleanly after N minutes (0 = no limit)}
         {--status : Show queue status only (no processing)}
-        {--retry-failed : Reset failed torrents AND failed files to pending}
-        {--max-attempts=3 : Skip torrents that have failed more than N times}';
+        {--retry-failed : Reset failed batches AND failed links to pending}
+        {--max-attempts=3 : Skip batches that have failed more than N times}';
 
-    protected $description = 'Process torrent queue: download via aria2c, then upload each episode file to the target player platform.';
+    protected $description = 'Advance torrent remote-upload batches: send links to the target player host and poll until each episode is live.';
 
     public function handle(TorrentService $service): int
     {
@@ -50,19 +50,17 @@ class TorrentsProcess extends Command
             return $this->retryFailed($maxAttempts);
         }
 
-        $this->info('═══ Torrents Process ═══');
+        $this->info('═══ Torrents Process (remote upload) ═══');
 
-        $stats = ['started' => 0, 'downloading' => 0, 'uploading' => 0, 'done' => 0, 'failed' => 0];
+        $stats = ['processing' => 0, 'done' => 0, 'failed' => 0];
 
-        // Advance in-flight torrents first (downloading, then uploading),
-        // then start new ones.
-        $jobs = TorrentDownload::whereIn('status', ['downloading', 'uploading'])
+        // In-flight batches first, then new ones.
+        $jobs = TorrentDownload::where('status', 'processing')
             ->orderBy('updated_at')
             ->limit($limit)
             ->get();
 
-        $activeCount = $jobs->count();
-        $slots = max(0, $limit - $activeCount);
+        $slots = max(0, $limit - $jobs->count());
         if ($slots > 0) {
             $pending = TorrentDownload::where('status', 'pending')
                 ->where('attempts', '<', $maxAttempts)
@@ -82,16 +80,14 @@ class TorrentsProcess extends Command
 
         $this->newLine();
         $this->table(['Action', 'Count'], [
-            ['⬇ Downloads started', $stats['started']],
-            ['↻ Downloading', $stats['downloading']],
-            ['⬆ Uploading (files)', $stats['uploading']],
-            ['✓ Torrents done', $stats['done']],
-            ['✗ Failed', $stats['failed']],
+            ['↻ En cours', $stats['processing']],
+            ['✓ Terminés', $stats['done']],
+            ['✗ Échecs', $stats['failed']],
         ]);
 
-        $remaining = TorrentDownload::whereIn('status', ['pending', 'downloading', 'uploading'])->count();
+        $remaining = TorrentDownload::whereIn('status', ['pending', 'processing'])->count();
         if ($remaining > 0) {
-            $this->line("📍 {$remaining} torrent(s) encore en file.");
+            $this->line("📍 {$remaining} batch(es) encore en file.");
         } else {
             $this->info('✓ File vide — tout est traité.');
         }
@@ -102,26 +98,16 @@ class TorrentsProcess extends Command
     private function processOne(TorrentDownload $job, TorrentService $service, array &$stats): void
     {
         $label = $this->jobLabel($job);
-        $before = $job->status;
 
         try {
             $service->processJob($job);
             $job->refresh();
 
             switch ($job->status) {
-                case 'downloading':
-                    if ($before === 'pending') {
-                        $stats['started']++;
-                        $this->line("  <fg=cyan>⬇</> {$label} — téléchargement lancé");
-                    } else {
-                        $stats['downloading']++;
-                        $this->line("  <fg=blue>↻</> {$label} — {$job->progress}%");
-                    }
-                    break;
-
-                case 'uploading':
-                    $stats['uploading']++;
-                    $this->line("  <fg=magenta>⬆</> {$label} — fichiers {$job->files_done}/{$job->files_total} (✗{$job->files_failed})");
+                case 'processing':
+                    $stats['processing']++;
+                    $queued = $job->files()->where('status', 'queued')->count();
+                    $this->line("  <fg=magenta>↻</> {$label} — {$job->files_done}/{$job->files_total} live · {$queued} en cours (✗{$job->files_failed})");
                     $this->renderFileLines($job);
                     break;
 
@@ -129,7 +115,7 @@ class TorrentsProcess extends Command
                     $stats['done']++;
                     $skipped = $job->files()->where('status', 'skipped')->count();
                     $suffix = $skipped > 0 ? " (⚠ {$skipped} non mappé(s))" : '';
-                    $this->line("  <fg=green>✓</> {$label} — {$job->files_done}/{$job->files_total} épisode(s) uploadé(s){$suffix}");
+                    $this->line("  <fg=green>✓</> {$label} — {$job->files_done}/{$job->files_total} épisode(s) en ligne{$suffix}");
                     break;
 
                 case 'failed':
@@ -147,9 +133,6 @@ class TorrentsProcess extends Command
         }
     }
 
-    /**
-     * Show recently-resolved files under an uploading torrent.
-     */
     private function renderFileLines(TorrentDownload $job): void
     {
         $files = $job->files()
@@ -169,33 +152,29 @@ class TorrentsProcess extends Command
             $note = in_array($file->status, ['failed', 'skipped'], true)
                 ? ' — ' . mb_substr($file->error ?? '', 0, 50)
                 : '';
-            $this->line("      {$icon} {$ep} {$file->file_name}{$note}");
+            $this->line("      {$icon} {$ep} " . mb_substr($file->file_name ?? $file->source_url, 0, 60) . $note);
         }
     }
 
     private function retryFailed(int $maxAttempts): int
     {
-        // Re-arm failed torrents (download-stage failures)
-        $torrents = TorrentDownload::where('status', 'failed')
+        $batches = TorrentDownload::where('status', 'failed')
             ->where('attempts', '<', $maxAttempts)
-            ->update(['status' => 'pending', 'error' => null, 'progress' => 0]);
-
-        // Re-arm failed individual files (upload-stage failures) and put their
-        // torrent back into the uploading stage so they get retried.
-        $failedFileTorrentIds = \App\Models\TorrentFile::whereIn('status', ['failed', 'skipped'])
-            ->pluck('torrent_download_id')
-            ->unique();
-
-        $files = \App\Models\TorrentFile::whereIn('status', ['failed'])
             ->update(['status' => 'pending', 'error' => null]);
 
-        if ($failedFileTorrentIds->isNotEmpty()) {
-            TorrentDownload::whereIn('id', $failedFileTorrentIds)
+        $affected = TorrentFile::where('status', 'failed')
+            ->pluck('torrent_download_id')->unique();
+
+        $files = TorrentFile::where('status', 'failed')
+            ->update(['status' => 'pending', 'error' => null, 'remote_job_id' => null]);
+
+        if ($affected->isNotEmpty()) {
+            TorrentDownload::whereIn('id', $affected)
                 ->where('status', 'done')
-                ->update(['status' => 'uploading']);
+                ->update(['status' => 'processing']);
         }
 
-        $this->info("{$torrents} torrent(s) et {$files} fichier(s) réarmé(s).");
+        $this->info("{$batches} batch(es) et {$files} lien(s) réarmé(s).");
 
         return self::SUCCESS;
     }
@@ -211,25 +190,21 @@ class TorrentsProcess extends Command
         $this->info('═══ Torrent Queue Status ═══');
         $this->table(['Status', 'Count'], [
             ['Pending', $counts['pending'] ?? 0],
-            ['Downloading', $counts['downloading'] ?? 0],
-            ['Uploading', $counts['uploading'] ?? 0],
+            ['Processing', $counts['processing'] ?? 0],
             ['Done', $counts['done'] ?? 0],
             ['Failed', $counts['failed'] ?? 0],
         ]);
 
-        $active = TorrentDownload::whereIn('status', ['downloading', 'uploading'])
+        $active = TorrentDownload::where('status', 'processing')
             ->orderByDesc('updated_at')
             ->limit(10)
             ->get();
 
         if ($active->isNotEmpty()) {
             $this->newLine();
-            $this->info('Torrents actifs:');
+            $this->info('Batches actifs:');
             foreach ($active as $job) {
-                $detail = $job->status === 'uploading'
-                    ? "fichiers {$job->files_done}/{$job->files_total}"
-                    : "{$job->progress}%";
-                $this->line("  [{$job->status}] {$this->jobLabel($job)} — {$detail}");
+                $this->line("  {$this->jobLabel($job)} — {$job->files_done}/{$job->files_total} live (✗{$job->files_failed})");
             }
         }
 
@@ -251,7 +226,7 @@ class TorrentsProcess extends Command
 
     private function jobLabel(TorrentDownload $job): string
     {
-        $title = $job->title ?: ('Torrent #' . $job->id);
+        $title = $job->title ?: ('Batch #' . $job->id);
 
         return "{$title} → {$job->target_platform}";
     }

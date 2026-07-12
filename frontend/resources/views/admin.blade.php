@@ -104,6 +104,7 @@
                 <button class="btn" id="planningBtn">Planning</button>
                 <button class="btn" id="requestsBtn">Demandes</button>
                 <button class="btn" id="transfersBtn">Transferts</button>
+                <button class="btn" id="torrentsBtn">🧲 Torrents</button>
                 <button class="btn btn--primary" id="teamBtn">👥 Équipe</button>
             </div>
             <table>
@@ -249,6 +250,75 @@
         </div>
     </div>
 
+    <!-- Torrents (remote upload) modal -->
+    <div class="modal" id="torrentsModal">
+        <div class="card" style="width:900px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0">🧲 Torrents — envoi des liens aux lecteurs</h2>
+                <button type="button" class="btn" id="torrentsClose">Fermer</button>
+            </div>
+            <p class="muted" style="margin:8px 0 12px">
+                Collez les <b>liens de téléchargement directs</b> (un par ligne). Ils sont envoyés au lecteur
+                cible qui les récupère lui-même (aucun téléchargement sur le serveur). Un lien = un épisode.
+            </p>
+
+            <div class="stats" id="torrentStats" style="margin-bottom:12px"></div>
+
+            <!-- Submission form -->
+            <div style="border:1px solid var(--accent);border-radius:12px;padding:14px;margin-bottom:16px;background:rgba(124,92,255,0.05)">
+                <b style="font-size:13px;display:block;margin-bottom:10px">Nouveau batch</b>
+                <div style="display:flex;gap:10px;flex-wrap:wrap">
+                    <div style="flex:1;min-width:150px">
+                        <label>Lecteur cible</label>
+                        <select id="tPlatform" style="width:100%;padding:10px;border-radius:8px;background:#0f0f18;border:1px solid var(--border);color:var(--text)"></select>
+                    </div>
+                    <div style="flex:1;min-width:120px">
+                        <label>Langue</label>
+                        <input id="tLang" value="VOSTFR" placeholder="VOSTFR">
+                    </div>
+                </div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+                    <div style="flex:1;min-width:120px">
+                        <label>Saison ID <span class="muted" style="text-transform:none;font-size:11px">(pack: mappe auto par n° d'épisode)</span></label>
+                        <input id="tSeasonId" type="number" placeholder="ex: 12">
+                    </div>
+                    <div style="flex:1;min-width:120px">
+                        <label>OU Épisode ID <span class="muted" style="text-transform:none;font-size:11px">(épisode unique)</span></label>
+                        <input id="tEpisodeId" type="number" placeholder="ex: 42">
+                    </div>
+                </div>
+                <label>Titre (optionnel)</label>
+                <input id="tTitle" placeholder="ex: One Piece — Saison 1">
+                <label>Liens de téléchargement (un par ligne)</label>
+                <textarea id="tLinks" placeholder="https://seedbox.example/One.Piece.S01E01.1080p.mp4&#10;https://seedbox.example/One.Piece.S01E02.1080p.mp4&#10;…"></textarea>
+                <p class="err" id="tErr"></p>
+                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px">
+                    <button class="btn btn--primary" id="tSubmitBtn">Envoyer aux lecteurs</button>
+                </div>
+            </div>
+
+            <!-- Batch list -->
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+                <b style="font-size:14px;flex:1">Batches</b>
+                <button class="btn" id="tRetryAllBtn" title="Réarmer tous les échecs">↻ Réessayer erreurs</button>
+                <button class="btn" id="tRefreshBtn">Actualiser</button>
+            </div>
+            <div id="torrentList" style="max-height:44vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <!-- Torrent files (per-episode) modal -->
+    <div class="modal" id="torrentFilesModal">
+        <div class="card" style="width:760px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0" id="tfTitle">Épisodes du batch</h2>
+                <button type="button" class="btn" id="torrentFilesClose">Fermer</button>
+            </div>
+            <p class="muted" style="margin:8px 0 12px">Détail par lien. Un lien non mappé (⊘) peut être rattaché manuellement à un épisode.</p>
+            <div id="torrentFilesList" style="max-height:60vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
     <div class="toast" id="toast"></div>
 
     <!-- Planning modal -->
@@ -274,6 +344,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=7"></script>
+    <script src="/js/admin.js?v=8"></script>
 </body>
 </html>

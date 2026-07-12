@@ -516,6 +516,16 @@
         $('#retryAllBtn').addEventListener('click', () => transferAction('/admin/transfers/retry', 'Réessayer TOUS les échecs ?'));
         $('#redoAllBtn').addEventListener('click', () => transferAction('/admin/transfers/redo', 'Remettre TOUS les terminés en file (re-upload) ?'));
 
+        // Torrents (remote upload)
+        $('#torrentsBtn').addEventListener('click', openTorrents);
+        $('#torrentsClose').addEventListener('click', () => $('#torrentsModal').classList.remove('open'));
+        $('#torrentsModal').addEventListener('click', (e) => { if (e.target === $('#torrentsModal')) $('#torrentsModal').classList.remove('open'); });
+        $('#tSubmitBtn').addEventListener('click', submitTorrent);
+        $('#tRefreshBtn').addEventListener('click', reloadTorrents);
+        $('#tRetryAllBtn').addEventListener('click', () => torrentAction('/admin/torrents/retry-all', 'Réarmer TOUS les échecs (batches + liens) ?'));
+        $('#torrentFilesClose').addEventListener('click', () => $('#torrentFilesModal').classList.remove('open'));
+        $('#torrentFilesModal').addEventListener('click', (e) => { if (e.target === $('#torrentFilesModal')) $('#torrentFilesModal').classList.remove('open'); });
+
         // Team manual tracking
         $('#teamBtn').addEventListener('click', openTeam);
         $('#teamClose').addEventListener('click', () => $('#teamModal').classList.remove('open'));
@@ -819,6 +829,201 @@
             toast(e.message);
             cb.checked = !cb.checked; // revert on error
         }
+    }
+
+    /* ---- Torrents (remote upload: send download links to the player host) ---- */
+    const torrentState = { platforms: ['doodstream', 'vidmoly', 'streamtape', 'mp4upload'] };
+
+    const TORRENT_STATUS_LABELS = { pending: 'En attente', processing: 'En cours', done: 'Terminé', failed: 'Échec' };
+    const FILE_STATUS = {
+        pending: ['#9a9ab0', '· en attente'],
+        queued: ['#4fb0ff', '↻ chez le lecteur'],
+        done: ['#4fe0a0', '✓ en ligne'],
+        failed: ['#ff4d6d', '✗ échec'],
+        skipped: ['#f0ad4e', '⊘ non mappé'],
+    };
+
+    async function openTorrents() {
+        $('#torrentsModal').classList.add('open');
+        $('#tErr').textContent = '';
+        $('#torrentStats').innerHTML = '<span class="muted">Chargement…</span>';
+        $('#torrentList').innerHTML = '';
+        await reloadTorrents();
+    }
+
+    async function reloadTorrents() {
+        try {
+            const { data } = await api('/admin/torrents/stats');
+            if (Array.isArray(data.platforms) && data.platforms.length) {
+                torrentState.platforms = data.platforms;
+            }
+            renderPlatformSelect();
+            const labels = { total: 'Total', pending: 'En attente', processing: 'En cours', done: 'Terminés', failed: 'Échecs', links_unmatched: 'Non mappés', links_failed: 'Liens KO' };
+            $('#torrentStats').innerHTML = Object.entries(labels).map(([k, label]) => {
+                const val = data[k] ?? 0;
+                const color = (k === 'failed' || k === 'links_failed') && val > 0 ? 'color:var(--danger)'
+                    : (k === 'done' ? 'color:#4fe0a0' : (k === 'processing' && val > 0 ? 'color:#4fb0ff' : (k === 'links_unmatched' && val > 0 ? 'color:#f0ad4e' : '')));
+                return `<div class="stat"><b style="${color}">${val}</b><span>${label}</span></div>`;
+            }).join('');
+        } catch (e) {
+            $('#torrentStats').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+        loadTorrentList();
+    }
+
+    function renderPlatformSelect() {
+        const sel = $('#tPlatform');
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = torrentState.platforms.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+        if (current) sel.value = current;
+    }
+
+    async function loadTorrentList() {
+        try {
+            const res = await api('/admin/torrents?per_page=50');
+            renderTorrentList(res.data || []);
+        } catch (e) {
+            $('#torrentList').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    function renderTorrentList(rows) {
+        if (!rows.length) { $('#torrentList').innerHTML = '<span class="muted">Aucun batch pour le moment.</span>'; return; }
+        $('#torrentList').innerHTML = rows.map(t => {
+            const [color] = statusColor(t.status);
+            const target = t.season ? `${escapeHtml(t.season.anime ? t.season.anime.name : '?')} · ${escapeHtml(t.season.name)}`
+                : (t.episode ? `Épisode #${t.episode.index}` : '—');
+            const canDelete = t.status !== 'done';
+            return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                    <span style="font-weight:700;flex:1;min-width:140px">${escapeHtml(t.title || 'Batch #' + t.id)}</span>
+                    <span style="font-size:11px;padding:2px 10px;border-radius:999px;background:${color};color:#000;font-weight:700">${TORRENT_STATUS_LABELS[t.status] || t.status}</span>
+                    <span class="muted" style="font-size:12px">→ ${escapeHtml(t.target_platform)}</span>
+                </div>
+                <div class="muted" style="font-size:12px;margin:4px 0">${target} · ${t.files_done}/${t.files_total} en ligne${t.files_failed ? ' · <span style="color:var(--danger)">'+t.files_failed+' KO</span>' : ''}</div>
+                ${t.error ? `<div class="err" style="font-size:12px">${escapeHtml(t.error)}</div>` : ''}
+                <div style="display:flex;gap:6px;margin-top:6px">
+                    <button class="btn" data-tfiles="${t.id}" data-title="${escapeHtml(t.title || 'Batch #' + t.id)}">Épisodes</button>
+                    <button class="btn" data-tretry="${t.id}">↻ Réessayer</button>
+                    ${canDelete ? `<button class="btn btn--danger" data-tdel="${t.id}">Suppr.</button>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+
+        $('#torrentList').querySelectorAll('[data-tfiles]').forEach(b => b.addEventListener('click', () => openTorrentFiles(b.dataset.tfiles, b.dataset.title)));
+        $('#torrentList').querySelectorAll('[data-tretry]').forEach(b => b.addEventListener('click', () => torrentAction(`/admin/torrents/${b.dataset.tretry}/retry`, null)));
+        $('#torrentList').querySelectorAll('[data-tdel]').forEach(b => b.addEventListener('click', () => {
+            if (!confirm('Supprimer ce batch et ses liens ?')) return;
+            torrentDelete(b.dataset.tdel);
+        }));
+    }
+
+    function statusColor(status) {
+        return { pending: ['#9a9ab0'], processing: ['#4fb0ff'], done: ['#4fe0a0'], failed: ['#ff4d6d'] }[status] || ['#666'];
+    }
+
+    async function submitTorrent() {
+        $('#tErr').textContent = '';
+        const platform = $('#tPlatform').value;
+        const lang = $('#tLang').value.trim() || 'VOSTFR';
+        const seasonId = $('#tSeasonId').value.trim();
+        const episodeId = $('#tEpisodeId').value.trim();
+        const title = $('#tTitle').value.trim() || null;
+        const links = $('#tLinks').value.trim();
+
+        if (!links) { $('#tErr').textContent = 'Collez au moins un lien.'; return; }
+        if (!seasonId && !episodeId) { $('#tErr').textContent = 'Indiquez une Saison ID (pack) ou un Épisode ID (unique).'; return; }
+
+        const body = { target_platform: platform, language: lang, title, links };
+        if (seasonId) body.season_id = +seasonId;
+        if (episodeId) body.episode_id = +episodeId;
+
+        try {
+            const res = await api('/admin/torrents', { method: 'POST', body });
+            toast(res.message || 'Batch créé');
+            $('#tLinks').value = '';
+            $('#tTitle').value = '';
+            reloadTorrents();
+        } catch (e) {
+            $('#tErr').textContent = e.message + (e.errors ? ' — ' + Object.values(e.errors).flat().join(' ') : '');
+        }
+    }
+
+    async function torrentAction(path, confirmMsg) {
+        if (confirmMsg && !confirm(confirmMsg)) return;
+        try {
+            const res = await api(path, { method: 'POST' });
+            toast(res.message || 'OK');
+            reloadTorrents();
+        } catch (e) { toast(e.message); }
+    }
+
+    async function torrentDelete(id) {
+        try {
+            const res = await api(`/admin/torrents/${id}`, { method: 'DELETE' });
+            toast(res.message || 'Supprimé');
+            reloadTorrents();
+        } catch (e) { toast(e.message); }
+    }
+
+    /* ---- Torrent files (per-episode) ---- */
+    let currentTorrentId = null;
+
+    async function openTorrentFiles(id, title) {
+        currentTorrentId = id;
+        $('#tfTitle').textContent = 'Épisodes — ' + (title || '');
+        $('#torrentFilesList').innerHTML = '<span class="muted">Chargement…</span>';
+        $('#torrentFilesModal').classList.add('open');
+        reloadTorrentFiles();
+    }
+
+    async function reloadTorrentFiles() {
+        if (!currentTorrentId) return;
+        try {
+            const { data } = await api(`/admin/torrents/${currentTorrentId}/files`);
+            renderTorrentFiles(data || []);
+        } catch (e) {
+            $('#torrentFilesList').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    function renderTorrentFiles(files) {
+        if (!files.length) { $('#torrentFilesList').innerHTML = '<span class="muted">Aucun lien.</span>'; return; }
+        $('#torrentFilesList').innerHTML = files.map(f => {
+            const [color, label] = FILE_STATUS[f.status] || ['#666', f.status];
+            const ep = f.episode ? `#${f.episode.index}${f.episode.name ? ' — ' + escapeHtml(f.episode.name) : ''}`
+                : (f.detected_episode ? `E${String(f.detected_episode).padStart(2, '0')} (détecté)` : '<span style="color:#f0ad4e">non mappé</span>');
+            const needsMap = f.status === 'skipped' || !f.episode;
+            return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${color};color:#000;font-weight:700">${label}</span>
+                    <span style="flex:1;min-width:120px">${ep}</span>
+                    ${f.embed_url ? `<a href="${escapeHtml(f.embed_url)}" target="_blank" rel="noopener" style="font-size:12px">voir</a>` : ''}
+                </div>
+                <div class="muted" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px">${escapeHtml(f.file_name || f.source_url)}</div>
+                ${f.error ? `<div class="err" style="font-size:11px">${escapeHtml(f.error)}</div>` : ''}
+                ${needsMap ? `<div style="display:flex;gap:6px;margin-top:6px">
+                    <input data-mapep="${f.id}" type="number" placeholder="Épisode ID" style="width:130px">
+                    <button class="btn" data-mapbtn="${f.id}">Rattacher</button>
+                </div>` : ''}
+            </div>`;
+        }).join('');
+
+        $('#torrentFilesList').querySelectorAll('[data-mapbtn]').forEach(b => b.addEventListener('click', () => {
+            const id = b.dataset.mapbtn;
+            const val = document.querySelector(`[data-mapep="${id}"]`).value.trim();
+            if (!val) { toast('Indiquez un Épisode ID'); return; }
+            mapTorrentFile(id, +val);
+        }));
+    }
+
+    async function mapTorrentFile(fileId, episodeId) {
+        try {
+            await api(`/admin/torrent-files/${fileId}`, { method: 'PUT', body: { episode_id: episodeId } });
+            toast('Rattaché — sera renvoyé au lecteur.');
+            reloadTorrentFiles();
+        } catch (e) { toast(e.message); }
     }
 
     document.addEventListener('DOMContentLoaded', boot);

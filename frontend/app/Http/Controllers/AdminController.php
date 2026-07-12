@@ -12,6 +12,7 @@ use App\Models\TorrentDownload;
 use App\Models\TorrentFile;
 use App\Models\TransferProgress;
 use App\Models\User;
+use App\Services\TorrentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -615,16 +616,26 @@ class AdminController extends Controller
     }
 
     /* ====================================================================
-     * TORRENT DOWNLOADS
+     * TORRENT REMOTE-UPLOAD (send download links to the player host)
+     *
+     * The admin provides direct download links (one per episode for a season
+     * pack). Each link is sent to the target host which fetches it itself
+     * (remote upload). No download happens on our server.
      * ==================================================================== */
 
     /**
-     * List torrent download jobs (paginated, filterable by status).
+     * List batches (paginated, filterable by status).
      */
     public function torrentIndex(Request $request): JsonResponse
     {
         $query = TorrentDownload::query()
-            ->with(['episode:id,index,name,season_id', 'submitter:id,name']);
+            ->withCount('files')
+            ->with([
+                'season:id,name,anime_id',
+                'season.anime:id,name',
+                'episode:id,index,name,season_id',
+                'submitter:id,name',
+            ]);
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);
@@ -642,128 +653,253 @@ class AdminController extends Controller
     }
 
     /**
-     * Queue stats for the torrent dashboard.
+     * Queue stats + the platforms that can receive links (remote upload).
      */
     public function torrentStats(): JsonResponse
     {
         $counts = TorrentDownload::query()
-            ->selectRaw("status, COUNT(*) as cnt")
+            ->selectRaw('status, COUNT(*) as cnt')
             ->groupBy('status')
             ->pluck('cnt', 'status')
             ->toArray();
 
         return response()->json(['data' => [
             'pending' => $counts['pending'] ?? 0,
-            'downloading' => $counts['downloading'] ?? 0,
-            'uploading' => $counts['uploading'] ?? 0,
+            'processing' => $counts['processing'] ?? 0,
             'done' => $counts['done'] ?? 0,
             'failed' => $counts['failed'] ?? 0,
             'total' => array_sum($counts),
+            'links_unmatched' => TorrentFile::where('status', 'skipped')->count(),
+            'links_failed' => TorrentFile::where('status', 'failed')->count(),
+            'platforms' => \App\Services\TorrentService::remoteHosts(),
         ]]);
     }
 
     /**
-     * Submit one or more torrent download jobs.
+     * Submit a batch of download links to be sent to a player host.
      *
-     * Accepts a single job or a batch (array of jobs).
-     * Each job needs: torrent_url, target_platform.
-     * Optional: episode_id, language, title.
+     * Body:
+     *   target_platform : doodstream|vidmoly|streamtape|mp4upload  (required)
+     *   season_id       : season pack — links auto-matched to episodes
+     *   episode_id      : single episode — all links map to it
+     *   language        : default VOSTFR
+     *   title           : optional label
+     *   links           : the download links. Accepts either:
+     *                       - a newline-separated string, or
+     *                       - an array of strings, or
+     *                       - an array of {url, episode_id}
      */
-    public function torrentStore(Request $request): JsonResponse
+    public function torrentStore(Request $request, TorrentService $service): JsonResponse
     {
-        // Support both single and batch submission
-        $items = $request->has('batch') ? $request->input('batch') : [$request->all()];
+        $validated = $request->validate([
+            'target_platform' => ['required', 'string', 'in:doodstream,vidmoly,streamtape,mp4upload'],
+            'season_id' => ['nullable', 'integer', 'exists:seasons,id'],
+            'episode_id' => ['nullable', 'integer', 'exists:episodes,id'],
+            'language' => ['nullable', 'string', 'max:16'],
+            'title' => ['nullable', 'string', 'max:500'],
+            'links' => ['required'],
+        ]);
 
-        $validated = [];
-        foreach ($items as $i => $item) {
-            $v = validator($item, [
-                'torrent_url' => ['required', 'string', 'max:4096'],
-                'target_platform' => ['required', 'string', 'in:doodstream,vidmoly,streamtape,mp4upload'],
-                'episode_id' => ['nullable', 'integer', 'exists:episodes,id'],
-                'language' => ['nullable', 'string', 'max:16'],
-                'title' => ['nullable', 'string', 'max:500'],
-            ]);
-
-            if ($v->fails()) {
-                return response()->json([
-                    'message' => "Validation failed for item #{$i}",
-                    'errors' => $v->errors(),
-                ], 422);
-            }
-
-            $validated[] = $v->validated();
+        if (empty($validated['season_id']) && empty($validated['episode_id'])) {
+            return response()->json([
+                'message' => 'Provide season_id (pack) or episode_id (single episode).',
+                'errors' => ['season_id' => ['season_id or episode_id is required.']],
+            ], 422);
         }
 
-        $created = [];
-        foreach ($validated as $data) {
-            $created[] = TorrentDownload::create([
-                'torrent_url' => $data['torrent_url'],
-                'target_platform' => $data['target_platform'],
-                'episode_id' => $data['episode_id'] ?? null,
-                'language' => $data['language'] ?? 'VOSTFR',
-                'title' => $data['title'] ?? null,
-                'status' => 'pending',
-                'submitted_by' => $request->user()?->id,
-            ]);
+        $links = $this->normalizeLinks($request->input('links'));
+        if (empty($links)) {
+            return response()->json([
+                'message' => 'No valid links provided.',
+                'errors' => ['links' => ['Provide at least one http(s) download link.']],
+            ], 422);
         }
+
+        $job = TorrentDownload::create([
+            'target_platform' => $validated['target_platform'],
+            'season_id' => $validated['season_id'] ?? null,
+            'episode_id' => $validated['episode_id'] ?? null,
+            'language' => $validated['language'] ?? 'VOSTFR',
+            'title' => $validated['title'] ?? null,
+            'status' => 'pending',
+            'submitted_by' => $request->user()?->id,
+        ]);
+
+        $count = $service->createFilesFromLinks($job, $links);
+
+        $job->load(['files' => fn ($q) => $q->with('episode:id,index,name')->orderBy('detected_episode')]);
 
         return response()->json([
-            'message' => count($created) . ' torrent(s) ajouté(s) à la file.',
-            'data' => $created,
+            'message' => "Batch créé — {$count} lien(s) en file.",
+            'data' => $job,
         ], 201);
     }
 
     /**
-     * Show a single torrent job with full details.
+     * Normalize the `links` input into a list of {url, episode_id}.
+     *
+     * @return list<array{url:string, episode_id:int|null}>
+     */
+    private function normalizeLinks(mixed $links): array
+    {
+        $out = [];
+
+        // Newline / comma separated text blob (from a textarea).
+        if (is_string($links)) {
+            foreach (preg_split('/[\r\n]+/', $links) ?: [] as $line) {
+                $url = trim($line);
+                if ($url !== '' && preg_match('#^https?://#i', $url)) {
+                    $out[] = ['url' => $url, 'episode_id' => null];
+                }
+            }
+
+            return $out;
+        }
+
+        if (is_array($links)) {
+            foreach ($links as $item) {
+                if (is_string($item)) {
+                    $url = trim($item);
+                    if ($url !== '' && preg_match('#^https?://#i', $url)) {
+                        $out[] = ['url' => $url, 'episode_id' => null];
+                    }
+                } elseif (is_array($item) && ! empty($item['url'])) {
+                    $url = trim((string) $item['url']);
+                    if ($url !== '' && preg_match('#^https?://#i', $url)) {
+                        $out[] = [
+                            'url' => $url,
+                            'episode_id' => isset($item['episode_id']) ? (int) $item['episode_id'] : null,
+                        ];
+                    }
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Show a batch with its links (per-episode breakdown).
      */
     public function torrentShow(TorrentDownload $torrent): JsonResponse
     {
-        $torrent->load(['episode:id,index,name,season_id', 'submitter:id,name']);
+        $torrent->load([
+            'season:id,name,anime_id',
+            'season.anime:id,name',
+            'episode:id,index,name,season_id',
+            'submitter:id,name',
+            'files' => fn ($q) => $q->with('episode:id,index,name')->orderBy('detected_episode'),
+        ]);
 
         return response()->json(['data' => $torrent]);
     }
 
     /**
-     * Retry a failed torrent job.
+     * List the links (episodes) inside a batch.
+     */
+    public function torrentFiles(TorrentDownload $torrent): JsonResponse
+    {
+        $files = $torrent->files()
+            ->with('episode:id,index,name')
+            ->orderBy('detected_episode')
+            ->get();
+
+        return response()->json(['data' => $files]);
+    }
+
+    /**
+     * Manually (re)map a link to an episode. Re-queues it if it was
+     * skipped/failed and nudges the batch back into processing.
+     */
+    public function torrentFileUpdate(Request $request, TorrentFile $file): JsonResponse
+    {
+        $validated = $request->validate([
+            'episode_id' => ['required', 'integer', 'exists:episodes,id'],
+            'language' => ['sometimes', 'string', 'max:16'],
+        ]);
+
+        $file->episode_id = $validated['episode_id'];
+        if (isset($validated['language'])) {
+            $file->language = $validated['language'];
+        }
+        if (in_array($file->status, ['skipped', 'failed'], true)) {
+            $file->status = 'pending';
+            $file->error = null;
+            $file->remote_job_id = null;
+        }
+        $file->save();
+
+        $torrent = $file->torrent;
+        if ($torrent && $torrent->status === 'done' && $file->status === 'pending') {
+            $torrent->update(['status' => 'processing']);
+        }
+        $torrent?->refreshCounters();
+
+        return response()->json(['data' => $file->fresh()->load('episode:id,index,name')]);
+    }
+
+    /**
+     * Retry a failed batch, or re-arm its failed links.
      */
     public function torrentRetry(TorrentDownload $torrent): JsonResponse
     {
-        if (! $torrent->isFailed()) {
-            return response()->json(['message' => 'Only failed jobs can be retried.'], 422);
+        if ($torrent->isFailed()) {
+            $torrent->retry();
+
+            return response()->json(['data' => $torrent->fresh(), 'message' => 'Batch réarmé.']);
         }
 
-        $torrent->retry();
+        $files = $torrent->files()->where('status', 'failed')
+            ->update(['status' => 'pending', 'error' => null, 'remote_job_id' => null]);
 
-        return response()->json(['data' => $torrent->fresh(), 'message' => 'Job réarmé.']);
+        if ($files > 0) {
+            $torrent->update(['status' => 'processing']);
+
+            return response()->json(['data' => $torrent->fresh(), 'message' => "{$files} lien(s) réarmé(s)."]);
+        }
+
+        return response()->json(['message' => 'Rien à réessayer pour ce batch.'], 422);
     }
 
     /**
-     * Retry ALL failed torrent jobs at once.
+     * Retry ALL failed batches and failed links.
      */
     public function torrentRetryAll(): JsonResponse
     {
-        $count = TorrentDownload::where('status', 'failed')
-            ->update(['status' => 'pending', 'error' => null, 'progress' => 0]);
+        $batches = TorrentDownload::where('status', 'failed')
+            ->update(['status' => 'pending', 'error' => null]);
 
-        return response()->json(['message' => "{$count} job(s) réarmé(s).", 'count' => $count]);
+        $affected = TorrentFile::where('status', 'failed')
+            ->pluck('torrent_download_id')->unique();
+
+        $files = TorrentFile::where('status', 'failed')
+            ->update(['status' => 'pending', 'error' => null, 'remote_job_id' => null]);
+
+        if ($affected->isNotEmpty()) {
+            TorrentDownload::whereIn('id', $affected)
+                ->where('status', 'done')
+                ->update(['status' => 'processing']);
+        }
+
+        return response()->json([
+            'message' => "{$batches} batch(es) et {$files} lien(s) réarmé(s).",
+            'batches' => $batches,
+            'files' => $files,
+        ]);
     }
 
     /**
-     * Cancel/delete a torrent job (only if not already done).
+     * Delete a batch (and its links). Completed batches cannot be deleted here
+     * (remove the episode links instead).
      */
     public function torrentDestroy(TorrentDownload $torrent): JsonResponse
     {
         if ($torrent->isDone()) {
-            return response()->json(['message' => 'Cannot delete a completed job. Delete the episode link instead.'], 422);
+            return response()->json(['message' => 'Batch terminé — supprimez plutôt les liens des épisodes.'], 422);
         }
 
-        // Cleanup local file if it exists
-        if ($torrent->local_path && is_file($torrent->local_path)) {
-            @unlink($torrent->local_path);
-        }
+        $torrent->delete(); // cascades to torrent_files
 
-        $torrent->delete();
-
-        return response()->json(['message' => 'Torrent job supprimé.']);
+        return response()->json(['message' => 'Batch supprimé.']);
     }
 }
