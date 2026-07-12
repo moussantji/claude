@@ -860,6 +860,7 @@
             renderPlatformSelect();
             torrentState.provider = data.provider || 'aria2';
             renderProviderInfo(data);
+            renderDailyUsage(data.daily_usage || []);
             const labels = { total: 'Total', pending: 'En attente', downloading: 'Téléchargement', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminés', failed: 'Échecs', links_unmatched: 'Non mappés', links_failed: 'Liens KO' };
             $('#torrentStats').innerHTML = Object.entries(labels).map(([k, label]) => {
                 const val = data[k] ?? 0;
@@ -879,6 +880,20 @@
         const current = sel.value;
         sel.innerHTML = torrentState.platforms.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
         if (current) sel.value = current;
+    }
+
+    /** Per-host daily upload quota usage (used / limit). */
+    function renderDailyUsage(usage) {
+        const box = $('#torrentDailyUsage');
+        if (!box) return;
+        if (!usage.length) { box.innerHTML = '<span class="muted" style="font-size:12px">—</span>'; return; }
+        box.innerHTML = usage.map(u => {
+            const color = u.capped ? 'color:var(--danger)' : (u.remaining <= Math.max(1, u.limit * 0.1) ? 'color:#f0ad4e' : '');
+            return `<div class="stat" style="${u.capped ? 'border-color:var(--danger)' : ''}">
+                <b style="${color}">${u.used}/${u.limit}</b>
+                <span>${escapeHtml(u.host)}${u.capped ? ' · plein' : ''}</span>
+            </div>`;
+        }).join('');
     }
 
     /** Show which provider handles magnets and whether it's ready. */

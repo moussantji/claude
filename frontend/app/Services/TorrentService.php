@@ -6,7 +6,8 @@ use App\Models\Episode;
 use App\Models\EpisodeLink;
 use App\Models\TorrentDownload;
 use App\Models\TorrentFile;
-use RuntimeException;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
@@ -39,6 +40,9 @@ class TorrentService
     /** Max files to submit/poll per processJob() call (keeps each run bounded). */
     private int $filesPerRun;
 
+    /** Default per-host daily upload cap (overridable via TRANSFER_<HOST>_DAILY_LIMIT). */
+    private int $defaultDailyLimit;
+
     private PlayerTransferService $transferService;
     private RealDebridClient $debrid;
     private Aria2Client $aria2;
@@ -52,6 +56,71 @@ class TorrentService
         $this->debrid = $debrid;
         $this->aria2 = $aria2;
         $this->filesPerRun = max(1, (int) env('TORRENT_FILES_PER_RUN', 10));
+        $this->defaultDailyLimit = max(1, (int) env('TORRENT_DEFAULT_DAILY_LIMIT', 200));
+    }
+
+    /* =====================================================================
+     * PER-HOST DAILY UPLOAD QUOTA
+     *
+     * Some player hosts cap how many uploads you may push per day. We honor
+     * that cap using a per-host, per-DATE counter in the cache (auto-resets at
+     * midnight), SHARED with episodes:remote so both features draw from the
+     * same host budget. When a host's cap is reached, remaining files stay
+     * pending and resume automatically the next day.
+     * =================================================================== */
+
+    /** Configured daily cap for a host (TRANSFER_<HOST>_DAILY_LIMIT or default). */
+    public function hostDailyLimit(string $platform): int
+    {
+        $env = env('TRANSFER_' . strtoupper($platform) . '_DAILY_LIMIT');
+
+        return ($env !== null && $env !== '') ? max(1, (int) $env) : $this->defaultDailyLimit;
+    }
+
+    /** Uploads already sent to a host today (shared counter with episodes:remote). */
+    public function dailyUsed(string $platform, ?Carbon $day = null): int
+    {
+        return (int) Cache::get($this->dailyKey($platform, $day ?? Carbon::today()), 0);
+    }
+
+    /** Remaining uploads allowed for a host today. */
+    public function dailyRemaining(string $platform): int
+    {
+        return max(0, $this->hostDailyLimit($platform) - $this->dailyUsed($platform));
+    }
+
+    private function dailyKey(string $platform, Carbon $day): string
+    {
+        return "remote_daily:{$platform}:{$day->toDateString()}";
+    }
+
+    private function bumpDaily(string $platform): void
+    {
+        $key = $this->dailyKey($platform, Carbon::today());
+        Cache::put($key, $this->dailyUsed($platform) + 1, Carbon::now()->endOfDay());
+    }
+
+    /**
+     * Per-host daily usage for the dashboard.
+     *
+     * @return list<array{host:string, used:int, limit:int, remaining:int, capped:bool}>
+     */
+    public function dailyUsage(): array
+    {
+        $out = [];
+        foreach (self::REMOTE_HOSTS as $host) {
+            $used = $this->dailyUsed($host);
+            $limit = $this->hostDailyLimit($host);
+            $out[] = [
+                'host' => $host,
+                'used' => $used,
+                'limit' => $limit,
+                'remaining' => max(0, $limit - $used),
+                'capped' => $used >= $limit,
+            ];
+        }
+
+        return $out;
     }
 
     /** Default provider from config (aria2 = free). */
@@ -436,17 +505,32 @@ class TorrentService
     }
 
     /**
-     * Send pending links to the target host (remote upload).
+     * Push pending files to the target host, honoring the host's daily cap.
+     * When the cap is reached, remaining files stay pending and resume the
+     * next day (the counter resets at midnight).
      */
     private function submitPending(TorrentDownload $job, array $credentials): void
     {
+        // How many uploads this host still allows today.
+        $remaining = $this->dailyRemaining($job->target_platform);
+        if ($remaining <= 0) {
+            return; // cap reached — defer remaining files to tomorrow
+        }
+
+        $take = min($this->filesPerRun, $remaining);
+
         $pending = $job->files()
             ->where('status', 'pending')
             ->orderBy('detected_episode')
-            ->limit($this->filesPerRun)
+            ->limit($take)
             ->get();
 
         foreach ($pending as $file) {
+            // Re-check the shared budget before each upload (other batches /
+            // episodes:remote may consume it concurrently).
+            if ($this->dailyRemaining($job->target_platform) <= 0) {
+                break;
+            }
             $this->submitFile($job, $file, $credentials);
         }
     }
@@ -502,12 +586,14 @@ class TorrentService
             if ($state === 'done' && ! empty($result['embed_url'])) {
                 $file->markDone($result['embed_url'], $result['file_code'] ?? null);
                 $this->attachToEpisode($file, $result['embed_url'], $job->target_platform);
+                $this->bumpDaily($job->target_platform); // counts against the host's daily cap
 
                 return;
             }
 
             // Async: the host is now fetching the link; poll it later.
             $file->markQueued($result['job_id'] ?? null);
+            $this->bumpDaily($job->target_platform); // the request counts now
         } catch (Throwable $e) {
             $file->markFailed(mb_substr($e->getMessage(), 0, 500));
         }
@@ -547,6 +633,7 @@ class TorrentService
 
         $file->markDone($embed, $result['file_code'] ?? null);
         $this->attachToEpisode($file, $embed, $job->target_platform);
+        $this->bumpDaily($job->target_platform); // counts against the host's daily cap
 
         // Free disk space immediately after a successful upload.
         $this->deleteLocalFile($path);

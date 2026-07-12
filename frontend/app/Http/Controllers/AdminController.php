@@ -654,9 +654,9 @@ class AdminController extends Controller
     }
 
     /**
-     * Queue stats + the platforms that can receive links (remote upload).
+     * Queue stats + platforms + per-host daily upload usage.
      */
-    public function torrentStats(): JsonResponse
+    public function torrentStats(TorrentService $service): JsonResponse
     {
         $counts = TorrentDownload::query()
             ->selectRaw('status, COUNT(*) as cnt')
@@ -674,11 +674,13 @@ class AdminController extends Controller
             'total' => array_sum($counts),
             'links_unmatched' => TorrentFile::where('status', 'skipped')->count(),
             'links_failed' => TorrentFile::where('status', 'failed')->count(),
-            'platforms' => \App\Services\TorrentService::remoteHosts(),
+            'platforms' => TorrentService::remoteHosts(),
             // Active provider + readiness so the UI can guide the admin.
-            'provider' => \App\Services\TorrentService::defaultProvider(),
+            'provider' => TorrentService::defaultProvider(),
             'aria2_ready' => (new \App\Services\Aria2Client())->isAvailable(),
             'debrid_ready' => (new \App\Services\RealDebridClient())->isConfigured(),
+            // Per-host daily upload quota usage (shared with episodes:remote).
+            'daily_usage' => $service->dailyUsage(),
         ]]);
     }
 

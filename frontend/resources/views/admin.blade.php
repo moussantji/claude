@@ -265,6 +265,8 @@
             <p class="muted hide" id="tProviderWarn" style="margin:0 0 12px;color:var(--danger)"></p>
 
             <div class="stats" id="torrentStats" style="margin-bottom:12px"></div>
+            <div class="muted" style="font-size:12px;margin-bottom:4px">Quota d'upload par lecteur aujourd'hui (repris demain si atteint)</div>
+            <div class="stats" id="torrentDailyUsage" style="margin-bottom:14px"></div>
 
             <!-- Submission form -->
             <div style="border:1px solid var(--accent);border-radius:12px;padding:14px;margin-bottom:16px;background:rgba(124,92,255,0.05)">
@@ -348,6 +350,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=10"></script>
+    <script src="/js/admin.js?v=11"></script>
 </body>
 </html>

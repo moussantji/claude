@@ -38,11 +38,30 @@ worker. Les étapes ci-dessous valent aussi pour n'importe quel VPS/PC Linux
 ### 1. Créer la VM
 
 1. Crée un compte sur [Oracle Cloud](https://www.oracle.com/cloud/free/).
-2. Crée une instance **Always Free** (une image **Ubuntu** ARM/Ampere ou AMD).
+2. Crée une instance **Always Free** — choisis impérativement une forme
+   **ARM Ampere A1 (`VM.Standard.A1.Flex`)** avec une image **Ubuntu**.
 3. Ouvre l'accès SSH, connecte-toi :
    ```bash
    ssh ubuntu@<IP_DE_TA_VM>
    ```
+
+> **⚠ Choix de la forme — important**
+> - **Prends l'ARM Ampere A1** (jusqu'à 2 OCPU / 12 Go dans l'offre gratuite
+>   actuelle) : c'est amplement suffisant pour aria2c + le worker.
+> - **Évite les micro-instances AMD** (`VM.Standard.E2.1.Micro`, 1/8 OCPU /
+>   1 Go RAM) : trop faibles.
+>
+> **⚠ Disponibilité ARM**
+> Dans les régions populaires, Oracle renvoie souvent *« Out of host capacity »*
+> à la création de l'instance ARM. Solutions : réessaye régulièrement, ou choisis
+> une **région/domaine de disponibilité** moins saturé au moment de créer ton
+> compte (la région ne peut pas être changée ensuite).
+>
+> **Débit & quota réseau**
+> La bande passante sortante offre un large quota gratuit mensuel (généreux pour
+> cet usage). Le débit peut varier selon la région ; ce worker étant une tâche
+> de fond, ce n'est pas bloquant. Le vrai facteur limitant reste le nombre de
+> seeders du torrent et la vitesse d'upload acceptée par le lecteur.
 
 ### 2. Installer les dépendances
 
@@ -151,6 +170,33 @@ TRANSFER_DOODSTREAM_API_KEY=ta_cle_api_doodstream
 > Les identifiants des lecteurs (`TRANSFER_*`) sont les mêmes que ceux utilisés
 > par les commandes `episodes:*`. Vérifie-les avec
 > `php artisan episodes:check-connections`.
+
+---
+
+## Quotas d'upload quotidiens par lecteur (automatique)
+
+Certains lecteurs limitent le **nombre d'uploads par jour**. Le système respecte
+ce quota **automatiquement** : quand le cap d'un lecteur est atteint, les
+épisodes restants **restent en file et repartent tout seuls le lendemain**
+(le compteur se remet à zéro à minuit).
+
+```env
+# Cap par défaut appliqué à tout lecteur sans limite propre
+TORRENT_DEFAULT_DAILY_LIMIT=200
+
+# Limite spécifique par lecteur (prioritaire sur le défaut)
+TRANSFER_DOODSTREAM_DAILY_LIMIT=500
+TRANSFER_VIDMOLY_DAILY_LIMIT=200
+TRANSFER_STREAMTAPE_DAILY_LIMIT=200
+TRANSFER_MP4UPLOAD_DAILY_LIMIT=200
+```
+
+- Le compteur est **partagé** avec `episodes:remote` : même lecteur = même
+  budget quotidien (pas de double comptage entre les deux fonctionnalités).
+- Aucune action manuelle : le worker (`torrents:process`, toutes les 2 min)
+  reprend automatiquement les épisodes en attente dès que le budget se libère.
+- L'usage du jour (`utilisés / limite` par lecteur) est visible dans
+  l'interface admin → **🧲 Torrents** (rouge = plein).
 
 ---
 
