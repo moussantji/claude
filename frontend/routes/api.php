@@ -96,11 +96,15 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::put('/tasks/{anime}', [AdminController::class, 'updateTask']);
 
     // Torrent downloads (admin submits torrent/magnet → download → upload to player)
+    // A torrent may be a season pack: each video file becomes a torrent_file
+    // mapped to an episode. Fixed routes are declared before /{torrent}.
     Route::get('/torrents', [AdminController::class, 'torrentIndex']);
     Route::get('/torrents/stats', [AdminController::class, 'torrentStats']);
     Route::post('/torrents', [AdminController::class, 'torrentStore']);
-    Route::get('/torrents/{torrent}', [AdminController::class, 'torrentShow']);
-    Route::post('/torrents/{torrent}/retry', [AdminController::class, 'torrentRetry']);
     Route::post('/torrents/retry-all', [AdminController::class, 'torrentRetryAll']);
+    Route::put('/torrent-files/{file}', [AdminController::class, 'torrentFileUpdate']);
+    Route::get('/torrents/{torrent}', [AdminController::class, 'torrentShow']);
+    Route::get('/torrents/{torrent}/files', [AdminController::class, 'torrentFiles']);
+    Route::post('/torrents/{torrent}/retry', [AdminController::class, 'torrentRetry']);
     Route::delete('/torrents/{torrent}', [AdminController::class, 'torrentDestroy']);
 });

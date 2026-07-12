@@ -9,6 +9,7 @@ use App\Models\EpisodeLink;
 use App\Models\MediaUpload;
 use App\Models\Season;
 use App\Models\TorrentDownload;
+use App\Models\TorrentFile;
 use App\Models\TransferProgress;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
