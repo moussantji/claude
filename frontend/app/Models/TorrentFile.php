@@ -8,10 +8,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * A single download link inside a "torrent" batch → one episode.
  *
- * The link (source_url) is sent to the target player host which fetches it
- * itself (remote upload). We never download it on our server.
+ * Either a direct link (source_url, sent to the host via remote upload) or a
+ * locally-downloaded file (local_path, uploaded to the host — aria2 provider).
  *
- * Lifecycle: pending → queued (host is fetching) → done / failed
+ * Lifecycle: pending → (queued: host fetching, RD only) → done / failed
  *            skipped = no episode matched yet (needs manual mapping)
  */
 class TorrentFile extends Model
@@ -21,6 +21,7 @@ class TorrentFile extends Model
     protected $fillable = [
         'torrent_download_id',
         'source_url',
+        'local_path',
         'file_name',
         'detected_episode',
         'episode_id',
@@ -114,5 +115,15 @@ class TorrentFile extends Model
     public function markSkipped(string $reason): void
     {
         $this->update(['status' => 'skipped', 'error' => $reason]);
+    }
+
+    /** Put a skipped/failed file back in the queue. */
+    public function markPending(): void
+    {
+        $this->update([
+            'status' => 'pending',
+            'error' => null,
+            'remote_job_id' => null,
+        ]);
     }
 }

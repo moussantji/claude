@@ -50,13 +50,13 @@ class TorrentsProcess extends Command
             return $this->retryFailed($maxAttempts);
         }
 
-        $this->info('═══ Torrents Process (remote upload) ═══');
+        $this->info('═══ Torrents Process ═══');
 
-        $stats = ['resolving' => 0, 'processing' => 0, 'done' => 0, 'failed' => 0];
+        $stats = ['downloading' => 0, 'resolving' => 0, 'processing' => 0, 'done' => 0, 'failed' => 0];
 
-        // In-flight batches first (Real-Debrid resolution + player upload),
+        // In-flight batches first (aria2 download / RD resolution / upload),
         // then new ones.
-        $jobs = TorrentDownload::whereIn('status', ['resolving', 'processing'])
+        $jobs = TorrentDownload::whereIn('status', ['downloading', 'resolving', 'processing'])
             ->orderBy('updated_at')
             ->limit($limit)
             ->get();
@@ -81,13 +81,14 @@ class TorrentsProcess extends Command
 
         $this->newLine();
         $this->table(['Action', 'Count'], [
+            ['⬇ Téléchargement (aria2)', $stats['downloading']],
             ['⇣ Real-Debrid', $stats['resolving']],
             ['↻ Envoi lecteur', $stats['processing']],
             ['✓ Terminés', $stats['done']],
             ['✗ Échecs', $stats['failed']],
         ]);
 
-        $remaining = TorrentDownload::whereIn('status', ['pending', 'resolving', 'processing'])->count();
+        $remaining = TorrentDownload::whereIn('status', ['pending', 'downloading', 'resolving', 'processing'])->count();
         if ($remaining > 0) {
             $this->line("📍 {$remaining} batch(es) encore en file.");
         } else {
@@ -106,6 +107,11 @@ class TorrentsProcess extends Command
             $job->refresh();
 
             switch ($job->status) {
+                case 'downloading':
+                    $stats['downloading']++;
+                    $this->line("  <fg=cyan>⬇</> {$label} — aria2 {$job->debrid_progress}%");
+                    break;
+
                 case 'resolving':
                     $stats['resolving']++;
                     $this->line("  <fg=cyan>⇣</> {$label} — Real-Debrid {$job->debrid_progress}%");
@@ -197,13 +203,14 @@ class TorrentsProcess extends Command
         $this->info('═══ Torrent Queue Status ═══');
         $this->table(['Status', 'Count'], [
             ['Pending', $counts['pending'] ?? 0],
+            ['Downloading (aria2)', $counts['downloading'] ?? 0],
             ['Resolving (RD)', $counts['resolving'] ?? 0],
             ['Processing', $counts['processing'] ?? 0],
             ['Done', $counts['done'] ?? 0],
             ['Failed', $counts['failed'] ?? 0],
         ]);
 
-        $active = TorrentDownload::whereIn('status', ['resolving', 'processing'])
+        $active = TorrentDownload::whereIn('status', ['downloading', 'resolving', 'processing'])
             ->orderByDesc('updated_at')
             ->limit(10)
             ->get();
@@ -212,9 +219,11 @@ class TorrentsProcess extends Command
             $this->newLine();
             $this->info('Batches actifs:');
             foreach ($active as $job) {
-                $detail = $job->status === 'resolving'
-                    ? "Real-Debrid {$job->debrid_progress}%"
-                    : "{$job->files_done}/{$job->files_total} live (✗{$job->files_failed})";
+                $detail = match ($job->status) {
+                    'downloading' => "aria2 {$job->debrid_progress}%",
+                    'resolving' => "Real-Debrid {$job->debrid_progress}%",
+                    default => "{$job->files_done}/{$job->files_total} live (✗{$job->files_failed})",
+                };
                 $this->line("  [{$job->status}] {$this->jobLabel($job)} — {$detail}");
             }
         }

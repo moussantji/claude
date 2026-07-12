@@ -10,20 +10,20 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Orchestrates "torrent" remote-upload batches.
+ * Orchestrates "torrent" batches, with two interchangeable providers.
  *
- * The admin submits a magnet / .torrent (or, optionally, direct links). A
- * magnet/.torrent is resolved through Real-Debrid, which downloads it and
- * exposes a direct HTTP link per file. Each resulting link is then sent to the
- * TARGET player host (Doodstream, Vidmoly, Streamtape, Mp4upload) which fetches
- * it itself (server-to-server remote upload). We never download the video on
- * our server. We poll the host until it finishes and attach the resulting embed
- * URL to the matching episode.
+ *   • aria2 (100% free): our server downloads the magnet/.torrent with aria2c,
+ *     then uploads each video file to the TARGET player host (file upload).
+ *   • realdebrid (paid): Real-Debrid downloads it and exposes a direct HTTP
+ *     link per file; the host fetches each link itself (remote upload).
  *
- * Batch flow:  pending → resolving (Real-Debrid) → processing (player) → done
- * Per-link:    send link → queued (host fetching) → poll → done → episode_link
+ * Either way, once a file is live its embed URL is attached to the episode.
  *
- * Video file extensions considered as episodes inside a torrent.
+ * Batch flow:
+ *   pending → downloading (aria2) | resolving (Real-Debrid) → processing → done
+ * Per-file:
+ *   aria2 → upload local file → done → episode_link
+ *   RD    → send link → queued (host fetching) → poll → done → episode_link
  */
 class TorrentService
 {
@@ -33,17 +33,33 @@ class TorrentService
     /** Video extensions kept when selecting files inside a torrent. */
     private const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'webm', 'ts', 'flv', 'mov', 'm4v', 'wmv'];
 
-    /** Max links to submit/poll per processJob() call (keeps each run bounded). */
+    /** Ignore files below this size (samples/nfo/images). */
+    private const MIN_VIDEO_SIZE = 5_000_000; // 5 MB
+
+    /** Max files to submit/poll per processJob() call (keeps each run bounded). */
     private int $filesPerRun;
 
     private PlayerTransferService $transferService;
     private RealDebridClient $debrid;
+    private Aria2Client $aria2;
 
-    public function __construct(PlayerTransferService $transferService, RealDebridClient $debrid)
-    {
+    public function __construct(
+        PlayerTransferService $transferService,
+        RealDebridClient $debrid,
+        Aria2Client $aria2,
+    ) {
         $this->transferService = $transferService;
         $this->debrid = $debrid;
+        $this->aria2 = $aria2;
         $this->filesPerRun = max(1, (int) env('TORRENT_FILES_PER_RUN', 10));
+    }
+
+    /** Default provider from config (aria2 = free). */
+    public static function defaultProvider(): string
+    {
+        $p = strtolower((string) env('TORRENT_PROVIDER', 'aria2'));
+
+        return in_array($p, ['aria2', 'realdebrid'], true) ? $p : 'aria2';
     }
 
     /**
@@ -62,10 +78,10 @@ class TorrentService
 
     /**
      * Advance a batch:
-     *   pending/resolving → resolve the magnet via Real-Debrid (if any)
-     *   pending           → mark processing (direct-link batches)
-     *   processing        → submit pending links + poll queued links
-     *                       → done once every link is resolved
+     *   Stage A — fetch the torrent source into files (provider-specific):
+     *             aria2 downloads locally, or Real-Debrid resolves to links.
+     *   Stage B — make each file live on the host (local upload or remote
+     *             upload), then attach it to its episode.
      */
     public function processJob(TorrentDownload $job): void
     {
@@ -80,11 +96,17 @@ class TorrentService
                 return;
             }
 
-            // Stage A: resolve a magnet/.torrent through Real-Debrid. Returns
-            // false while still resolving (or on failure) — retry next pass.
-            if ($job->usesDebrid() && ($job->isPending() || $job->isResolving())) {
-                if (! $this->resolveDebrid($job)) {
-                    return;
+            // Stage A: fetch the magnet/.torrent source. Returns false while
+            // still downloading/resolving (or on failure) — retry next pass.
+            if ($job->usesTorrent()) {
+                if ($job->usesAria2() && ($job->isPending() || $job->isDownloading())) {
+                    if (! $this->downloadAria2($job)) {
+                        return;
+                    }
+                } elseif ($job->usesDebrid() && ($job->isPending() || $job->isResolving())) {
+                    if (! $this->resolveDebrid($job)) {
+                        return;
+                    }
                 }
             }
 
@@ -97,7 +119,7 @@ class TorrentService
                 return;
             }
 
-            // Stage B: send links to the host, then poll the ones it's fetching.
+            // Stage B: make each file live, then poll the async (RD) ones.
             $this->submitPending($job, $credentials);
             $this->pollQueued($job, $credentials);
 
@@ -107,10 +129,139 @@ class TorrentService
             $remaining = $job->files()->whereIn('status', ['pending', 'queued'])->count();
             if ($remaining === 0) {
                 $job->markDone();
+                $this->cleanupDownloadArtifacts($job);
             }
         } catch (Throwable $e) {
             $job->markFailed(mb_substr($e->getMessage(), 0, 500));
         }
+    }
+
+    /* =====================================================================
+     * ARIA2 DOWNLOAD (free, self-hosted: magnet/.torrent → local files)
+     * =================================================================== */
+
+    /**
+     * Advance the aria2 download for a batch.
+     *
+     * @return bool true once the batch has moved to 'processing' (files
+     *              downloaded and torrent_files created).
+     */
+    private function downloadAria2(TorrentDownload $job): bool
+    {
+        if (! $this->aria2->isAvailable()) {
+            $job->markFailed('aria2c indisponible (ni RPC ni binaire). Installez aria2 et configurez ARIA2_* dans .env.');
+
+            return false;
+        }
+
+        // Kick off the download.
+        if ($job->isPending()) {
+            $gid = $this->aria2->add(trim($job->torrent_url));
+            $job->markDownloading($gid);
+
+            return false; // poll on the next pass
+        }
+
+        if (! $job->aria2_gid) {
+            $job->markFailed('Téléchargement sans identifiant aria2.');
+
+            return false;
+        }
+
+        $poll = $this->aria2->poll($job->aria2_gid);
+        // Reuse debrid_progress as the generic source-download progress.
+        if ((int) $poll['progress'] !== (int) $job->debrid_progress) {
+            $job->update(['debrid_progress' => (int) $poll['progress']]);
+        }
+
+        switch ($poll['status']) {
+            case 'active':
+            case 'waiting':
+            case 'paused':
+                return false; // still downloading
+
+            case 'complete':
+                $created = $this->createFilesFromAria2($job, $poll['files']);
+                if ($created === 0) {
+                    $job->markFailed('Téléchargement terminé mais aucun fichier vidéo trouvé.');
+
+                    return false;
+                }
+                $job->markProcessing();
+
+                return true;
+
+            case 'error':
+                $job->markFailed($poll['error'] ?? 'aria2c: échec du téléchargement.');
+
+                return false;
+
+            default:
+                $job->markFailed("aria2c: statut '{$poll['status']}'.");
+
+                return false;
+        }
+    }
+
+    /**
+     * Create a torrent_files row (local_path) per downloaded video file.
+     *
+     * @param  list<array{path:string, length:int}>  $files
+     * @return int number of video files kept
+     */
+    private function createFilesFromAria2(TorrentDownload $job, array $files): int
+    {
+        $videos = [];
+        foreach ($files as $f) {
+            $path = $f['path'] ?? '';
+            if ($path === '' || ! is_file($path)) {
+                continue;
+            }
+            $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+            if (! in_array($ext, self::VIDEO_EXTS, true)) {
+                continue;
+            }
+            $size = (int) ($f['length'] ?? @filesize($path));
+            if ($size < self::MIN_VIDEO_SIZE) {
+                continue;
+            }
+            $videos[] = ['path' => $path, 'name' => basename($path)];
+        }
+
+        // Stable order for deterministic positional fallback.
+        usort($videos, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
+
+        $episodesByIndex = $job->season_id
+            ? Episode::where('season_id', $job->season_id)->get()->keyBy('index')
+            : collect();
+
+        $fallbackIndex = 1;
+        $created = 0;
+
+        foreach ($videos as $v) {
+            $epNum = $this->parseEpisodeNumber($v['name']);
+            if ($epNum === null && ! ($job->episode_id && ! $job->season_id)) {
+                $epNum = $fallbackIndex;
+            }
+            $episodeId = $this->matchEpisodeId($job, $epNum, $episodesByIndex);
+            $fallbackIndex = ($epNum ?? $fallbackIndex) + 1;
+
+            TorrentFile::create([
+                'torrent_download_id' => $job->id,
+                'source_url' => null,
+                'local_path' => $v['path'],
+                'file_name' => $v['name'],
+                'detected_episode' => $epNum,
+                'episode_id' => $episodeId,
+                'language' => $job->language,
+                'status' => 'pending',
+            ]);
+            $created++;
+        }
+
+        $job->refreshCounters();
+
+        return $created;
     }
 
     /* =====================================================================
@@ -316,22 +467,31 @@ class TorrentService
     }
 
     /**
-     * Send one link to the host. Handles hosts that resolve immediately
-     * (state = done) and asynchronous ones (state = queued).
+     * Make one file live on the host.
+     *   • local_path present (aria2) → upload the local file, then delete it.
+     *   • otherwise (RD/direct link) → remote upload (host fetches the link).
      */
     private function submitFile(TorrentDownload $job, TorrentFile $file, array $credentials): void
     {
         try {
             if ($file->episode_id === null) {
-                $file->markSkipped('No matching episode — map it manually, then retry.');
+                $file->markSkipped('Aucun épisode correspondant — mappez-le manuellement puis réessayez.');
 
                 return;
             }
 
             $title = $this->buildTitle($job, $file);
 
+            // aria2 provider: upload the locally-downloaded file to the host.
+            if ($file->local_path) {
+                $this->uploadLocalFile($job, $file, $title, $credentials);
+
+                return;
+            }
+
+            // remote upload: the host fetches the direct link itself.
             $result = $this->transferService->transferRemote(
-                trim($file->source_url),
+                trim((string) $file->source_url),
                 $title,
                 $credentials,
                 $job->target_platform,
@@ -351,6 +511,45 @@ class TorrentService
         } catch (Throwable $e) {
             $file->markFailed(mb_substr($e->getMessage(), 0, 500));
         }
+    }
+
+    /**
+     * Upload a locally-downloaded file to the host, then free the disk space.
+     */
+    private function uploadLocalFile(TorrentDownload $job, TorrentFile $file, string $title, array $credentials): void
+    {
+        $path = $file->local_path;
+        if (! $path || ! is_file($path)) {
+            $file->markFailed("Fichier introuvable sur le disque : {$path}");
+
+            return;
+        }
+        if (filesize($path) < self::MIN_VIDEO_SIZE) {
+            $file->markFailed('Fichier trop petit (probablement corrompu).');
+
+            return;
+        }
+
+        $driver = $this->transferService->driverByName($job->target_platform);
+        if (! $driver) {
+            $file->markFailed("Aucun driver pour la plateforme : {$job->target_platform}");
+
+            return;
+        }
+
+        $result = $driver->upload($path, $title, $credentials);
+        $embed = $result['embed_url'] ?? null;
+        if (! $embed) {
+            $file->markFailed('Upload effectué mais aucune URL embed retournée.');
+
+            return;
+        }
+
+        $file->markDone($embed, $result['file_code'] ?? null);
+        $this->attachToEpisode($file, $embed, $job->target_platform);
+
+        // Free disk space immediately after a successful upload.
+        $this->deleteLocalFile($path);
     }
 
     /**
@@ -501,6 +700,56 @@ class TorrentService
         $base = basename($path);
 
         return $base !== '' ? urldecode($base) : $url;
+    }
+
+    /* =====================================================================
+     * DISK CLEANUP (aria2 provider)
+     * =================================================================== */
+
+    private function deleteLocalFile(string $path): void
+    {
+        if (is_file($path)) {
+            @unlink($path);
+        }
+        $control = $path . '.aria2';
+        if (is_file($control)) {
+            @unlink($control);
+        }
+    }
+
+    /**
+     * Remove any leftover downloaded files for a finished batch, plus the
+     * (now empty) torrent sub-folder when applicable.
+     */
+    private function cleanupDownloadArtifacts(TorrentDownload $job): void
+    {
+        if (! $job->usesAria2()) {
+            return;
+        }
+
+        $dir = $this->aria2->downloadDir();
+        foreach ($job->files as $file) {
+            if (! $file->local_path) {
+                continue;
+            }
+            $this->deleteLocalFile($file->local_path);
+
+            $parent = dirname($file->local_path);
+            if ($parent !== $dir && is_dir($parent) && $this->isDirEmpty($parent)) {
+                @rmdir($parent);
+            }
+        }
+    }
+
+    private function isDirEmpty(string $dir): bool
+    {
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry !== '.' && $entry !== '..') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /* =====================================================================

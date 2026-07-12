@@ -8,18 +8,22 @@ use Illuminate\Support\Facades\Schema;
  * "Torrent" remote-upload jobs submitted by the admin.
  *
  * The admin submits a magnet / .torrent (or, optionally, direct download
- * links). A magnet/.torrent is resolved through Real-Debrid, which downloads
- * it and exposes a direct HTTP link per file. Each resulting link is then sent
- * to the TARGET player host (Doodstream, Vidmoly, Streamtape, Mp4upload) which
- * fetches it itself (server-to-server "remote upload"). We never download the
- * video on our server. Once the host finishes, the embed URL is attached to
- * the episode.
+ * links). How the torrent becomes a playable link depends on the provider:
+ *
+ *   • aria2 (100% free): OUR server downloads the torrent with aria2c, then
+ *     uploads each video file to the TARGET player host (file upload).
+ *   • realdebrid (paid): Real-Debrid downloads it and exposes a direct HTTP
+ *     link per file, which the host fetches itself (remote upload). Nothing is
+ *     downloaded on our server.
+ *
+ * Once a file is live on the host, its embed URL is attached to the episode.
  *
  * Because a torrent can be a SEASON PACK, the schema is split in two:
  *   torrent_downloads : one batch (a magnet/torrent or a set of links)
- *   torrent_files     : one row per resolved link (→ one episode)
+ *   torrent_files     : one row per file/link (→ one episode)
  *
- * Batch status: pending → resolving (Real-Debrid) → processing (player) → done
+ * Batch status:
+ *   pending → downloading (aria2) | resolving (Real-Debrid) → processing → done
  */
 return new class extends Migration
 {
@@ -34,19 +38,26 @@ return new class extends Migration
             $table->unsignedBigInteger('episode_id')->nullable()->index();
             $table->string('language', 16)->default('VOSTFR');
 
-            // Target player host that will fetch the links (must support remote
-            // upload): doodstream, vidmoly, streamtape, mp4upload.
+            // Target player host: doodstream, vidmoly, streamtape, mp4upload.
             $table->string('target_platform', 50)->default('doodstream');
 
-            // Source: a magnet / .torrent URL (resolved via Real-Debrid). Null
-            // when the admin pasted direct links instead.
+            // How the torrent is fetched: 'aria2' (free, self-hosted) or
+            // 'realdebrid' (paid remote upload).
+            $table->string('provider', 20)->default('aria2');
+
+            // Source: a magnet / .torrent URL. Null when the admin pasted
+            // direct links instead.
             $table->text('torrent_url')->nullable();
+
+            // aria2c GID while downloading (self-hosted provider).
+            $table->string('aria2_gid', 64)->nullable();
 
             // Real-Debrid torrent id (set while resolving) + its progress 0-100.
             $table->string('debrid_id', 64)->nullable();
             $table->unsignedTinyInteger('debrid_progress')->default(0);
 
-            // Batch status: pending → resolving → processing → done / failed
+            // Batch status:
+            //   pending → downloading (aria2) | resolving (RD) → processing → done/failed
             $table->string('status', 20)->default('pending')->index();
 
             // Per-file counters (link-level results)
@@ -75,8 +86,11 @@ return new class extends Migration
             $table->unsignedBigInteger('torrent_download_id')->index();
 
             // The direct download link (from Real-Debrid, or pasted by the
-            // admin). Sent as-is to the target host's remote-upload API.
-            $table->text('source_url');
+            // admin) sent to the host's remote-upload API. Empty for aria2,
+            // which uploads the local file instead.
+            $table->text('source_url')->nullable();
+            // Local path of the downloaded video (aria2 provider only).
+            $table->string('local_path', 1024)->nullable();
             $table->string('file_name', 1024)->nullable(); // basename, for ep detection
 
             // Episode matching
@@ -84,7 +98,7 @@ return new class extends Migration
             $table->unsignedBigInteger('episode_id')->nullable()->index();
             $table->string('language', 16)->default('VOSTFR');
 
-            // Per-link status: pending → queued (host is fetching) → done
+            // Per-file status: pending → (queued: host fetching, RD only) → done
             //   failed  = host refused / errored
             //   skipped = no episode matched (needs manual mapping first)
             $table->string('status', 20)->default('pending')->index();

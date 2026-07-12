@@ -831,10 +831,10 @@
         }
     }
 
-    /* ---- Torrents (remote upload: send download links to the player host) ---- */
-    const torrentState = { platforms: ['doodstream', 'vidmoly', 'streamtape', 'mp4upload'] };
+    /* ---- Torrents (magnet → aria2/Real-Debrid → player host) ---- */
+    const torrentState = { platforms: ['doodstream', 'vidmoly', 'streamtape', 'mp4upload'], provider: 'aria2' };
 
-    const TORRENT_STATUS_LABELS = { pending: 'En attente', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminé', failed: 'Échec' };
+    const TORRENT_STATUS_LABELS = { pending: 'En attente', downloading: 'Téléchargement', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminé', failed: 'Échec' };
     const FILE_STATUS = {
         pending: ['#9a9ab0', '· en attente'],
         queued: ['#4fb0ff', '↻ chez le lecteur'],
@@ -858,13 +858,13 @@
                 torrentState.platforms = data.platforms;
             }
             renderPlatformSelect();
-            // Warn when Real-Debrid isn't configured (magnets won't resolve).
-            $('#tDebridWarn').classList.toggle('hide', data.debrid_ready !== false);
-            const labels = { total: 'Total', pending: 'En attente', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminés', failed: 'Échecs', links_unmatched: 'Non mappés', links_failed: 'Liens KO' };
+            torrentState.provider = data.provider || 'aria2';
+            renderProviderInfo(data);
+            const labels = { total: 'Total', pending: 'En attente', downloading: 'Téléchargement', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminés', failed: 'Échecs', links_unmatched: 'Non mappés', links_failed: 'Liens KO' };
             $('#torrentStats').innerHTML = Object.entries(labels).map(([k, label]) => {
                 const val = data[k] ?? 0;
                 const color = (k === 'failed' || k === 'links_failed') && val > 0 ? 'color:var(--danger)'
-                    : (k === 'done' ? 'color:#4fe0a0' : ((k === 'processing' || k === 'resolving') && val > 0 ? 'color:#4fb0ff' : (k === 'links_unmatched' && val > 0 ? 'color:#f0ad4e' : '')));
+                    : (k === 'done' ? 'color:#4fe0a0' : ((k === 'processing' || k === 'resolving' || k === 'downloading') && val > 0 ? 'color:#4fb0ff' : (k === 'links_unmatched' && val > 0 ? 'color:#f0ad4e' : '')));
                 return `<div class="stat"><b style="${color}">${val}</b><span>${label}</span></div>`;
             }).join('');
         } catch (e) {
@@ -879,6 +879,34 @@
         const current = sel.value;
         sel.innerHTML = torrentState.platforms.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
         if (current) sel.value = current;
+    }
+
+    /** Show which provider handles magnets and whether it's ready. */
+    function renderProviderInfo(data) {
+        const provider = data.provider || 'aria2';
+        const isAria2 = provider === 'aria2';
+        const tag = $('#tProviderTag');
+        const info = $('#tProviderInfo');
+        const warn = $('#tProviderWarn');
+
+        if (tag) {
+            tag.textContent = isAria2 ? '(téléchargé par le serveur — gratuit)' : '(résolu par Real-Debrid)';
+        }
+        if (info) {
+            info.innerHTML = isAria2
+                ? 'Fournisseur actif : <b>aria2 (100% gratuit)</b> — le serveur télécharge le torrent puis met chaque épisode en ligne.'
+                : 'Fournisseur actif : <b>Real-Debrid</b> — le lien est résolu puis récupéré par le lecteur (rien sur le serveur).';
+        }
+        if (warn) {
+            let msg = '';
+            if (isAria2 && data.aria2_ready === false) {
+                msg = '⚠ aria2c introuvable sur le serveur — les magnets/torrents échoueront. Installez aria2 (ARIA2_* dans .env). Les liens HTTP directs restent utilisables.';
+            } else if (!isAria2 && data.debrid_ready === false) {
+                msg = '⚠ Real-Debrid non configuré (REALDEBRID_API_TOKEN) — les magnets/torrents échoueront. Les liens HTTP directs restent utilisables.';
+            }
+            warn.textContent = msg;
+            warn.classList.toggle('hide', msg === '');
+        }
     }
 
     async function loadTorrentList() {
@@ -903,7 +931,7 @@
                     <span style="font-size:11px;padding:2px 10px;border-radius:999px;background:${color};color:#000;font-weight:700">${TORRENT_STATUS_LABELS[t.status] || t.status}</span>
                     <span class="muted" style="font-size:12px">→ ${escapeHtml(t.target_platform)}</span>
                 </div>
-                <div class="muted" style="font-size:12px;margin:4px 0">${target} · ${t.status === 'resolving' ? 'Real-Debrid ' + (t.debrid_progress || 0) + '%' : t.files_done + '/' + t.files_total + ' en ligne' + (t.files_failed ? ' · <span style="color:var(--danger)">' + t.files_failed + ' KO</span>' : '')}</div>
+                <div class="muted" style="font-size:12px;margin:4px 0">${target} · ${(t.status === 'resolving' || t.status === 'downloading') ? (t.status === 'downloading' ? 'aria2 ' : 'Real-Debrid ') + (t.debrid_progress || 0) + '%' : t.files_done + '/' + t.files_total + ' en ligne' + (t.files_failed ? ' · <span style="color:var(--danger)">' + t.files_failed + ' KO</span>' : '')}</div>
                 ${t.error ? `<div class="err" style="font-size:12px">${escapeHtml(t.error)}</div>` : ''}
                 <div style="display:flex;gap:6px;margin-top:6px">
                     <button class="btn" data-tfiles="${t.id}" data-title="${escapeHtml(t.title || 'Batch #' + t.id)}">Épisodes</button>
@@ -922,7 +950,7 @@
     }
 
     function statusColor(status) {
-        return { pending: ['#9a9ab0'], resolving: ['#4fb0ff'], processing: ['#4fb0ff'], done: ['#4fe0a0'], failed: ['#ff4d6d'] }[status] || ['#666'];
+        return { pending: ['#9a9ab0'], downloading: ['#4fb0ff'], resolving: ['#4fb0ff'], processing: ['#4fb0ff'], done: ['#4fe0a0'], failed: ['#ff4d6d'] }[status] || ['#666'];
     }
 
     async function submitTorrent() {

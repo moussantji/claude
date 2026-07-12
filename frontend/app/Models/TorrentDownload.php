@@ -9,12 +9,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * A "torrent" remote-upload batch submitted by an admin.
  *
- * The admin submits a magnet/.torrent (resolved via Real-Debrid into direct
- * HTTP links) or pastes direct links. Each resolved link is stored as a
- * TorrentFile and sent to the target player host, which fetches it itself
- * (server-to-server remote upload).
+ * The admin submits a magnet/.torrent or pastes direct links. Depending on the
+ * provider, the torrent is fetched by our own server (aria2, free) or by
+ * Real-Debrid (paid). Each resulting file is stored as a TorrentFile and made
+ * live on the target player host, then attached to the episode.
  *
- * Batch lifecycle: pending → resolving (Real-Debrid) → processing → done / failed
+ * Batch lifecycle:
+ *   pending → downloading (aria2) | resolving (Real-Debrid) → processing → done/failed
  */
 class TorrentDownload extends Model
 {
@@ -25,7 +26,9 @@ class TorrentDownload extends Model
         'episode_id',
         'language',
         'target_platform',
+        'provider',
         'torrent_url',
+        'aria2_gid',
         'debrid_id',
         'debrid_progress',
         'status',
@@ -78,6 +81,11 @@ class TorrentDownload extends Model
         return $this->status === 'pending';
     }
 
+    public function isDownloading(): bool
+    {
+        return $this->status === 'downloading';
+    }
+
     public function isResolving(): bool
     {
         return $this->status === 'resolving';
@@ -88,10 +96,22 @@ class TorrentDownload extends Model
         return $this->status === 'processing';
     }
 
-    /** Whether this batch must go through Real-Debrid (magnet/.torrent source). */
-    public function usesDebrid(): bool
+    /** Whether this batch has a magnet/.torrent source to fetch. */
+    public function usesTorrent(): bool
     {
         return ! empty($this->torrent_url);
+    }
+
+    /** Free self-hosted provider (aria2c downloads on our server). */
+    public function usesAria2(): bool
+    {
+        return $this->provider === 'aria2';
+    }
+
+    /** Paid provider (Real-Debrid resolves the torrent into direct links). */
+    public function usesDebrid(): bool
+    {
+        return $this->provider === 'realdebrid';
     }
 
     public function isDone(): bool
@@ -106,19 +126,29 @@ class TorrentDownload extends Model
 
     public function isProcessable(): bool
     {
-        return in_array($this->status, ['pending', 'resolving', 'processing'], true);
+        return in_array($this->status, ['pending', 'downloading', 'resolving', 'processing'], true);
     }
 
     /* ---- Actions ---- */
 
+    /** Move to the aria2 download stage (self-hosted provider). */
+    public function markDownloading(?string $gid = null): void
+    {
+        $this->update([
+            'status' => 'downloading',
+            'aria2_gid' => $gid ?? $this->aria2_gid,
+            'error' => null,
+        ]);
+    }
+
     /** Move to the Real-Debrid resolution stage. */
     public function markResolving(?string $debridId = null): void
     {
-        $this->update(array_filter([
+        $this->update([
             'status' => 'resolving',
-            'debrid_id' => $debridId,
+            'debrid_id' => $debridId ?? $this->debrid_id,
             'error' => null,
-        ], fn ($v, $k) => $k === 'status' || $k === 'error' || $v !== null, ARRAY_FILTER_USE_BOTH));
+        ]);
     }
 
     public function markProcessing(): void
@@ -142,11 +172,12 @@ class TorrentDownload extends Model
 
     public function retry(): void
     {
-        // Re-resolve from scratch for magnet/.torrent batches; otherwise just
+        // Re-fetch from scratch for magnet/.torrent batches; otherwise just
         // re-send the pasted links.
         $this->update([
             'status' => 'pending',
             'error' => null,
+            'aria2_gid' => null,
             'debrid_id' => null,
             'debrid_progress' => 0,
         ]);

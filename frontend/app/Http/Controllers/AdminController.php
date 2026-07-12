@@ -666,6 +666,7 @@ class AdminController extends Controller
 
         return response()->json(['data' => [
             'pending' => $counts['pending'] ?? 0,
+            'downloading' => $counts['downloading'] ?? 0,
             'resolving' => $counts['resolving'] ?? 0,
             'processing' => $counts['processing'] ?? 0,
             'done' => $counts['done'] ?? 0,
@@ -674,6 +675,9 @@ class AdminController extends Controller
             'links_unmatched' => TorrentFile::where('status', 'skipped')->count(),
             'links_failed' => TorrentFile::where('status', 'failed')->count(),
             'platforms' => \App\Services\TorrentService::remoteHosts(),
+            // Active provider + readiness so the UI can guide the admin.
+            'provider' => \App\Services\TorrentService::defaultProvider(),
+            'aria2_ready' => (new \App\Services\Aria2Client())->isAvailable(),
             'debrid_ready' => (new \App\Services\RealDebridClient())->isConfigured(),
         ]]);
     }
@@ -688,7 +692,8 @@ class AdminController extends Controller
      *   episode_id      : single episode — everything maps to it
      *   language        : default VOSTFR
      *   title           : optional label
-     *   torrent_url     : a magnet: URI or an http(s) .torrent URL (Real-Debrid)
+     *   torrent_url     : a magnet: URI or an http(s) .torrent URL
+     *   provider        : aria2 (free, default) | realdebrid (paid)
      *   links           : OR direct download links (string / array). Provide
      *                     torrent_url OR links.
      */
@@ -701,6 +706,7 @@ class AdminController extends Controller
             'language' => ['nullable', 'string', 'max:16'],
             'title' => ['nullable', 'string', 'max:500'],
             'torrent_url' => ['nullable', 'string', 'max:8192'],
+            'provider' => ['nullable', 'string', 'in:aria2,realdebrid'],
             'links' => ['nullable'],
         ]);
 
@@ -713,8 +719,9 @@ class AdminController extends Controller
 
         $torrentUrl = trim((string) ($validated['torrent_url'] ?? ''));
         $isTorrent = $torrentUrl !== '';
+        // aria2 (free, self-hosted) by default; realdebrid if explicitly chosen.
+        $provider = $validated['provider'] ?? TorrentService::defaultProvider();
 
-        // A magnet / .torrent is resolved by Real-Debrid; require it configured.
         if ($isTorrent) {
             if (! preg_match('#^(magnet:|https?://)#i', $torrentUrl)) {
                 return response()->json([
@@ -722,10 +729,17 @@ class AdminController extends Controller
                     'errors' => ['torrent_url' => ['Fournissez un magnet: ou une URL http(s) vers un .torrent.']],
                 ], 422);
             }
-            if (! (new \App\Services\RealDebridClient())->isConfigured()) {
+            // Real-Debrid provider needs a token; aria2 needs the binary/RPC.
+            if ($provider === 'realdebrid' && ! (new \App\Services\RealDebridClient())->isConfigured()) {
                 return response()->json([
                     'message' => 'Real-Debrid non configuré (REALDEBRID_API_TOKEN manquant dans .env).',
-                    'errors' => ['torrent_url' => ['Configurez Real-Debrid pour résoudre les magnets/torrents.']],
+                    'errors' => ['torrent_url' => ['Configurez Real-Debrid ou choisissez le fournisseur aria2 (gratuit).']],
+                ], 422);
+            }
+            if ($provider === 'aria2' && ! (new \App\Services\Aria2Client())->isAvailable()) {
+                return response()->json([
+                    'message' => 'aria2c indisponible sur le serveur.',
+                    'errors' => ['torrent_url' => ['Installez aria2 (ARIA2_* dans .env) ou choisissez Real-Debrid.']],
                 ], 422);
             }
         }
@@ -745,13 +759,16 @@ class AdminController extends Controller
             'language' => $validated['language'] ?? 'VOSTFR',
             'title' => $validated['title'] ?? null,
             'torrent_url' => $isTorrent ? $torrentUrl : null,
+            'provider' => $provider,
             'status' => 'pending',
             'submitted_by' => $request->user()?->id,
         ]);
 
         if ($isTorrent) {
-            // Files are created later, once Real-Debrid finishes resolving.
-            $message = 'Torrent en file — Real-Debrid va le résoudre puis envoyer les épisodes au lecteur.';
+            // Files are created later, once the torrent is downloaded/resolved.
+            $message = $provider === 'aria2'
+                ? 'Torrent en file — aria2 va le télécharger puis envoyer les épisodes au lecteur.'
+                : 'Torrent en file — Real-Debrid va le résoudre puis envoyer les épisodes au lecteur.';
         } else {
             $count = $service->createFilesFromLinks($job, $links);
             $message = "Batch créé — {$count} lien(s) en file.";
