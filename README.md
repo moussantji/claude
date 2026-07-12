@@ -223,6 +223,29 @@ Admin API (all under `auth:sanctum` + `admin`):
 | POST | `/api/admin/episodes/{id}/links` | Add a video link |
 | PUT / DELETE | `/api/admin/links/{id}` | Edit / delete a video link |
 
+## Torrents → players (magnet/.torrent → episodes)
+
+The admin can submit a **magnet / `.torrent`** (or direct download links) and
+have each episode put online on a player host (Doodstream, Vidmoly, Streamtape,
+Mp4upload), with episode links created automatically. Two interchangeable
+providers (`TORRENT_PROVIDER`):
+
+- **`aria2`** (default, 100% free): your server downloads the torrent with
+  `aria2c`, then uploads each video file to the host.
+- **`realdebrid`** (paid): Real-Debrid resolves the torrent into direct HTTP
+  links that the host fetches itself — nothing is downloaded on your server.
+
+A torrent is not an HTTP URL, so in free mode **your server must download it**
+(needs `aria2c`). See the full deployment guide — including a **100% free
+Oracle Cloud Free Tier** setup with an `aria2c` RPC daemon and the worker:
+
+**➡ [`frontend/docs/torrents.md`](frontend/docs/torrents.md)**
+
+```bash
+php artisan torrents:process --status     # queue state
+php artisan torrents:process              # advance the queue (scheduled every 2 min)
+```
+
 ## Uploading your own media (vidmoly)
 
 If you host **your own** videos (content you created or hold the rights to),
