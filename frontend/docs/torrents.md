@@ -135,6 +135,73 @@ brew install aria2
 
 ---
 
+## Option C — Ton PC / Raspberry Pi comme worker (site sur LWS cPanel)
+
+C'est **la solution 100 % gratuite sans carte bancaire** : le **site reste sur
+LWS cPanel**, et **ton PC** (ou un Raspberry Pi) fait tourner le worker aria2,
+connecté à la **même base MySQL** que le site.
+
+> Ton PC n'a **pas besoin d'être allumé 24/7** : la file est stockée en base.
+> Le worker traite les torrents en attente **quand ta machine tourne**.
+
+### 1. Autoriser l'accès MySQL distant (côté LWS / cPanel)
+
+1. cPanel → **Bases de données → MySQL distant** (*Remote MySQL*).
+2. Ajoute l'**IP publique de ton PC** (trouve-la sur https://ifconfig.me).
+   - IP dynamique ? Ajoute `%` (toutes les IP) — moins sûr — ou mets à jour l'IP
+     quand elle change.
+3. Note l'**hôte MySQL** LWS (souvent le nom de domaine ou un hôte type
+   `xxx.lws-hosting.com`), la base, l'utilisateur et le mot de passe.
+
+### 2. Installer aria2c + PHP sur ton PC
+
+```bash
+# Windows (avec Scoop) :  scoop install aria2 php
+# macOS :                 brew install aria2 php
+# Linux :                 sudo apt install -y aria2 php-cli php-curl php-mbstring php-xml
+```
+
+### 3. Récupérer le code + configurer le worker
+
+Clone le dépôt sur ton PC et configure son `.env` pour pointer vers la **base
+LWS distante** (voir la section « Configurer l'application » plus bas), en
+remplaçant le bloc base de données par :
+
+```env
+DB_CONNECTION=mysql
+DB_HOST=xxx.lws-hosting.com     # hôte MySQL fourni par LWS
+DB_PORT=3306
+DB_DATABASE=ton_user_animesama
+DB_USERNAME=ton_user
+DB_PASSWORD=ton_mot_de_passe
+```
+
+> Le worker et le site partagent **exactement** la même base → les torrents
+> soumis depuis l'admin du site apparaissent dans la file du worker.
+
+### 4. Lancer aria2c + le worker
+
+- **Linux / Raspberry Pi** : suis la section systemd ci-dessous, puis ajoute le
+  cron de l'étape « Lancer le worker ».
+- **Windows** :
+  1. Lance le démon aria2 (crée un fichier `aria2.bat` et mets-le au démarrage) :
+     ```bat
+     aria2c --enable-rpc --rpc-listen-port=6800 --rpc-secret=MON_SECRET ^
+       --dir=%USERPROFILE%\torrents --seed-time=0 --bt-stop-timeout=0
+     ```
+  2. **Planificateur de tâches** → *Créer une tâche* qui exécute toutes les
+     2 min :
+     ```
+     Programme : C:\chemin\vers\php.exe
+     Arguments : artisan torrents:process
+     Démarrer dans : C:\chemin\vers\frontend
+     ```
+
+Un **Raspberry Pi** branché en permanence est idéal : petit serveur perso, ~3 W,
+qui traite la file en continu.
+
+---
+
 ## Lancer aria2c en démon RPC (recommandé)
 
 Le mode **RPC** est non bloquant : aria2c reste actif et l'app le pilote via une

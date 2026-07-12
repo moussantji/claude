@@ -29,6 +29,10 @@ Browser / SPA / mobile app
                                                                     anime-sama.*
 ```
 
+> **Deploying?** See the full guide for local dev **and** LWS cPanel production
+> (topologies, remote MySQL, cron, backend/worker on your own PC):
+> **[`frontend/docs/deployment.md`](frontend/docs/deployment.md)**.
+
 ## Quick start (two terminals)
 
 ### 1. Backend (FastAPI) — port 8001
