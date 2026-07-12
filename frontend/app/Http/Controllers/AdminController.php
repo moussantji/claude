@@ -8,6 +8,7 @@ use App\Models\Episode;
 use App\Models\EpisodeLink;
 use App\Models\MediaUpload;
 use App\Models\Season;
+use App\Models\TorrentDownload;
 use App\Models\TransferProgress;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -610,5 +611,158 @@ class AdminController extends Controller
         $task->save();
 
         return response()->json(['data' => $task, 'message' => 'Enregistré']);
+    }
+
+    /* ====================================================================
+     * TORRENT DOWNLOADS
+     * ==================================================================== */
+
+    /**
+     * List torrent download jobs (paginated, filterable by status).
+     */
+    public function torrentIndex(Request $request): JsonResponse
+    {
+        $query = TorrentDownload::query()
+            ->with(['episode:id,index,name,season_id', 'submitter:id,name']);
+
+        if ($status = $request->query('status')) {
+            $query->where('status', $status);
+        }
+
+        if ($q = trim((string) $request->query('q', ''))) {
+            $query->where('title', 'like', "%{$q}%");
+        }
+
+        $perPage = min(100, max(1, (int) $request->query('per_page', 30)));
+
+        return response()->json(
+            $query->orderByDesc('created_at')->paginate($perPage)
+        );
+    }
+
+    /**
+     * Queue stats for the torrent dashboard.
+     */
+    public function torrentStats(): JsonResponse
+    {
+        $counts = TorrentDownload::query()
+            ->selectRaw("status, COUNT(*) as cnt")
+            ->groupBy('status')
+            ->pluck('cnt', 'status')
+            ->toArray();
+
+        return response()->json(['data' => [
+            'pending' => $counts['pending'] ?? 0,
+            'downloading' => $counts['downloading'] ?? 0,
+            'uploading' => $counts['uploading'] ?? 0,
+            'done' => $counts['done'] ?? 0,
+            'failed' => $counts['failed'] ?? 0,
+            'total' => array_sum($counts),
+        ]]);
+    }
+
+    /**
+     * Submit one or more torrent download jobs.
+     *
+     * Accepts a single job or a batch (array of jobs).
+     * Each job needs: torrent_url, target_platform.
+     * Optional: episode_id, language, title.
+     */
+    public function torrentStore(Request $request): JsonResponse
+    {
+        // Support both single and batch submission
+        $items = $request->has('batch') ? $request->input('batch') : [$request->all()];
+
+        $validated = [];
+        foreach ($items as $i => $item) {
+            $v = validator($item, [
+                'torrent_url' => ['required', 'string', 'max:4096'],
+                'target_platform' => ['required', 'string', 'in:doodstream,vidmoly,streamtape,mp4upload'],
+                'episode_id' => ['nullable', 'integer', 'exists:episodes,id'],
+                'language' => ['nullable', 'string', 'max:16'],
+                'title' => ['nullable', 'string', 'max:500'],
+            ]);
+
+            if ($v->fails()) {
+                return response()->json([
+                    'message' => "Validation failed for item #{$i}",
+                    'errors' => $v->errors(),
+                ], 422);
+            }
+
+            $validated[] = $v->validated();
+        }
+
+        $created = [];
+        foreach ($validated as $data) {
+            $created[] = TorrentDownload::create([
+                'torrent_url' => $data['torrent_url'],
+                'target_platform' => $data['target_platform'],
+                'episode_id' => $data['episode_id'] ?? null,
+                'language' => $data['language'] ?? 'VOSTFR',
+                'title' => $data['title'] ?? null,
+                'status' => 'pending',
+                'submitted_by' => $request->user()?->id,
+            ]);
+        }
+
+        return response()->json([
+            'message' => count($created) . ' torrent(s) ajouté(s) à la file.',
+            'data' => $created,
+        ], 201);
+    }
+
+    /**
+     * Show a single torrent job with full details.
+     */
+    public function torrentShow(TorrentDownload $torrent): JsonResponse
+    {
+        $torrent->load(['episode:id,index,name,season_id', 'submitter:id,name']);
+
+        return response()->json(['data' => $torrent]);
+    }
+
+    /**
+     * Retry a failed torrent job.
+     */
+    public function torrentRetry(TorrentDownload $torrent): JsonResponse
+    {
+        if (! $torrent->isFailed()) {
+            return response()->json(['message' => 'Only failed jobs can be retried.'], 422);
+        }
+
+        $torrent->retry();
+
+        return response()->json(['data' => $torrent->fresh(), 'message' => 'Job réarmé.']);
+    }
+
+    /**
+     * Retry ALL failed torrent jobs at once.
+     */
+    public function torrentRetryAll(): JsonResponse
+    {
+        $count = TorrentDownload::where('status', 'failed')
+            ->update(['status' => 'pending', 'error' => null, 'progress' => 0]);
+
+        return response()->json(['message' => "{$count} job(s) réarmé(s).", 'count' => $count]);
+    }
+
+    /**
+     * Cancel/delete a torrent job (only if not already done).
+     */
+    public function torrentDestroy(TorrentDownload $torrent): JsonResponse
+    {
+        if ($torrent->isDone()) {
+            return response()->json(['message' => 'Cannot delete a completed job. Delete the episode link instead.'], 422);
+        }
+
+        // Cleanup local file if it exists
+        if ($torrent->local_path && is_file($torrent->local_path)) {
+            @unlink($torrent->local_path);
+        }
+
+        $torrent->delete();
+
+        return response()->json(['message' => 'Torrent job supprimé.']);
     }
 }

@@ -94,4 +94,13 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('/tasks', [AdminController::class, 'tasksIndex']);
     Route::get('/tasks/stats', [AdminController::class, 'tasksStats']);
     Route::put('/tasks/{anime}', [AdminController::class, 'updateTask']);
+
+    // Torrent downloads (admin submits torrent/magnet → download → upload to player)
+    Route::get('/torrents', [AdminController::class, 'torrentIndex']);
+    Route::get('/torrents/stats', [AdminController::class, 'torrentStats']);
+    Route::post('/torrents', [AdminController::class, 'torrentStore']);
+    Route::get('/torrents/{torrent}', [AdminController::class, 'torrentShow']);
+    Route::post('/torrents/{torrent}/retry', [AdminController::class, 'torrentRetry']);
+    Route::post('/torrents/retry-all', [AdminController::class, 'torrentRetryAll']);
+    Route::delete('/torrents/{torrent}', [AdminController::class, 'torrentDestroy']);
 });

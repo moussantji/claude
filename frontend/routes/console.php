@@ -32,3 +32,13 @@ Schedule::command('anime:cache-prune --days=30')
 //   php artisan episodes:auto --from-id=1 --consolidate-to=doodstream --update-db
 // See the admin panel (/admin → "Transferts") to monitor progress & errors.
 // -------------------------------------------------------------------------
+
+// -------------------------------------------------------------------------
+// Torrent downloads: process the admin-submitted queue every 2 minutes.
+// Requires aria2c (daemon or CLI) on the machine running the scheduler.
+// The command is non-blocking with --limit controlling max concurrent jobs.
+// -------------------------------------------------------------------------
+Schedule::command('torrents:process --limit=5')
+    ->everyTwoMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
