@@ -137,7 +137,11 @@ class Aria2Client
         return $ok;
     }
 
-    private function rpc(string $method, array $params = []): array
+    /**
+     * Raw JSON-RPC call. The `result` can be a string (e.g. addUri returns the
+     * GID) or an array (e.g. tellStatus), so the return type is mixed.
+     */
+    private function rpc(string $method, array $params = []): mixed
     {
         $resp = Http::timeout(30)->post($this->rpcUrl, [
             'jsonrpc' => '2.0', 'id' => uniqid('a2_'), 'method' => $method,
