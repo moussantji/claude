@@ -258,8 +258,11 @@
                 <button type="button" class="btn" id="torrentsClose">Fermer</button>
             </div>
             <p class="muted" style="margin:8px 0 12px">
-                Collez les <b>liens de téléchargement directs</b> (un par ligne). Ils sont envoyés au lecteur
-                cible qui les récupère lui-même (aucun téléchargement sur le serveur). Un lien = un épisode.
+                Collez un <b>magnet / lien .torrent</b> : Real-Debrid le télécharge et le lecteur cible récupère
+                chaque épisode (aucun téléchargement sur le serveur). Ou collez directement des liens HTTP (un par ligne).
+            </p>
+            <p class="muted hide" id="tDebridWarn" style="margin:0 0 12px;color:var(--danger)">
+                ⚠ Real-Debrid non configuré (REALDEBRID_API_TOKEN) — seuls les liens HTTP directs fonctionneront.
             </p>
 
             <div class="stats" id="torrentStats" style="margin-bottom:12px"></div>
@@ -289,7 +292,9 @@
                 </div>
                 <label>Titre (optionnel)</label>
                 <input id="tTitle" placeholder="ex: One Piece — Saison 1">
-                <label>Liens de téléchargement (un par ligne)</label>
+                <label>Magnet / lien .torrent <span class="muted" style="text-transform:none;font-size:11px">(résolu par Real-Debrid)</span></label>
+                <input id="tTorrentUrl" placeholder="magnet:?xt=urn:btih:… ou https://…/pack.torrent">
+                <label>OU liens HTTP directs (un par ligne)</label>
                 <textarea id="tLinks" placeholder="https://seedbox.example/One.Piece.S01E01.1080p.mp4&#10;https://seedbox.example/One.Piece.S01E02.1080p.mp4&#10;…"></textarea>
                 <p class="err" id="tErr"></p>
                 <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px">
@@ -344,6 +349,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=8"></script>
+    <script src="/js/admin.js?v=9"></script>
 </body>
 </html>

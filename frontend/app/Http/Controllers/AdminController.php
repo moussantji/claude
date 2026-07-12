@@ -618,9 +618,10 @@ class AdminController extends Controller
     /* ====================================================================
      * TORRENT REMOTE-UPLOAD (send download links to the player host)
      *
-     * The admin provides direct download links (one per episode for a season
-     * pack). Each link is sent to the target host which fetches it itself
-     * (remote upload). No download happens on our server.
+     * The admin submits a magnet / .torrent (resolved via Real-Debrid into
+     * direct HTTP links) or pastes direct links. Each link is sent to the
+     * target host which fetches it itself (remote upload). No download happens
+     * on our server.
      * ==================================================================== */
 
     /**
@@ -665,6 +666,7 @@ class AdminController extends Controller
 
         return response()->json(['data' => [
             'pending' => $counts['pending'] ?? 0,
+            'resolving' => $counts['resolving'] ?? 0,
             'processing' => $counts['processing'] ?? 0,
             'done' => $counts['done'] ?? 0,
             'failed' => $counts['failed'] ?? 0,
@@ -672,22 +674,23 @@ class AdminController extends Controller
             'links_unmatched' => TorrentFile::where('status', 'skipped')->count(),
             'links_failed' => TorrentFile::where('status', 'failed')->count(),
             'platforms' => \App\Services\TorrentService::remoteHosts(),
+            'debrid_ready' => (new \App\Services\RealDebridClient())->isConfigured(),
         ]]);
     }
 
     /**
-     * Submit a batch of download links to be sent to a player host.
+     * Submit a batch: a magnet/.torrent (resolved via Real-Debrid) OR direct
+     * download links.
      *
      * Body:
      *   target_platform : doodstream|vidmoly|streamtape|mp4upload  (required)
-     *   season_id       : season pack — links auto-matched to episodes
-     *   episode_id      : single episode — all links map to it
+     *   season_id       : season pack — files auto-matched to episodes
+     *   episode_id      : single episode — everything maps to it
      *   language        : default VOSTFR
      *   title           : optional label
-     *   links           : the download links. Accepts either:
-     *                       - a newline-separated string, or
-     *                       - an array of strings, or
-     *                       - an array of {url, episode_id}
+     *   torrent_url     : a magnet: URI or an http(s) .torrent URL (Real-Debrid)
+     *   links           : OR direct download links (string / array). Provide
+     *                     torrent_url OR links.
      */
     public function torrentStore(Request $request, TorrentService $service): JsonResponse
     {
@@ -697,21 +700,41 @@ class AdminController extends Controller
             'episode_id' => ['nullable', 'integer', 'exists:episodes,id'],
             'language' => ['nullable', 'string', 'max:16'],
             'title' => ['nullable', 'string', 'max:500'],
-            'links' => ['required'],
+            'torrent_url' => ['nullable', 'string', 'max:8192'],
+            'links' => ['nullable'],
         ]);
 
         if (empty($validated['season_id']) && empty($validated['episode_id'])) {
             return response()->json([
-                'message' => 'Provide season_id (pack) or episode_id (single episode).',
-                'errors' => ['season_id' => ['season_id or episode_id is required.']],
+                'message' => 'Indiquez une saison (pack) ou un épisode (unité).',
+                'errors' => ['season_id' => ['season_id ou episode_id est requis.']],
             ], 422);
         }
 
-        $links = $this->normalizeLinks($request->input('links'));
-        if (empty($links)) {
+        $torrentUrl = trim((string) ($validated['torrent_url'] ?? ''));
+        $isTorrent = $torrentUrl !== '';
+
+        // A magnet / .torrent is resolved by Real-Debrid; require it configured.
+        if ($isTorrent) {
+            if (! preg_match('#^(magnet:|https?://)#i', $torrentUrl)) {
+                return response()->json([
+                    'message' => 'Lien invalide.',
+                    'errors' => ['torrent_url' => ['Fournissez un magnet: ou une URL http(s) vers un .torrent.']],
+                ], 422);
+            }
+            if (! (new \App\Services\RealDebridClient())->isConfigured()) {
+                return response()->json([
+                    'message' => 'Real-Debrid non configuré (REALDEBRID_API_TOKEN manquant dans .env).',
+                    'errors' => ['torrent_url' => ['Configurez Real-Debrid pour résoudre les magnets/torrents.']],
+                ], 422);
+            }
+        }
+
+        $links = $isTorrent ? [] : $this->normalizeLinks($request->input('links'));
+        if (! $isTorrent && empty($links)) {
             return response()->json([
-                'message' => 'No valid links provided.',
-                'errors' => ['links' => ['Provide at least one http(s) download link.']],
+                'message' => 'Aucune source fournie.',
+                'errors' => ['links' => ['Fournissez un magnet/.torrent ou au moins un lien http(s).']],
             ], 422);
         }
 
@@ -721,16 +744,23 @@ class AdminController extends Controller
             'episode_id' => $validated['episode_id'] ?? null,
             'language' => $validated['language'] ?? 'VOSTFR',
             'title' => $validated['title'] ?? null,
+            'torrent_url' => $isTorrent ? $torrentUrl : null,
             'status' => 'pending',
             'submitted_by' => $request->user()?->id,
         ]);
 
-        $count = $service->createFilesFromLinks($job, $links);
+        if ($isTorrent) {
+            // Files are created later, once Real-Debrid finishes resolving.
+            $message = 'Torrent en file — Real-Debrid va le résoudre puis envoyer les épisodes au lecteur.';
+        } else {
+            $count = $service->createFilesFromLinks($job, $links);
+            $message = "Batch créé — {$count} lien(s) en file.";
+        }
 
         $job->load(['files' => fn ($q) => $q->with('episode:id,index,name')->orderBy('detected_episode')]);
 
         return response()->json([
-            'message' => "Batch créé — {$count} lien(s) en file.",
+            'message' => $message,
             'data' => $job,
         ], 201);
     }

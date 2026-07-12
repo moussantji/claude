@@ -12,27 +12,37 @@ use Throwable;
 /**
  * Orchestrates "torrent" remote-upload batches.
  *
- * The admin provides direct DOWNLOAD LINKS (one per episode). We never download
- * them: each link is sent to the TARGET player host (Doodstream, Vidmoly,
- * Streamtape, Mp4upload) which fetches it itself (server-to-server remote
- * upload). We then poll the host until it finishes and attach the resulting
- * embed URL to the matching episode.
+ * The admin submits a magnet / .torrent (or, optionally, direct links). A
+ * magnet/.torrent is resolved through Real-Debrid, which downloads it and
+ * exposes a direct HTTP link per file. Each resulting link is then sent to the
+ * TARGET player host (Doodstream, Vidmoly, Streamtape, Mp4upload) which fetches
+ * it itself (server-to-server remote upload). We never download the video on
+ * our server. We poll the host until it finishes and attach the resulting embed
+ * URL to the matching episode.
  *
- * Per-link flow: send link → queued (host fetching) → poll → done → episode_link
+ * Batch flow:  pending → resolving (Real-Debrid) → processing (player) → done
+ * Per-link:    send link → queued (host fetching) → poll → done → episode_link
+ *
+ * Video file extensions considered as episodes inside a torrent.
  */
 class TorrentService
 {
     /** Hosts that support server-to-server remote upload. */
     private const REMOTE_HOSTS = ['doodstream', 'vidmoly', 'streamtape', 'mp4upload'];
 
+    /** Video extensions kept when selecting files inside a torrent. */
+    private const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'webm', 'ts', 'flv', 'mov', 'm4v', 'wmv'];
+
     /** Max links to submit/poll per processJob() call (keeps each run bounded). */
     private int $filesPerRun;
 
     private PlayerTransferService $transferService;
+    private RealDebridClient $debrid;
 
-    public function __construct(PlayerTransferService $transferService)
+    public function __construct(PlayerTransferService $transferService, RealDebridClient $debrid)
     {
         $this->transferService = $transferService;
+        $this->debrid = $debrid;
         $this->filesPerRun = max(1, (int) env('TORRENT_FILES_PER_RUN', 10));
     }
 
@@ -52,9 +62,10 @@ class TorrentService
 
     /**
      * Advance a batch:
-     *   pending    → mark processing
-     *   processing → submit pending links + poll queued links
-     *                → done once every link is resolved
+     *   pending/resolving → resolve the magnet via Real-Debrid (if any)
+     *   pending           → mark processing (direct-link batches)
+     *   processing        → submit pending links + poll queued links
+     *                       → done once every link is resolved
      */
     public function processJob(TorrentDownload $job): void
     {
@@ -69,19 +80,30 @@ class TorrentService
                 return;
             }
 
+            // Stage A: resolve a magnet/.torrent through Real-Debrid. Returns
+            // false while still resolving (or on failure) — retry next pass.
+            if ($job->usesDebrid() && ($job->isPending() || $job->isResolving())) {
+                if (! $this->resolveDebrid($job)) {
+                    return;
+                }
+            }
+
+            // Direct-link batches: files already exist; move to processing.
             if ($job->isPending()) {
                 $job->markProcessing();
             }
 
-            // 1. Submit links that haven't been sent to the host yet.
-            $this->submitPending($job, $credentials);
+            if (! $job->isProcessing()) {
+                return;
+            }
 
-            // 2. Poll links the host is still fetching.
+            // Stage B: send links to the host, then poll the ones it's fetching.
+            $this->submitPending($job, $credentials);
             $this->pollQueued($job, $credentials);
 
             $job->refreshCounters();
 
-            // 3. Done when nothing is left in a non-terminal state.
+            // Done when nothing is left in a non-terminal state.
             $remaining = $job->files()->whereIn('status', ['pending', 'queued'])->count();
             if ($remaining === 0) {
                 $job->markDone();
@@ -89,6 +111,177 @@ class TorrentService
         } catch (Throwable $e) {
             $job->markFailed(mb_substr($e->getMessage(), 0, 500));
         }
+    }
+
+    /* =====================================================================
+     * REAL-DEBRID RESOLUTION (magnet/.torrent → direct HTTP links)
+     * =================================================================== */
+
+    /**
+     * Advance the Real-Debrid resolution for a batch.
+     *
+     * @return bool true once the batch has moved to 'processing' (links
+     *              resolved and torrent_files created).
+     */
+    private function resolveDebrid(TorrentDownload $job): bool
+    {
+        if (! $this->debrid->isConfigured()) {
+            $job->markFailed('Real-Debrid non configuré (REALDEBRID_API_TOKEN manquant dans .env).');
+
+            return false;
+        }
+
+        // Kick off: register the magnet/.torrent with Real-Debrid.
+        if ($job->isPending()) {
+            $url = trim($job->torrent_url);
+            $id = str_starts_with(strtolower($url), 'magnet:')
+                ? $this->debrid->addMagnet($url)
+                : $this->debrid->addTorrentUrl($url);
+            $job->markResolving($id);
+
+            return false; // poll on the next pass
+        }
+
+        if (! $job->debrid_id) {
+            $job->markFailed('Résolution sans identifiant Real-Debrid.');
+
+            return false;
+        }
+
+        $info = $this->debrid->info($job->debrid_id);
+        $status = $info['status'] ?? 'error';
+        $progress = (int) ($info['progress'] ?? 0);
+        if ($progress !== $job->debrid_progress) {
+            $job->update(['debrid_progress' => $progress]);
+        }
+
+        switch ($status) {
+            case 'waiting_files_selection':
+                // Keep only the video files (skip samples/nfo/images).
+                $ids = $this->videoFileIds($info['files'] ?? []);
+                $this->debrid->selectFiles($job->debrid_id, $ids !== '' ? $ids : 'all');
+
+                return false;
+
+            case 'magnet_conversion':
+            case 'queued':
+            case 'downloading':
+            case 'compressing':
+            case 'uploading':
+                return false; // Real-Debrid still working — wait.
+
+            case 'downloaded':
+                $this->createFilesFromDebrid($job, $info);
+                $job->markProcessing();
+                // Housekeeping: remove the torrent from the RD account.
+                $this->debrid->deleteTorrent($job->debrid_id);
+
+                return true;
+
+            default: // magnet_error, error, virus, dead
+                $job->markFailed("Real-Debrid: statut '{$status}'.");
+
+                return false;
+        }
+    }
+
+    /**
+     * Comma-separated ids of the video files in a Real-Debrid files[] list.
+     */
+    private function videoFileIds(array $files): string
+    {
+        $ids = [];
+        foreach ($files as $f) {
+            $path = $f['path'] ?? '';
+            $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+            if (in_array($ext, self::VIDEO_EXTS, true) && isset($f['id'])) {
+                $ids[] = $f['id'];
+            }
+        }
+
+        return implode(',', $ids);
+    }
+
+    /**
+     * Once Real-Debrid finished, unrestrict each selected file into a direct
+     * link and create a torrent_files row (mapped to an episode).
+     *
+     * RD returns links[] in the same order as the SELECTED files[].
+     */
+    private function createFilesFromDebrid(TorrentDownload $job, array $info): void
+    {
+        $selected = array_values(array_filter(
+            $info['files'] ?? [],
+            fn ($f) => (int) ($f['selected'] ?? 0) === 1
+        ));
+        $links = array_values($info['links'] ?? []);
+
+        $episodesByIndex = $job->season_id
+            ? Episode::where('season_id', $job->season_id)->get()->keyBy('index')
+            : collect();
+
+        $fallbackIndex = 1;
+
+        foreach ($selected as $i => $f) {
+            $path = $f['path'] ?? '';
+            $fileName = $path !== '' ? basename($path) : "file{$i}";
+            $rdLink = $links[$i] ?? null;
+
+            $epNum = $this->parseEpisodeNumber($fileName);
+            if ($epNum === null && ! ($job->episode_id && ! $job->season_id)) {
+                $epNum = $fallbackIndex;
+            }
+            $episodeId = $this->matchEpisodeId($job, $epNum, $episodesByIndex);
+            $fallbackIndex = ($epNum ?? $fallbackIndex) + 1;
+
+            // Unrestrict the RD hoster link into a direct URL we can send.
+            $directUrl = null;
+            $error = null;
+            if ($rdLink) {
+                try {
+                    $directUrl = $this->debrid->unrestrict($rdLink);
+                } catch (Throwable $e) {
+                    $error = 'Real-Debrid unrestrict: ' . mb_substr($e->getMessage(), 0, 200);
+                }
+            } else {
+                $error = 'Real-Debrid: aucun lien pour ce fichier.';
+            }
+
+            TorrentFile::create([
+                'torrent_download_id' => $job->id,
+                'source_url' => $directUrl ?? '',
+                'file_name' => $fileName,
+                'detected_episode' => $epNum,
+                'episode_id' => $episodeId,
+                'language' => $job->language,
+                'status' => $directUrl ? 'pending' : 'failed',
+                'error' => $error,
+            ]);
+        }
+
+        $job->refreshCounters();
+    }
+
+    /**
+     * Resolve the episode id for a file (explicit → single-episode → by number).
+     */
+    private function matchEpisodeId(
+        TorrentDownload $job,
+        ?int $epNum,
+        \Illuminate\Support\Collection $episodesByIndex,
+        ?int $explicit = null,
+    ): ?int {
+        if ($explicit !== null) {
+            return $explicit;
+        }
+        if ($job->episode_id && ! $job->season_id) {
+            return $job->episode_id;
+        }
+        if ($epNum === null) {
+            return null;
+        }
+
+        return $episodesByIndex->get($epNum)?->id;
     }
 
     /**

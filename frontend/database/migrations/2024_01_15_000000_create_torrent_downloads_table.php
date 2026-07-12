@@ -7,15 +7,19 @@ use Illuminate\Support\Facades\Schema;
 /**
  * "Torrent" remote-upload jobs submitted by the admin.
  *
- * The admin provides direct DOWNLOAD LINKS (e.g. DDL/seedbox HTTP URLs to the
- * episode files of a torrent). We do NOT download them on our server. Instead
- * each link is sent to the TARGET player host (Doodstream, Vidmoly, Streamtape,
- * Mp4upload) which fetches it itself (server-to-server "remote upload"). Once
- * the host finishes, the resulting embed URL is attached to the episode.
+ * The admin submits a magnet / .torrent (or, optionally, direct download
+ * links). A magnet/.torrent is resolved through Real-Debrid, which downloads
+ * it and exposes a direct HTTP link per file. Each resulting link is then sent
+ * to the TARGET player host (Doodstream, Vidmoly, Streamtape, Mp4upload) which
+ * fetches it itself (server-to-server "remote upload"). We never download the
+ * video on our server. Once the host finishes, the embed URL is attached to
+ * the episode.
  *
  * Because a torrent can be a SEASON PACK, the schema is split in two:
- *   torrent_downloads : one batch (a set of links for a season / an episode)
- *   torrent_files     : one row per download link (→ one episode)
+ *   torrent_downloads : one batch (a magnet/torrent or a set of links)
+ *   torrent_files     : one row per resolved link (→ one episode)
+ *
+ * Batch status: pending → resolving (Real-Debrid) → processing (player) → done
  */
 return new class extends Migration
 {
@@ -34,7 +38,15 @@ return new class extends Migration
             // upload): doodstream, vidmoly, streamtape, mp4upload.
             $table->string('target_platform', 50)->default('doodstream');
 
-            // Batch status: pending → processing → done / failed
+            // Source: a magnet / .torrent URL (resolved via Real-Debrid). Null
+            // when the admin pasted direct links instead.
+            $table->text('torrent_url')->nullable();
+
+            // Real-Debrid torrent id (set while resolving) + its progress 0-100.
+            $table->string('debrid_id', 64)->nullable();
+            $table->unsignedTinyInteger('debrid_progress')->default(0);
+
+            // Batch status: pending → resolving → processing → done / failed
             $table->string('status', 20)->default('pending')->index();
 
             // Per-file counters (link-level results)
@@ -62,8 +74,8 @@ return new class extends Migration
 
             $table->unsignedBigInteger('torrent_download_id')->index();
 
-            // The direct download link the admin provides. Sent as-is to the
-            // target host's remote-upload API (the host downloads it).
+            // The direct download link (from Real-Debrid, or pasted by the
+            // admin). Sent as-is to the target host's remote-upload API.
             $table->text('source_url');
             $table->string('file_name', 1024)->nullable(); // basename, for ep detection
 

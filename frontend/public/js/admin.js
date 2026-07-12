@@ -834,7 +834,7 @@
     /* ---- Torrents (remote upload: send download links to the player host) ---- */
     const torrentState = { platforms: ['doodstream', 'vidmoly', 'streamtape', 'mp4upload'] };
 
-    const TORRENT_STATUS_LABELS = { pending: 'En attente', processing: 'En cours', done: 'Terminé', failed: 'Échec' };
+    const TORRENT_STATUS_LABELS = { pending: 'En attente', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminé', failed: 'Échec' };
     const FILE_STATUS = {
         pending: ['#9a9ab0', '· en attente'],
         queued: ['#4fb0ff', '↻ chez le lecteur'],
@@ -858,11 +858,13 @@
                 torrentState.platforms = data.platforms;
             }
             renderPlatformSelect();
-            const labels = { total: 'Total', pending: 'En attente', processing: 'En cours', done: 'Terminés', failed: 'Échecs', links_unmatched: 'Non mappés', links_failed: 'Liens KO' };
+            // Warn when Real-Debrid isn't configured (magnets won't resolve).
+            $('#tDebridWarn').classList.toggle('hide', data.debrid_ready !== false);
+            const labels = { total: 'Total', pending: 'En attente', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminés', failed: 'Échecs', links_unmatched: 'Non mappés', links_failed: 'Liens KO' };
             $('#torrentStats').innerHTML = Object.entries(labels).map(([k, label]) => {
                 const val = data[k] ?? 0;
                 const color = (k === 'failed' || k === 'links_failed') && val > 0 ? 'color:var(--danger)'
-                    : (k === 'done' ? 'color:#4fe0a0' : (k === 'processing' && val > 0 ? 'color:#4fb0ff' : (k === 'links_unmatched' && val > 0 ? 'color:#f0ad4e' : '')));
+                    : (k === 'done' ? 'color:#4fe0a0' : ((k === 'processing' || k === 'resolving') && val > 0 ? 'color:#4fb0ff' : (k === 'links_unmatched' && val > 0 ? 'color:#f0ad4e' : '')));
                 return `<div class="stat"><b style="${color}">${val}</b><span>${label}</span></div>`;
             }).join('');
         } catch (e) {
@@ -901,7 +903,7 @@
                     <span style="font-size:11px;padding:2px 10px;border-radius:999px;background:${color};color:#000;font-weight:700">${TORRENT_STATUS_LABELS[t.status] || t.status}</span>
                     <span class="muted" style="font-size:12px">→ ${escapeHtml(t.target_platform)}</span>
                 </div>
-                <div class="muted" style="font-size:12px;margin:4px 0">${target} · ${t.files_done}/${t.files_total} en ligne${t.files_failed ? ' · <span style="color:var(--danger)">'+t.files_failed+' KO</span>' : ''}</div>
+                <div class="muted" style="font-size:12px;margin:4px 0">${target} · ${t.status === 'resolving' ? 'Real-Debrid ' + (t.debrid_progress || 0) + '%' : t.files_done + '/' + t.files_total + ' en ligne' + (t.files_failed ? ' · <span style="color:var(--danger)">' + t.files_failed + ' KO</span>' : '')}</div>
                 ${t.error ? `<div class="err" style="font-size:12px">${escapeHtml(t.error)}</div>` : ''}
                 <div style="display:flex;gap:6px;margin-top:6px">
                     <button class="btn" data-tfiles="${t.id}" data-title="${escapeHtml(t.title || 'Batch #' + t.id)}">Épisodes</button>
@@ -920,7 +922,7 @@
     }
 
     function statusColor(status) {
-        return { pending: ['#9a9ab0'], processing: ['#4fb0ff'], done: ['#4fe0a0'], failed: ['#ff4d6d'] }[status] || ['#666'];
+        return { pending: ['#9a9ab0'], resolving: ['#4fb0ff'], processing: ['#4fb0ff'], done: ['#4fe0a0'], failed: ['#ff4d6d'] }[status] || ['#666'];
     }
 
     async function submitTorrent() {
@@ -930,19 +932,24 @@
         const seasonId = $('#tSeasonId').value.trim();
         const episodeId = $('#tEpisodeId').value.trim();
         const title = $('#tTitle').value.trim() || null;
+        const torrentUrl = $('#tTorrentUrl').value.trim();
         const links = $('#tLinks').value.trim();
 
-        if (!links) { $('#tErr').textContent = 'Collez au moins un lien.'; return; }
+        if (!torrentUrl && !links) { $('#tErr').textContent = 'Collez un magnet/.torrent OU des liens HTTP directs.'; return; }
         if (!seasonId && !episodeId) { $('#tErr').textContent = 'Indiquez une Saison ID (pack) ou un Épisode ID (unique).'; return; }
 
-        const body = { target_platform: platform, language: lang, title, links };
+        const body = { target_platform: platform, language: lang, title };
         if (seasonId) body.season_id = +seasonId;
         if (episodeId) body.episode_id = +episodeId;
+        // A magnet/.torrent takes precedence over pasted links.
+        if (torrentUrl) body.torrent_url = torrentUrl;
+        else body.links = links;
 
         try {
             const res = await api('/admin/torrents', { method: 'POST', body });
             toast(res.message || 'Batch créé');
             $('#tLinks').value = '';
+            $('#tTorrentUrl').value = '';
             $('#tTitle').value = '';
             reloadTorrents();
         } catch (e) {

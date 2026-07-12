@@ -9,11 +9,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * A "torrent" remote-upload batch submitted by an admin.
  *
- * The admin provides direct download links (one per episode for a season pack).
- * Each link is stored as a TorrentFile and sent to the target player host,
- * which fetches it itself (server-to-server remote upload).
+ * The admin submits a magnet/.torrent (resolved via Real-Debrid into direct
+ * HTTP links) or pastes direct links. Each resolved link is stored as a
+ * TorrentFile and sent to the target player host, which fetches it itself
+ * (server-to-server remote upload).
  *
- * Batch lifecycle: pending → processing → done / failed
+ * Batch lifecycle: pending → resolving (Real-Debrid) → processing → done / failed
  */
 class TorrentDownload extends Model
 {
@@ -24,6 +25,9 @@ class TorrentDownload extends Model
         'episode_id',
         'language',
         'target_platform',
+        'torrent_url',
+        'debrid_id',
+        'debrid_progress',
         'status',
         'files_total',
         'files_done',
@@ -37,6 +41,7 @@ class TorrentDownload extends Model
     protected function casts(): array
     {
         return [
+            'debrid_progress' => 'integer',
             'files_total' => 'integer',
             'files_done' => 'integer',
             'files_failed' => 'integer',
@@ -73,9 +78,20 @@ class TorrentDownload extends Model
         return $this->status === 'pending';
     }
 
+    public function isResolving(): bool
+    {
+        return $this->status === 'resolving';
+    }
+
     public function isProcessing(): bool
     {
         return $this->status === 'processing';
+    }
+
+    /** Whether this batch must go through Real-Debrid (magnet/.torrent source). */
+    public function usesDebrid(): bool
+    {
+        return ! empty($this->torrent_url);
     }
 
     public function isDone(): bool
@@ -90,10 +106,20 @@ class TorrentDownload extends Model
 
     public function isProcessable(): bool
     {
-        return in_array($this->status, ['pending', 'processing'], true);
+        return in_array($this->status, ['pending', 'resolving', 'processing'], true);
     }
 
     /* ---- Actions ---- */
+
+    /** Move to the Real-Debrid resolution stage. */
+    public function markResolving(?string $debridId = null): void
+    {
+        $this->update(array_filter([
+            'status' => 'resolving',
+            'debrid_id' => $debridId,
+            'error' => null,
+        ], fn ($v, $k) => $k === 'status' || $k === 'error' || $v !== null, ARRAY_FILTER_USE_BOTH));
+    }
 
     public function markProcessing(): void
     {
@@ -116,7 +142,14 @@ class TorrentDownload extends Model
 
     public function retry(): void
     {
-        $this->update(['status' => 'pending', 'error' => null]);
+        // Re-resolve from scratch for magnet/.torrent batches; otherwise just
+        // re-send the pasted links.
+        $this->update([
+            'status' => 'pending',
+            'error' => null,
+            'debrid_id' => null,
+            'debrid_progress' => 0,
+        ]);
     }
 
     /**
