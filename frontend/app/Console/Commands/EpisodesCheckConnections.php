@@ -144,7 +144,7 @@ class EpisodesCheckConnections extends Command
         if ($key === '') {
             return ['no-creds', 'TRANSFER_DOODSTREAM_API_KEY empty'];
         }
-        $base = rtrim(env('TRANSFER_DOODSTREAM_API_BASE', 'https://doodapi.com/api'), '/');
+        $base = rtrim(env('TRANSFER_DOODSTREAM_API_BASE', 'https://doodapi.co/api'), '/');
         // account/info is the lightweight auth check
         $resp = Http::timeout(15)->acceptJson()->get("{$base}/account/info", ['key' => $key]);
         $status = $resp->json('status');

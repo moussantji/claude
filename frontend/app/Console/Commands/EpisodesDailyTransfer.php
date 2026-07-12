@@ -528,7 +528,7 @@ class EpisodesDailyTransfer extends Command
             ]),
             'doodstream' => array_filter([
                 'api_key' => env('TRANSFER_DOODSTREAM_API_KEY', ''),
-                'api_base' => env('TRANSFER_DOODSTREAM_API_BASE', 'https://doodapi.com/api'),
+                'api_base' => env('TRANSFER_DOODSTREAM_API_BASE', 'https://doodapi.co/api'),
             ]),
             'streamtape' => array_filter([
                 'login' => env('TRANSFER_STREAMTAPE_LOGIN', ''),

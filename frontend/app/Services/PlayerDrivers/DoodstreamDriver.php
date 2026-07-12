@@ -28,7 +28,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
     public function remoteUpload(string $sourceUrl, string $title, array $credentials): array
     {
         $key = $credentials['api_key'] ?? '';
-        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.com/api', '/');
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.co/api', '/');
 
         if ($key === '') {
             throw new RuntimeException('Doodstream API key missing.');
@@ -62,7 +62,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
         if ($code) {
             return [
                 'job_id' => $code,
-                'embed_url' => "https://dood.to/e/{$code}",
+                'embed_url' => $this->embedBase($credentials)."/e/{$code}",
                 'file_code' => $code,
                 'state' => 'done',
             ];
@@ -79,7 +79,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
     public function remoteStatus(string $jobId, array $credentials): array
     {
         $key = $credentials['api_key'] ?? '';
-        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.com/api', '/');
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.co/api', '/');
 
         // If jobId already looks like a file code, confirm it exists.
         $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/info", [
@@ -92,7 +92,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
         if (is_array($entry) && ! empty($entry['filecode'] ?? $entry['file_code'] ?? null)) {
             $code = $entry['filecode'] ?? $entry['file_code'];
 
-            return ['state' => 'done', 'embed_url' => "https://dood.to/e/{$code}", 'file_code' => $code, 'error' => null];
+            return ['state' => 'done', 'embed_url' => $this->embedBase($credentials)."/e/{$code}", 'file_code' => $code, 'error' => null];
         }
 
         return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
@@ -174,7 +174,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
     public function upload(string $localPath, string $title, array $credentials): array
     {
         $apiKey = $credentials['api_key'] ?? '';
-        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.com/api', '/');
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.co/api', '/');
 
         if ($apiKey === '') {
             throw new RuntimeException('Doodstream target API key is missing.');
@@ -231,7 +231,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
 
         return [
             'file_code' => $fileCode,
-            'embed_url' => "https://dood.to/e/{$fileCode}",
+            'embed_url' => $this->embedBase($credentials)."/e/{$fileCode}",
         ];
     }
 
@@ -240,5 +240,16 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
         $parsed = parse_url($url);
 
         return ($parsed['scheme'] ?? 'https').'://'.($parsed['host'] ?? 'dood.to');
+    }
+
+    /**
+     * Playback/embed domain. Doodstream rotates domains, so it's overridable
+     * via credentials['embed_base'] or TRANSFER_DOODSTREAM_EMBED_BASE.
+     */
+    private function embedBase(array $credentials): string
+    {
+        $base = $credentials['embed_base'] ?? env('TRANSFER_DOODSTREAM_EMBED_BASE', 'https://dood.to');
+
+        return rtrim($base, '/');
     }
 }
