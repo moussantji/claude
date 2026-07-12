@@ -28,52 +28,95 @@ Magnet/.torrent
 
 ---
 
-## Option A — Serveur gratuit à vie : Oracle Cloud Free Tier
+## Option A — Serveur gratuit à vie : Oracle Cloud Free Tier (de A à Z)
 
-Si tu n'as pas déjà de serveur, l'**Oracle Cloud Free Tier** offre une VM
-gratuite « à vie » avec un gros quota de bande passante mensuel — idéale pour ce
-worker. Les étapes ci-dessous valent aussi pour n'importe quel VPS/PC Linux
-(Debian/Ubuntu).
+L'**Oracle Cloud Free Tier** offre une VM gratuite « à vie » (ARM Ampere A1,
+jusqu'à 2 OCPU / 12 Go / 200 Go de disque) avec un gros quota de bande passante
+sortante mensuel — idéale pour ce worker.
 
-### 1. Créer la VM
+### Étape 0 — Choix de la région (À FAIRE AVANT DE S'INSCRIRE)
 
-1. Crée un compte sur [Oracle Cloud](https://www.oracle.com/cloud/free/).
-2. Crée une instance **Always Free** — choisis impérativement une forme
-   **ARM Ampere A1 (`VM.Standard.A1.Flex`)** avec une image **Ubuntu**.
-3. Ouvre l'accès SSH, connecte-toi :
-   ```bash
-   ssh ubuntu@<IP_DE_TA_VM>
-   ```
+> **La région d'origine (home region) se choisit à l'inscription et NE PEUT
+> PLUS être changée.** Les ressources gratuites ARM vivent dans cette région,
+> donc ce choix est le plus important.
 
-> **⚠ Choix de la forme — important**
-> - **Prends l'ARM Ampere A1** (jusqu'à 2 OCPU / 12 Go dans l'offre gratuite
->   actuelle) : c'est amplement suffisant pour aria2c + le worker.
-> - **Évite les micro-instances AMD** (`VM.Standard.E2.1.Micro`, 1/8 OCPU /
->   1 Go RAM) : trop faibles.
->
-> **⚠ Disponibilité ARM**
-> Dans les régions populaires, Oracle renvoie souvent *« Out of host capacity »*
-> à la création de l'instance ARM. Solutions : réessaye régulièrement, ou choisis
-> une **région/domaine de disponibilité** moins saturé au moment de créer ton
-> compte (la région ne peut pas être changée ensuite).
->
-> **Débit & quota réseau**
-> La bande passante sortante offre un large quota gratuit mensuel (généreux pour
-> cet usage). Le débit peut varier selon la région ; ce worker étant une tâche
-> de fond, ce n'est pas bloquant. Le vrai facteur limitant reste le nombre de
-> seeders du torrent et la vitesse d'upload acceptée par le lecteur.
+**Stratégie anti « Out of host capacity » :**
 
-### 2. Installer les dépendances
+- **Évite les grandes régions saturées** : Ashburn/Phoenix (US), Frankfurt,
+  Londres, Amsterdam — beaucoup de demande sur l'ARM gratuit.
+- **Choisis une région proche mais « secondaire »**. Pour un francophone :
+  **Marseille, Zurich, Madrid ou Milan** sont souvent plus accessibles que
+  Paris/Frankfurt *(retours communauté — aucune garantie, ça évolue)*.
+- **Privilégie une région à plusieurs *Availability Domains* (AD)** : en cas
+  d'échec, tu peux réessayer dans un autre AD sans recréer de compte.
+
+### Étape 1 — Créer le compte
+
+1. Va sur [oracle.com/cloud/free](https://www.oracle.com/cloud/free/) →
+   *Start for free*.
+2. Renseigne email + **choisis ta home region** (voir Étape 0).
+3. Vérifie par carte bancaire (empreinte ~1 € remboursée ; **pas de débit** sur
+   l'offre Always Free tant que tu ne passes pas en payant).
+4. Attends l'activation du compte (quelques minutes à ~1 h).
+
+### Étape 2 — Générer une clé SSH (sur ta machine locale)
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/oracle -C "oracle-torrent-worker"
+# → crée ~/.ssh/oracle (privée) et ~/.ssh/oracle.pub (publique)
+cat ~/.ssh/oracle.pub      # tu colleras ce contenu à l'étape suivante
+```
+
+### Étape 3 — Créer l'instance ARM
+
+1. Console OCI → menu ☰ → **Compute → Instances → Create instance**.
+2. **Image and shape** → *Edit* :
+   - **Image** : Canonical **Ubuntu** (22.04/24.04).
+   - **Shape** → *Change shape* → **Ampere** → **`VM.Standard.A1.Flex`**.
+   - Règle **2 OCPU** et **12 Go** (le max gratuit actuel).
+   > ⚠ **N'utilise PAS** `VM.Standard.E2.1.Micro` (AMD, 1/8 OCPU / 1 Go) : trop faible.
+3. **Networking** : laisse créer un VCN + sous-réseau public, **Assign a public
+   IPv4 address = Yes**.
+4. **Add SSH keys** → *Paste public keys* → colle le contenu de `oracle.pub`.
+5. **Create**.
+
+> **Si « Out of host capacity »** (fréquent sur l'ARM gratuit) :
+> - Change de **Availability Domain** (AD-1 / AD-2 / AD-3) et réessaie.
+> - Réessaie **à différents moments** (tôt le matin / la nuit = souvent mieux).
+> - Beaucoup automatisent la relance avec un script (ex. l'outil open-source
+>   `oci-arm-host-capacity`) qui tente la création en boucle jusqu'au succès.
+
+### Étape 4 — Ouvrir le réseau
+
+Tu n'as **pas** besoin d'ouvrir de port entrant (le worker sort seulement vers
+l'extérieur), à part **SSH (22)** qui est déjà ouvert par défaut. Vérifie juste
+que tu peux te connecter :
+
+```bash
+ssh -i ~/.ssh/oracle ubuntu@<IP_PUBLIQUE_DE_LA_VM>
+```
+
+> Si tu héberges **aussi le site Laravel** sur cette VM, ouvre les ports 80/443
+> dans la *Security List* du sous-réseau + `sudo iptables`/`ufw`. Pour un simple
+> **worker torrent**, ce n'est pas nécessaire.
+
+### Étape 5 — Installer les dépendances (sur la VM)
 
 ```bash
 sudo apt update
 sudo apt install -y aria2 php-cli php-curl php-mbstring php-xml unzip git
 # (PHP 8.2+ requis pour Laravel 12 — utilise le PPA ondrej/php si besoin)
+php -v && aria2c --version   # vérifie que tout est installé
 ```
 
-> Le worker n'a besoin **que** de `php artisan` + `aria2c`. Tu peux faire tourner
-> la base de données (MySQL) sur cette même VM ou sur une autre machine : le
-> worker et le site web doivent juste partager la **même base de données**.
+> Le worker n'a besoin **que** de `php artisan` + `aria2c` + l'accès à la **même
+> base de données** que le site web. Tu peux :
+> - héberger **tout** (site + worker + MySQL) sur cette VM, ou
+> - garder le site ailleurs et n'utiliser cette VM que comme **worker** (elle se
+>   connecte à la base distante via `DB_HOST` dans son `.env`).
+
+Continue ensuite avec **« Lancer aria2c en démon RPC »** puis **« Configurer
+l'application (`.env`) »** ci-dessous.
 
 ---
 
