@@ -202,6 +202,8 @@ class TorrentService
             }
         } catch (Throwable $e) {
             $job->markFailed(mb_substr($e->getMessage(), 0, 500));
+            // Free the disk if an aria2 download was partially written.
+            $this->cleanupDownloadArtifacts($job);
         }
     }
 
@@ -253,6 +255,7 @@ class TorrentService
                 $created = $this->createFilesFromAria2($job, $poll['files']);
                 if ($created === 0) {
                     $job->markFailed('Téléchargement terminé mais aucun fichier vidéo trouvé.');
+                    $this->cleanupDownloadArtifacts($job);
 
                     return false;
                 }
@@ -262,11 +265,13 @@ class TorrentService
 
             case 'error':
                 $job->markFailed($poll['error'] ?? 'aria2c: échec du téléchargement.');
+                $this->cleanupDownloadArtifacts($job); // free partial files
 
                 return false;
 
             default:
                 $job->markFailed("aria2c: statut '{$poll['status']}'.");
+                $this->cleanupDownloadArtifacts($job);
 
                 return false;
         }
@@ -805,8 +810,13 @@ class TorrentService
     }
 
     /**
-     * Remove any leftover downloaded files for a finished batch, plus the
-     * (now empty) torrent sub-folder when applicable.
+     * Free the disk for an aria2 batch — on success AND on failure.
+     *
+     * Crucial on small disks: a failed/oversized download leaves partial files
+     * that aria2 still holds open, so they keep occupying space until the
+     * download is removed from the daemon. We therefore: capture the paths from
+     * aria2, tell the daemon to drop the download (releasing the handles), then
+     * delete the files and any now-empty torrent sub-folder.
      */
     private function cleanupDownloadArtifacts(TorrentDownload $job): void
     {
@@ -814,14 +824,39 @@ class TorrentService
             return;
         }
 
-        $dir = $this->aria2->downloadDir();
-        foreach ($job->files as $file) {
-            if (! $file->local_path) {
-                continue;
-            }
-            $this->deleteLocalFile($file->local_path);
+        $paths = [];
 
-            $parent = dirname($file->local_path);
+        // Paths aria2 was writing (works even before torrent_files exist,
+        // e.g. a download that failed / filled the disk mid-way).
+        if ($job->aria2_gid) {
+            try {
+                foreach ($this->aria2->poll($job->aria2_gid)['files'] ?? [] as $f) {
+                    if (! empty($f['path'])) {
+                        $paths[] = $f['path'];
+                    }
+                }
+            } catch (Throwable) {
+                // ignore — best effort
+            }
+        }
+
+        // Paths of already-created files (post-complete uploads).
+        foreach ($job->files as $file) {
+            if ($file->local_path) {
+                $paths[] = $file->local_path;
+            }
+        }
+
+        // Stop the download in the daemon so it releases the open files.
+        if ($job->aria2_gid) {
+            $this->aria2->remove($job->aria2_gid);
+        }
+
+        $dir = $this->aria2->downloadDir();
+        foreach (array_unique($paths) as $path) {
+            $this->deleteLocalFile($path);
+
+            $parent = dirname($path);
             if ($parent !== $dir && is_dir($parent) && $this->isDirEmpty($parent)) {
                 @rmdir($parent);
             }

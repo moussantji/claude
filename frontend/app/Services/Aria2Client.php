@@ -64,6 +64,44 @@ class Aria2Client
     }
 
     /**
+     * Stop and forget a download so aria2 releases its file handles (otherwise
+     * deleted files keep occupying disk until the daemon lets them go).
+     * Also removes the metadata child GID (followedBy) when present.
+     */
+    public function remove(string $gid): void
+    {
+        if ($gid === '' || str_starts_with($gid, 'cli_') || ! $this->rpcAvailable()) {
+            return;
+        }
+
+        // Resolve the child (content) GID before removing the parent.
+        $children = [];
+        try {
+            $status = $this->rpc('aria2.tellStatus', [$gid, ['followedBy']]);
+            if (! empty($status['followedBy'][0])) {
+                $children[] = $status['followedBy'][0];
+            }
+        } catch (Throwable) {
+            // ignore
+        }
+
+        foreach (array_merge([$gid], $children) as $g) {
+            // Stop the active/waiting download (frees open file handles).
+            try {
+                $this->rpc('aria2.forceRemove', [$g]);
+            } catch (Throwable) {
+                // already stopped/complete — fine
+            }
+            // Drop it from the results list so it stops being reported.
+            try {
+                $this->rpc('aria2.removeDownloadResult', [$g]);
+            } catch (Throwable) {
+                // ignore
+            }
+        }
+    }
+
+    /**
      * Poll a download.
      *
      * @return array{status:string, progress:int, files:array, error:string|null}
