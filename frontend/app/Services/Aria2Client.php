@@ -56,10 +56,10 @@ class Aria2Client
     /**
      * Start downloading a magnet / .torrent URL. Returns a GID to poll.
      */
-    public function add(string $url): string
+    public function add(string $url, bool $paused = false): string
     {
         return $this->rpcAvailable()
-            ? $this->addViaRpc($url)
+            ? $this->addViaRpc($url, $paused)
             : $this->addViaCli($url);
     }
 
@@ -202,7 +202,7 @@ class Aria2Client
         return $this->rpcSecret ? array_merge(["token:{$this->rpcSecret}"], $params) : $params;
     }
 
-    private function addViaRpc(string $url): string
+    private function addViaRpc(string $url, bool $paused = false): string
     {
         $options = [
             'dir' => $this->downloadDir,
@@ -211,11 +211,89 @@ class Aria2Client
             'follow-torrent' => 'true',
             'file-allocation' => 'none',
         ];
+        if ($paused) {
+            // Slice mode: fetch metadata but keep the content download paused
+            // until we select which files to download (pause-metadata=false is
+            // the default, so the .torrent/magnet metadata still downloads).
+            $options['pause'] = 'true';
+        }
         $result = $this->rpc('aria2.addUri', [[$url], $options]);
         if (is_string($result)) {
             return $result;
         }
         throw new RuntimeException('aria2c RPC did not return a GID.');
+    }
+
+    /* ---- Slice mode helpers (download a few files at a time) ---- */
+
+    /**
+     * Resolve the content GID (a magnet/.torrent metadata download spawns a
+     * child GID via followedBy that actually holds the files).
+     */
+    private function contentGid(string $gid): string
+    {
+        try {
+            $s = $this->rpc('aria2.tellStatus', [$gid, ['followedBy']]);
+            if (! empty($s['followedBy'][0])) {
+                return $s['followedBy'][0];
+            }
+        } catch (Throwable) {
+            // ignore
+        }
+
+        return $gid;
+    }
+
+    /**
+     * List the files inside the torrent (once metadata is known).
+     *
+     * @return list<array{index:int, path:string, length:int, completedLength:int, selected:bool}>
+     */
+    public function getFiles(string $gid): array
+    {
+        if ($gid === '' || str_starts_with($gid, 'cli_') || ! $this->rpcAvailable()) {
+            return [];
+        }
+        try {
+            $files = $this->rpc('aria2.getFiles', [$this->contentGid($gid)]);
+        } catch (Throwable) {
+            return [];
+        }
+
+        $out = [];
+        foreach ((array) $files as $f) {
+            $out[] = [
+                'index' => (int) ($f['index'] ?? 0),
+                'path' => $f['path'] ?? '',
+                'length' => (int) ($f['length'] ?? 0),
+                'completedLength' => (int) ($f['completedLength'] ?? 0),
+                'selected' => ($f['selected'] ?? 'false') === 'true',
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Restrict the download to the given file indices (comma-separated, e.g.
+     * "1,2,3") and resume it. Files not selected are not downloaded.
+     */
+    public function select(string $gid, string $indices): void
+    {
+        if ($gid === '' || str_starts_with($gid, 'cli_') || ! $this->rpcAvailable()) {
+            return;
+        }
+        $cgid = $this->contentGid($gid);
+        try {
+            $this->rpc('aria2.changeOption', [$cgid, ['select-file' => $indices]]);
+        } catch (Throwable) {
+            // ignore
+        }
+        try {
+            $this->rpc('aria2.unpause', [$cgid]);
+        } catch (Throwable) {
+            // ignore — may already be active
+        }
     }
 
     /* ---- CLI fallback ---- */

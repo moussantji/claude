@@ -29,6 +29,7 @@ class TorrentDownload extends Model
         'provider',
         'torrent_url',
         'aria2_gid',
+        'aria2_files',
         'debrid_id',
         'debrid_progress',
         'status',
@@ -49,6 +50,7 @@ class TorrentDownload extends Model
             'files_done' => 'integer',
             'files_failed' => 'integer',
             'attempts' => 'integer',
+            'aria2_files' => 'array',
         ];
     }
 

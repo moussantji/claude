@@ -52,6 +52,10 @@ return new class extends Migration
             // aria2c GID while downloading (self-hosted provider).
             $table->string('aria2_gid', 64)->nullable();
 
+            // Slice mode (limited-disk VPS): ordered JSON list of the torrent's
+            // video files [{index,path,length}] used to download a few at a time.
+            $table->text('aria2_files')->nullable();
+
             // Real-Debrid torrent id (set while resolving) + its progress 0-100.
             $table->string('debrid_id', 64)->nullable();
             $table->unsignedTinyInteger('debrid_progress')->default(0);

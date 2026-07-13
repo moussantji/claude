@@ -135,6 +135,30 @@ brew install aria2
 
 ---
 
+## Disque limité (VPS 10 Go) — mode « tranche par tranche »
+
+Si ton serveur a **peu de disque** (ex. VPS gratuit 10 Go) mais que tu veux
+télécharger de **gros packs** (14, 30 Go…), active le **mode slice** : aria2 ne
+télécharge que **N épisodes à la fois** → upload → suppression → N suivants.
+Le disque ne dépasse jamais la taille d'une tranche.
+
+```env
+# 0 = tout le torrent d'un coup (défaut). 3 = idéal pour ~10 Go de disque.
+TORRENT_ARIA2_SLICE=3
+```
+
+- Nécessite le **démon aria2 RPC** (pas le mode CLI).
+- Fonctionne uniquement avec le fournisseur `aria2`.
+- Exemple : un pack de 30 Go (25 épisodes) passe sur 10 Go — le worker garde
+  ~2-3 épisodes sur le disque à un instant T, puis nettoie au fur et à mesure.
+- En cas d'échec, les fichiers partiels sont **supprimés automatiquement**
+  (le worker arrête le download aria2 pour libérer l'espace).
+
+> ⚠️ Le mode slice s'appuie sur `select-file` d'aria2 : valide-le sur ton VPS
+> avec un petit pack d'abord (ex. `TORRENT_ARIA2_SLICE=2`).
+
+---
+
 ## Option C — Ton PC / Raspberry Pi comme worker (site sur LWS cPanel)
 
 C'est **la solution 100 % gratuite sans carte bancaire** : le **site reste sur

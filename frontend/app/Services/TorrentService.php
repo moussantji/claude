@@ -43,6 +43,9 @@ class TorrentService
     /** Default per-host daily upload cap (overridable via TRANSFER_<HOST>_DAILY_LIMIT). */
     private int $defaultDailyLimit;
 
+    /** aria2 slice size: download this many video files at a time (0 = all at once). */
+    private int $aria2Slice;
+
     private PlayerTransferService $transferService;
     private RealDebridClient $debrid;
     private Aria2Client $aria2;
@@ -57,6 +60,9 @@ class TorrentService
         $this->aria2 = $aria2;
         $this->filesPerRun = max(1, (int) env('TORRENT_FILES_PER_RUN', 10));
         $this->defaultDailyLimit = max(1, (int) env('TORRENT_DEFAULT_DAILY_LIMIT', 200));
+        // 0 = download the whole torrent at once (default). >0 = "slice" mode:
+        // download N files at a time (for small-disk VPS). Only applies to aria2.
+        $this->aria2Slice = max(0, (int) env('TORRENT_ARIA2_SLICE', 0));
     }
 
     /* =====================================================================
@@ -197,6 +203,16 @@ class TorrentService
             // Done when nothing is left in a non-terminal state.
             $remaining = $job->files()->whereIn('status', ['pending', 'queued'])->count();
             if ($remaining === 0) {
+                // Slice mode: if more slices remain to download, go back to the
+                // download stage instead of finishing (the uploaded slice's
+                // local files were already deleted, freeing the disk).
+                if ($job->usesAria2() && $this->aria2Slice > 0 && is_array($job->aria2_files)
+                    && $job->files()->count() < count($job->aria2_files)) {
+                    $job->markDownloading();
+
+                    return;
+                }
+
                 $job->markDone();
                 $this->cleanupDownloadArtifacts($job);
             }
@@ -230,6 +246,12 @@ class TorrentService
             $gid = $this->aria2->add(trim($job->torrent_url));
             $job->markDownloading($gid);
 
+            // Slice mode: select only the first slice ASAP (bounded metadata
+            // wait) so aria2 doesn't grab the whole torrent onto a small disk.
+            if ($this->aria2Slice > 0) {
+                $this->initAria2Slice($job);
+            }
+
             return false; // poll on the next pass
         }
 
@@ -237,6 +259,11 @@ class TorrentService
             $job->markFailed('Téléchargement sans identifiant aria2.');
 
             return false;
+        }
+
+        // Slice mode: download a few files at a time (limited-disk VPS).
+        if ($this->aria2Slice > 0) {
+            return $this->handleAria2Slice($job);
         }
 
         $poll = $this->aria2->poll($job->aria2_gid);
@@ -336,6 +363,176 @@ class TorrentService
         $job->refreshCounters();
 
         return $created;
+    }
+
+    /* =====================================================================
+     * ARIA2 SLICE MODE (download N files at a time — small-disk VPS)
+     * =================================================================== */
+
+    /**
+     * Keep only real video files, sorted by their torrent index.
+     *
+     * @return list<array{index:int, path:string, length:int}>
+     */
+    private function extractVideos(array $files): array
+    {
+        $videos = [];
+        foreach ($files as $f) {
+            $path = $f['path'] ?? '';
+            $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+            if ($path !== '' && in_array($ext, self::VIDEO_EXTS, true) && (int) ($f['length'] ?? 0) >= self::MIN_VIDEO_SIZE) {
+                $videos[] = ['index' => (int) $f['index'], 'path' => $path, 'length' => (int) $f['length']];
+            }
+        }
+        usort($videos, fn ($a, $b) => $a['index'] <=> $b['index']);
+
+        return $videos;
+    }
+
+    /**
+     * Right after adding the torrent: wait briefly for metadata, store the
+     * video file list, and select only the first slice so aria2 doesn't
+     * download the whole torrent onto a limited disk.
+     */
+    private function initAria2Slice(TorrentDownload $job): void
+    {
+        for ($i = 0; $i < 8; $i++) {
+            $videos = $this->extractVideos($this->aria2->getFiles($job->aria2_gid));
+            if (! empty($videos)) {
+                $job->update(['aria2_files' => $videos]);
+                $slice = array_slice($videos, 0, $this->aria2Slice);
+                $this->aria2->select($job->aria2_gid, implode(',', array_column($slice, 'index')));
+
+                return;
+            }
+            sleep(1); // metadata not ready yet
+        }
+        // Not ready after ~8s — handleAria2Slice() retries on the next pass.
+    }
+
+    /**
+     * Advance a sliced aria2 download: download the current slice, then hand it
+     * to the upload stage. Returns true once the current slice is ready
+     * (job moved to 'processing'); false while still downloading.
+     */
+    private function handleAria2Slice(TorrentDownload $job): bool
+    {
+        // Surface a hard aria2 error.
+        $poll = $this->aria2->poll($job->aria2_gid);
+        if (($poll['status'] ?? '') === 'error') {
+            $job->markFailed($poll['error'] ?? 'aria2c: échec du téléchargement.');
+            $this->cleanupDownloadArtifacts($job);
+
+            return false;
+        }
+
+        // Ensure we know the ordered video-file list (from metadata).
+        $videos = is_array($job->aria2_files) ? $job->aria2_files : [];
+        if (empty($videos)) {
+            $videos = $this->extractVideos($this->aria2->getFiles($job->aria2_gid));
+            if (empty($videos)) {
+                return false; // metadata still not ready — retry
+            }
+            $job->update(['aria2_files' => $videos]);
+            $slice = array_slice($videos, 0, $this->aria2Slice);
+            $this->aria2->select($job->aria2_gid, implode(',', array_column($slice, 'index')));
+
+            return false;
+        }
+
+        $total = count($videos);
+        $done = $job->files()->count(); // video files already created (past slices)
+
+        if ($done >= $total) {
+            // All slices created — let the upload stage finish the rest.
+            $job->markProcessing();
+
+            return true;
+        }
+
+        $slice = array_slice($videos, $done, $this->aria2Slice);
+        $sliceIndices = array_column($slice, 'index');
+
+        // Live per-file status.
+        $live = [];
+        foreach ($this->aria2->getFiles($job->aria2_gid) as $f) {
+            $live[$f['index']] = $f;
+        }
+
+        // Make sure only the current slice is selected for download.
+        $needSelect = false;
+        foreach ($sliceIndices as $idx) {
+            if (empty($live[$idx]['selected'])) {
+                $needSelect = true;
+                break;
+            }
+        }
+        if ($needSelect) {
+            $this->aria2->select($job->aria2_gid, implode(',', $sliceIndices));
+
+            return false; // start downloading this slice; check next pass
+        }
+
+        // Is the whole slice downloaded?
+        $sliceTotal = 0;
+        $sliceDone = 0;
+        $allComplete = true;
+        foreach ($slice as $v) {
+            $cl = (int) ($live[$v['index']]['completedLength'] ?? 0);
+            $sliceDone += $cl;
+            $sliceTotal += $v['length'];
+            if ($cl < $v['length']) {
+                $allComplete = false;
+            }
+        }
+
+        // Rough overall progress (finished slices + current slice fraction).
+        $frac = $sliceTotal > 0 ? $sliceDone / $sliceTotal : 0;
+        $job->update(['debrid_progress' => (int) round((($done + $frac) / max(1, $total)) * 100)]);
+
+        if (! $allComplete) {
+            return false; // slice still downloading
+        }
+
+        // Slice complete → create its files and hand them to the upload stage.
+        $this->createFilesForSlice($job, $slice);
+        $job->markProcessing();
+
+        return true;
+    }
+
+    /**
+     * Create a torrent_files row (local_path) for each file of a slice.
+     */
+    private function createFilesForSlice(TorrentDownload $job, array $slice): void
+    {
+        $episodesByIndex = $job->season_id
+            ? Episode::where('season_id', $job->season_id)->get()->keyBy('index')
+            : collect();
+
+        $offset = $job->files()->count(); // absolute position of the slice's 1st file
+
+        foreach (array_values($slice) as $i => $v) {
+            $fileName = basename($v['path']);
+            $epNum = $this->parseEpisodeNumber($fileName);
+            if ($epNum === null && ! ($job->episode_id && ! $job->season_id)) {
+                $epNum = $offset + $i + 1; // positional fallback (absolute)
+            }
+            $episodeId = $this->matchEpisodeId($job, $epNum, $episodesByIndex);
+
+            TorrentFile::create([
+                'torrent_download_id' => $job->id,
+                'source_url' => null,
+                'local_path' => $v['path'],
+                'file_name' => $fileName,
+                'detected_episode' => $epNum,
+                'episode_id' => $episodeId,
+                'language' => $job->language,
+                'status' => 'pending',
+            ]);
+        }
+
+        $job->refreshCounters();
     }
 
     /* =====================================================================
