@@ -224,9 +224,16 @@ class TorrentService
                 $this->cleanupDownloadArtifacts($job);
             }
         } catch (RealDebridPermanentException $e) {
-            // Permanent RD error — mark as definitively failed, don't retry.
-            $job->update(['attempts' => 99]);
-            $job->markFailed($this->permanentErrorMessage($e));
+            // Permanent RD error — attempt automatic fallback to aria2 if the
+            // error is content-related (infringing code 35) and aria2 is
+            // available. This lets the admin's paid RD work for what it can,
+            // and aria2 picks up the rest transparently.
+            if ($e->isInfringing() && $this->canFallbackToAria2($job)) {
+                $this->fallbackToAria2($job, $e);
+            } else {
+                $job->update(['attempts' => 99]);
+                $job->markFailed($this->permanentErrorMessage($e));
+            }
             $this->cleanupDownloadArtifacts($job);
         } catch (Throwable $e) {
             $job->markFailed(mb_substr($e->getMessage(), 0, 500));
@@ -586,7 +593,13 @@ class TorrentService
                     ? $this->debrid->addMagnet($url)
                     : $this->debrid->addTorrentUrl($url);
             } catch (RealDebridPermanentException $e) {
-                // Permanent errors (infringing, IP blocked, bad token, etc.)
+                // Infringing content: try automatic fallback to aria2.
+                if ($e->isInfringing() && $this->canFallbackToAria2($job)) {
+                    $this->fallbackToAria2($job, $e);
+
+                    return false;
+                }
+                // Other permanent errors: no fallback possible.
                 $job->update(['attempts' => 99]); // prevent automatic retry
                 $job->markFailed($this->permanentErrorMessage($e));
 
@@ -1297,6 +1310,72 @@ class TorrentService
             ]),
             default => [],
         };
+    }
+
+    /* =====================================================================
+     * AUTOMATIC ARIA2 FALLBACK (when RD blocks a torrent, code 35)
+     *
+     * If aria2 is available on the server and the env allows fallback
+     * (TORRENT_ARIA2_FALLBACK=true, default), the batch is transparently
+     * re-routed to aria2 instead of failing. The admin sees the provider
+     * switch in the panel and the download proceeds without manual action.
+     * =================================================================== */
+
+    /**
+     * Whether automatic fallback from RD to aria2 is possible for this job.
+     */
+    private function canFallbackToAria2(TorrentDownload $job): bool
+    {
+        // Must be enabled (default: true if aria2 is available).
+        if (! filter_var(env('TORRENT_ARIA2_FALLBACK', true), FILTER_VALIDATE_BOOLEAN)) {
+            return false;
+        }
+
+        // Must have a torrent source (magnet or URL) to re-download.
+        if (! $job->usesTorrent()) {
+            return false;
+        }
+
+        // Must already be using RD (no point falling back to itself).
+        if ($job->provider !== 'realdebrid') {
+            return false;
+        }
+
+        // aria2 must be operational.
+        return $this->aria2->isAvailable();
+    }
+
+    /**
+     * Switch a Real-Debrid batch to aria2 after a permanent RD rejection.
+     *
+     * Resets the batch state so it restarts from scratch using the aria2
+     * pipeline. The original torrent_url is preserved.
+     */
+    private function fallbackToAria2(TorrentDownload $job, RealDebridPermanentException $e): void
+    {
+        Log::info("Batch #{$job->id}: Real-Debrid a refusé (code {$e->rdErrorCode}) — bascule automatique sur aria2.", [
+            'title' => $job->title,
+            'torrent_url' => mb_substr($job->torrent_url ?? '', 0, 80),
+        ]);
+
+        // Clean up any partial RD state.
+        if ($job->debrid_id) {
+            $this->debrid->deleteTorrent($job->debrid_id);
+        }
+
+        // Switch provider and reset to pending so the next processJob() pass
+        // picks it up via the aria2 pipeline.
+        $job->update([
+            'provider' => 'aria2',
+            'status' => 'pending',
+            'debrid_id' => null,
+            'debrid_progress' => 0,
+            'aria2_gid' => null,
+            'error' => null,
+            // Keep attempts reasonable so the batch is retried, but record
+            // that a fallback happened (visible in error history).
+            'attempts' => 0,
+        ]);
     }
 
     /* =====================================================================
