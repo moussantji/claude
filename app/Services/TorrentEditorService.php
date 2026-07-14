@@ -2,329 +2,565 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Log;
-use Symfony\Component\Process\Process;
-use Symfony\Component\Process\Exception\ProcessFailedException;
+use SandFox\Bencode\Bencode;
+use SandFox\Bencode\Bencode\Collection;
+use Illuminate\Support\Str;
 
 class TorrentEditorService
 {
-    /**
-     * Path to the torrent-edit binary (tracker/privacy operations).
-     */
-    protected string $binary;
+    // ─────────────────────────────────────────────────────────────────────
+    // RANDOM DATA POOLS
+    // ─────────────────────────────────────────────────────────────────────
 
-    /**
-     * Path to the advanced Python script (rename/metadata/hash operations).
-     */
-    protected string $advancedScript;
+    private const ADJECTIVES = ['Epic', 'Dark', 'Lost', 'Final', 'Hidden', 'Secret', 'Wild', 'Neon', 'Cosmic', 'Iron',
+        'Golden', 'Silent', 'Frozen', 'Blazing', 'Savage', 'Phantom', 'Eternal', 'Wicked'];
 
-    /**
-     * Python binary path.
-     */
-    protected string $python;
+    private const NOUNS = ['Phoenix', 'Shadow', 'Storm', 'Horizon', 'Legacy', 'Empire', 'Cipher', 'Vortex', 'Titan',
+        'Ronin', 'Serpent', 'Eclipse', 'Nebula', 'Raven', 'Inferno', 'Abyss', 'Cascade'];
 
-    public function __construct()
+    private const CLIENTS = ['qBittorrent 4.6.3', 'Transmission 4.0.5', 'Deluge 2.1.1', 'rTorrent 0.9.8',
+        'libtorrent 2.0.9', 'uTorrent 3.6.0', 'Vuze 5.7.7.0', 'BiglyBT 3.5'];
+
+    private const TRACKERS = [
+        'udp://tracker.opentrackr.org:1337/announce',
+        'udp://open.tracker.cl:1337/announce',
+        'udp://tracker.openbittorrent.com:6969/announce',
+        'udp://explodie.org:6969/announce',
+        'udp://exodus.desync.com:6969/announce',
+        'https://tracker.torrent.eu.org:443/announce',
+        'udp://tracker.torrent.eu.org:451/announce',
+        'udp://tracker.moeking.me:6969/announce',
+        'udp://tracker.dler.org:6969/announce',
+        'udp://open.stealth.si:80/announce',
+    ];
+
+    private const SOURCES = ['TorrentLeech', 'IPTorrents', 'TorrentDay', 'FileList', 'HDBits',
+        'PassThePopcorn', 'GazelleGames', 'Orpheus', 'RED', 'BHD', 'Blutopia'];
+
+    private const QUALITIES = ['720p', '1080p', '2160p', '4K', 'REMUX', 'WEB-DL', 'BluRay', 'HDRip', 'DVDRip'];
+
+    private const GROUPS = ['SPARKS', 'FGT', 'YIFY', 'RARBG', 'EVO', 'FLUX', 'NTb', 'EDITH', 'NOGRP', 'ION10'];
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CORE: LOAD / SAVE / HASH
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function loadTorrent(string $path): array
     {
-        $this->binary = config('torrent-editor.binary', '/root/.pyenv/shims/torrent-edit');
-        $this->advancedScript = config('torrent-editor.advanced_script', base_path('scripts/torrent_advanced.py'));
-        $this->python = config('torrent-editor.python', '/root/.pyenv/shims/python3');
+        $raw = file_get_contents($path);
+        return Bencode::decode($raw, dictType: Collection::ARRAY, listType: Collection::ARRAY);
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // TRACKER & PRIVACY OPERATIONS (via torrent-edit CLI)
-    // ──────────────────────────────────────────────────────────────────────
-
-    /**
-     * Edit a torrent file with the given options (torrent-edit CLI).
-     */
-    public function edit(string $torrentPath, array $options = []): array
+    public function saveTorrent(array $data, string $path, bool $backup = true): void
     {
-        $command = $this->buildCommand($torrentPath, $options);
-        return $this->runProcess($command);
+        if ($backup && file_exists($path)) {
+            copy($path, $path . '.bak');
+        }
+        file_put_contents($path, Bencode::encode($data));
     }
 
-    public function makePrivate(string $torrentPath, bool $inplace = true): array
+    public function getInfoHash(array $data): string
     {
-        return $this->edit($torrentPath, ['private' => true, 'inplace' => $inplace]);
+        $info = $data['info'] ?? [];
+        return sha1(Bencode::encode($info));
     }
 
-    public function makePublic(string $torrentPath, bool $inplace = true): array
-    {
-        return $this->edit($torrentPath, ['public' => true, 'inplace' => $inplace]);
-    }
+    // ─────────────────────────────────────────────────────────────────────
+    // TRACKER OPERATIONS
+    // ─────────────────────────────────────────────────────────────────────
 
     public function addTrackers(string $torrentPath, array $trackers): array
     {
-        return $this->edit($torrentPath, ['add' => $trackers]);
+        $data = $this->loadTorrent($torrentPath);
+
+        // Add to announce-list
+        $announceList = $data['announce-list'] ?? [];
+        foreach ($trackers as $url) {
+            $announceList[] = [$url];
+        }
+        $data['announce-list'] = $announceList;
+
+        // Set first as announce if not set
+        if (empty($data['announce'])) {
+            $data['announce'] = $trackers[0];
+        }
+
+        $this->saveTorrent($data, $torrentPath);
+        return ['success' => true, 'output' => 'Added ' . count($trackers) . ' tracker(s). Hash: ' . $this->getInfoHash($data)];
     }
 
     public function removeTrackers(string $torrentPath, array $trackers): array
     {
-        return $this->edit($torrentPath, ['remove' => $trackers]);
+        $data = $this->loadTorrent($torrentPath);
+
+        // Remove from announce
+        if (isset($data['announce']) && in_array($data['announce'], $trackers)) {
+            unset($data['announce']);
+        }
+
+        // Remove from announce-list
+        if (isset($data['announce-list'])) {
+            $data['announce-list'] = array_values(array_filter($data['announce-list'], function ($tier) use ($trackers) {
+                return !in_array($tier[0] ?? '', $trackers);
+            }));
+            if (empty($data['announce-list'])) {
+                unset($data['announce-list']);
+            }
+        }
+
+        $this->saveTorrent($data, $torrentPath);
+        return ['success' => true, 'output' => 'Removed ' . count($trackers) . ' tracker(s). Hash: ' . $this->getInfoHash($data)];
     }
 
     public function replaceTrackers(string $torrentPath, array $trackers): array
     {
-        return $this->edit($torrentPath, ['replace' => $trackers]);
+        $data = $this->loadTorrent($torrentPath);
+
+        $data['announce'] = $trackers[0];
+        $data['announce-list'] = array_map(fn($url) => [$url], $trackers);
+
+        $this->saveTorrent($data, $torrentPath);
+        return ['success' => true, 'output' => 'Replaced with ' . count($trackers) . ' tracker(s). Hash: ' . $this->getInfoHash($data)];
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // RENAME INTERNAL FILES (via advanced script)
-    // ──────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // PRIVACY FLAG
+    // ─────────────────────────────────────────────────────────────────────
 
-    /**
-     * Rename internal files/directories in the torrent.
-     *
-     * @param string $torrentPath
-     * @param array $renames Associative array ['old_name' => 'new_name', ...]
-     */
+    public function makePrivate(string $torrentPath): array
+    {
+        $data = $this->loadTorrent($torrentPath);
+        $data['info']['private'] = 1;
+        $this->saveTorrent($data, $torrentPath);
+        return ['success' => true, 'output' => 'Set private flag. New hash: ' . $this->getInfoHash($data)];
+    }
+
+    public function makePublic(string $torrentPath): array
+    {
+        $data = $this->loadTorrent($torrentPath);
+        unset($data['info']['private']);
+        $this->saveTorrent($data, $torrentPath);
+        return ['success' => true, 'output' => 'Removed private flag. New hash: ' . $this->getInfoHash($data)];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // RENAME INTERNAL FILES
+    // ─────────────────────────────────────────────────────────────────────
+
     public function renameFiles(string $torrentPath, array $renames): array
     {
-        $command = [$this->python, $this->advancedScript, 'rename', $torrentPath];
+        $data = $this->loadTorrent($torrentPath);
+        $info = &$data['info'];
+        $output = [];
 
-        foreach ($renames as $old => $new) {
-            $command[] = '--rename';
-            $command[] = "{$old}={$new}";
+        // Rename torrent name
+        $currentName = $info['name'] ?? '';
+        if (isset($renames[$currentName])) {
+            $info['name'] = $renames[$currentName];
+            $output[] = "Renamed torrent: {$currentName} -> {$renames[$currentName]}";
         }
 
-        return $this->runProcess($command);
+        // Rename individual files
+        if (isset($info['files'])) {
+            foreach ($info['files'] as &$file) {
+                $fullPath = implode('/', $file['path']);
+                if (isset($renames[$fullPath])) {
+                    $file['path'] = explode('/', $renames[$fullPath]);
+                    $output[] = "Renamed: {$fullPath} -> {$renames[$fullPath]}";
+                } else {
+                    // Check just filename
+                    $filename = end($file['path']);
+                    if (isset($renames[$filename])) {
+                        $file['path'][array_key_last($file['path'])] = $renames[$filename];
+                        $output[] = "Renamed: {$filename} -> {$renames[$filename]}";
+                    }
+                }
+            }
+        }
+
+        $this->saveTorrent($data, $torrentPath);
+        $output[] = "New hash: " . $this->getInfoHash($data);
+        return ['success' => true, 'output' => implode("\n", $output)];
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // ALTER METADATA (via advanced script)
-    // ──────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // ALTER METADATA
+    // ─────────────────────────────────────────────────────────────────────
 
-    /**
-     * Alter torrent metadata (comment, created by, creation date, source).
-     *
-     * @param string $torrentPath
-     * @param array $metadata Keys: comment, created_by, creation_date, source
-     */
     public function alterMetadata(string $torrentPath, array $metadata): array
     {
-        $command = [$this->python, $this->advancedScript, 'metadata', $torrentPath];
+        $data = $this->loadTorrent($torrentPath);
+        $output = [];
 
         if (array_key_exists('comment', $metadata)) {
-            $command[] = '--comment';
-            $command[] = $metadata['comment'];
+            if ($metadata['comment'] === '') {
+                unset($data['comment']);
+                $output[] = "Removed comment";
+            } else {
+                $data['comment'] = $metadata['comment'];
+                $output[] = "Set comment: {$metadata['comment']}";
+            }
         }
 
         if (array_key_exists('created_by', $metadata)) {
-            $command[] = '--created-by';
-            $command[] = $metadata['created_by'];
+            if ($metadata['created_by'] === '') {
+                unset($data['created by']);
+                $output[] = "Removed 'created by'";
+            } else {
+                $data['created by'] = $metadata['created_by'];
+                $output[] = "Set created by: {$metadata['created_by']}";
+            }
         }
 
         if (array_key_exists('creation_date', $metadata)) {
-            $command[] = '--creation-date';
-            $command[] = $metadata['creation_date'];
+            if ($metadata['creation_date'] === '0') {
+                unset($data['creation date']);
+                $output[] = "Removed creation date";
+            } elseif ($metadata['creation_date'] === 'now') {
+                $data['creation date'] = time();
+                $output[] = "Set creation date to now: " . time();
+            } else {
+                $data['creation date'] = (int) $metadata['creation_date'];
+                $output[] = "Set creation date: {$metadata['creation_date']}";
+            }
         }
 
         if (array_key_exists('source', $metadata)) {
-            $command[] = '--source';
-            $command[] = $metadata['source'];
+            if ($metadata['source'] === '') {
+                unset($data['info']['source']);
+                $output[] = "Removed source";
+            } else {
+                $data['info']['source'] = $metadata['source'];
+                $output[] = "Set source: {$metadata['source']}";
+            }
         }
 
-        return $this->runProcess($command);
+        $this->saveTorrent($data, $torrentPath);
+        $output[] = "Hash: " . $this->getInfoHash($data);
+        return ['success' => true, 'output' => implode("\n", $output)];
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // CHANGE HASH (via advanced script)
-    // ──────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // CHANGE HASH
+    // ─────────────────────────────────────────────────────────────────────
 
-    /**
-     * Randomize the info hash by injecting entropy into the info dict.
-     */
     public function changeHash(string $torrentPath): array
     {
-        $command = [$this->python, $this->advancedScript, 'hash', $torrentPath];
-        return $this->runProcess($command);
+        $data = $this->loadTorrent($torrentPath);
+        $oldHash = $this->getInfoHash($data);
+
+        // Inject random entropy to change the hash
+        $data['info']['entropy'] = Str::random(32);
+
+        $this->saveTorrent($data, $torrentPath);
+        $newHash = $this->getInfoHash($data);
+
+        return ['success' => true, 'output' => "Old hash: {$oldHash}\nNew hash: {$newHash}\nHash changed: " . ($oldHash !== $newHash ? 'true' : 'false')];
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // GENERATE RANDOM TORRENT (via advanced script)
-    // ──────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // GET INFO
+    // ─────────────────────────────────────────────────────────────────────
 
-    /**
-     * Generate a random .torrent file from scratch.
-     *
-     * @param string $outputPath Where to save the generated .torrent
-     * @param array $options Optional: num_files, private, source, comment, created_by
-     */
-    public function generateRandom(string $outputPath, array $options = []): array
-    {
-        $command = [$this->python, $this->advancedScript, 'generate', $outputPath];
-
-        if (!empty($options['num_files'])) {
-            $command[] = '--num-files';
-            $command[] = (string) $options['num_files'];
-        }
-
-        if (!empty($options['private'])) {
-            $command[] = '--private';
-        }
-
-        if (!empty($options['source'])) {
-            $command[] = '--source';
-            $command[] = $options['source'];
-        }
-
-        if (!empty($options['comment'])) {
-            $command[] = '--comment';
-            $command[] = $options['comment'];
-        }
-
-        if (!empty($options['created_by'])) {
-            $command[] = '--created-by';
-            $command[] = $options['created_by'];
-        }
-
-        return $this->runProcess($command);
-    }
-
-    // ──────────────────────────────────────────────────────────────────────
-    // SPLIT TORRENT (via advanced script)
-    // ──────────────────────────────────────────────────────────────────────
-
-    /**
-     * Split a multi-file torrent into smaller torrents (max size each).
-     *
-     * @param string $torrentPath Path to the .torrent file to split
-     * @param string $outputDir Directory where split torrents will be saved
-     * @param float $maxSizeGb Maximum size per torrent in GB (default 1.0)
-     * @param bool $randomize Randomize all metadata for each part
-     */
-    public function splitTorrent(string $torrentPath, string $outputDir, float $maxSizeGb = 1.0, bool $randomize = false): array
-    {
-        $command = [
-            $this->python, $this->advancedScript, 'split',
-            $torrentPath, $outputDir,
-            '--max-size', (string) $maxSizeGb,
-        ];
-
-        if ($randomize) {
-            $command[] = '--randomize';
-        }
-
-        return $this->runProcess($command);
-    }
-
-    // ──────────────────────────────────────────────────────────────────────
-    // TORRENT INFO (via advanced script)
-    // ──────────────────────────────────────────────────────────────────────
-
-    /**
-     * Get torrent file information (hash, name, trackers, files...).
-     */
     public function getInfo(string $torrentPath): array
     {
-        $command = [$this->python, $this->advancedScript, 'info', $torrentPath];
-        return $this->runProcess($command);
+        $data = $this->loadTorrent($torrentPath);
+        $info = $data['info'] ?? [];
+        $output = [];
+
+        $output[] = "Info hash: " . $this->getInfoHash($data);
+        $output[] = "Name: " . ($info['name'] ?? 'N/A');
+
+        if (isset($data['announce'])) $output[] = "Announce: " . $data['announce'];
+        if (isset($data['comment'])) $output[] = "Comment: " . $data['comment'];
+        if (isset($data['created by'])) $output[] = "Created by: " . $data['created by'];
+        if (isset($data['creation date'])) $output[] = "Creation date: " . $data['creation date'];
+        if (isset($info['source'])) $output[] = "Source: " . $info['source'];
+        if (isset($info['private'])) $output[] = "Private: " . $info['private'];
+
+        if (isset($info['files'])) {
+            $output[] = "\nFiles (" . count($info['files']) . "):";
+            foreach ($info['files'] as $f) {
+                $path = implode('/', $f['path']);
+                $output[] = "  {$path} ({$f['length']} bytes)";
+            }
+        } else {
+            $output[] = "\nSingle file: " . ($info['name'] ?? '') . " (" . ($info['length'] ?? 0) . " bytes)";
+        }
+
+        return ['success' => true, 'output' => implode("\n", $output)];
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // INTERNAL HELPERS
-    // ──────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // GENERATE RANDOM TORRENT
+    // ─────────────────────────────────────────────────────────────────────
 
-    /**
-     * Run a process and return structured result.
-     */
-    protected function runProcess(array $command): array
+    public function generateRandom(string $outputPath, array $options = []): array
     {
-        Log::info('TorrentEditor: Executing', ['command' => implode(' ', $command)]);
+        $torrentName = $this->randomReleaseName();
+        $numFiles = $options['num_files'] ?? rand(1, 8);
+        $pieceLength = [256 * 1024, 512 * 1024, 1024 * 1024, 2 * 1024 * 1024][rand(0, 3)];
 
-        $process = new Process($command);
-        $process->setTimeout(60);
-        $process->setEnv([
-            'PATH' => '/root/.pyenv/shims:/root/.pyenv/bin:/usr/local/bin:/usr/bin:/bin',
-            'PYENV_ROOT' => '/root/.pyenv',
-            'HOME' => '/root',
-        ]);
+        $extensions = ['.mkv', '.mp4', '.avi', '.iso'];
+        $subExtensions = ['.srt', '.ass', '.nfo', '.txt', '.jpg', '.png'];
 
-        try {
-            $process->run();
-            $output = $process->getOutput() . $process->getErrorOutput();
+        $files = [];
+        $totalLength = 0;
 
-            if ($process->isSuccessful()) {
-                return [
-                    'success' => true,
-                    'output' => trim($output),
-                    'backup' => $this->findBackup($command[1] ?? ($command[2] ?? '')),
-                ];
+        // Main file
+        $mainExt = $extensions[rand(0, count($extensions) - 1)];
+        $mainSize = rand(500_000_000, 15_000_000_000);
+        $files[] = ['length' => $mainSize, 'path' => ["{$torrentName}{$mainExt}"]];
+        $totalLength += $mainSize;
+
+        // Additional files
+        for ($i = 0; $i < $numFiles - 1; $i++) {
+            $subExt = $subExtensions[rand(0, count($subExtensions) - 1)];
+            $subSize = rand(100, 5_000_000);
+            if (rand(0, 1)) {
+                $subfolder = ['Subs', 'Sample', 'Extras', 'Covers', 'Docs'][rand(0, 4)];
+                $files[] = ['length' => $subSize, 'path' => [$subfolder, "{$torrentName}{$subExt}"]];
+            } else {
+                $files[] = ['length' => $subSize, 'path' => ["{$torrentName}{$subExt}"]];
             }
+            $totalLength += $subSize;
+        }
 
-            Log::warning('TorrentEditor: Command failed', [
-                'exit_code' => $process->getExitCode(),
-                'output' => $output,
-            ]);
+        $numPieces = (int) ceil($totalLength / $pieceLength);
+        $pieces = random_bytes($numPieces * 20);
 
-            return [
-                'success' => false,
-                'output' => trim($output) ?: 'Command failed with exit code ' . $process->getExitCode(),
-                'backup' => null,
+        $info = [
+            'name' => $torrentName,
+            'piece length' => $pieceLength,
+            'pieces' => $pieces,
+            'files' => $files,
+        ];
+
+        if (($options['private'] ?? false) || rand(0, 10) > 6) {
+            $info['private'] = 1;
+        }
+        if (!empty($options['source'])) {
+            $info['source'] = $options['source'];
+        } elseif (rand(0, 1)) {
+            $info['source'] = self::SOURCES[rand(0, count(self::SOURCES) - 1)];
+        }
+
+        $numTrackers = rand(1, 5);
+        $selectedTrackers = (array) array_rand(array_flip(self::TRACKERS), $numTrackers);
+
+        $torrentData = [
+            'announce' => $selectedTrackers[0],
+            'announce-list' => array_map(fn($t) => [$t], $selectedTrackers),
+            'comment' => $options['comment'] ?? "Generated - {$torrentName}",
+            'created by' => $options['created_by'] ?? self::CLIENTS[rand(0, count(self::CLIENTS) - 1)],
+            'creation date' => time(),
+            'info' => $info,
+        ];
+
+        file_put_contents($outputPath, Bencode::encode($torrentData));
+
+        $hash = sha1(Bencode::encode($info));
+        $output = "Generated: {$outputPath}\nName: {$torrentName}\nInfo hash: {$hash}\nFiles: " . count($files) .
+            "\nTotal size: {$totalLength} bytes (" . round($totalLength / (1024 ** 3), 2) . " GB)" .
+            "\nPrivate: " . (isset($info['private']) ? 'yes' : 'no') .
+            "\nCreated by: " . $torrentData['created by'];
+
+        return ['success' => true, 'output' => $output];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SPLIT TORRENT (with auto-randomization)
+    // ─────────────────────────────────────────────────────────────────────
+
+    public function splitTorrent(string $torrentPath, string $outputDir, float $maxSizeGb = 1.0, bool $randomize = true): array
+    {
+        $data = $this->loadTorrent($torrentPath);
+        $info = $data['info'] ?? [];
+
+        $torrentName = $info['name'] ?? 'unknown';
+        $pieceLength = $info['piece length'] ?? 524288;
+        $allPieces = $info['pieces'] ?? '';
+        $maxSize = $maxSizeGb * 1024 * 1024 * 1024;
+
+        // Single-file check
+        if (!isset($info['files'])) {
+            $fileSize = $info['length'] ?? 0;
+            if ($fileSize <= $maxSize) {
+                return ['success' => true, 'output' => "Single file ({$fileSize} bytes) already under limit."];
+            }
+            return ['success' => false, 'output' => "Cannot split a single-file torrent."];
+        }
+
+        // Build file info with offsets
+        $fileInfos = [];
+        $currentOffset = 0;
+        foreach ($info['files'] as $file) {
+            $path = implode('/', $file['path']);
+            $size = $file['length'];
+            $fileInfos[] = [
+                'entry' => $file,
+                'path' => $path,
+                'size' => $size,
+                'offset' => $currentOffset,
             ];
-        } catch (ProcessFailedException $e) {
-            Log::error('TorrentEditor: Process exception', ['error' => $e->getMessage()]);
-            return [
-                'success' => false,
-                'output' => $e->getMessage(),
-                'backup' => null,
+            $currentOffset += $size;
+        }
+        $totalSize = $currentOffset;
+
+        // Group files into buckets
+        $buckets = [];
+        $currentBucket = [];
+        $currentBucketSize = 0;
+
+        foreach ($fileInfos as $fi) {
+            if ($fi['size'] > $maxSize) {
+                if ($currentBucket) {
+                    $buckets[] = $currentBucket;
+                    $currentBucket = [];
+                    $currentBucketSize = 0;
+                }
+                $buckets[] = [$fi];
+            } elseif ($currentBucketSize + $fi['size'] > $maxSize) {
+                $buckets[] = $currentBucket;
+                $currentBucket = [$fi];
+                $currentBucketSize = $fi['size'];
+            } else {
+                $currentBucket[] = $fi;
+                $currentBucketSize += $fi['size'];
+            }
+        }
+        if ($currentBucket) {
+            $buckets[] = $currentBucket;
+        }
+
+        if (count($buckets) <= 1) {
+            return ['success' => true, 'output' => "All files fit within {$maxSizeGb} GB. No split needed."];
+        }
+
+        if (!is_dir($outputDir)) {
+            mkdir($outputDir, 0755, true);
+        }
+
+        $output = [];
+        $output[] = "Original: {$torrentName}";
+        $output[] = "Total size: " . round($totalSize / (1024 ** 3), 2) . " GB";
+        $output[] = "Total files: " . count($fileInfos);
+        $output[] = "Splitting into " . count($buckets) . " parts (max {$maxSizeGb} GB each)";
+        if ($randomize) {
+            $output[] = "Randomization: ENABLED";
+        }
+        $output[] = "Output: {$outputDir}";
+        $output[] = "";
+
+        $generatedFiles = [];
+
+        foreach ($buckets as $i => $bucket) {
+            $partNum = $i + 1;
+            $bucketSize = array_sum(array_column($bucket, 'size'));
+
+            $partName = $randomize ? $this->randomReleaseName() : "{$torrentName}.part{$partNum}";
+
+            // Extract pieces for this bucket
+            $bucketStart = $bucket[0]['offset'];
+            $bucketEnd = $bucket[count($bucket) - 1]['offset'] + $bucket[count($bucket) - 1]['size'];
+            $firstPiece = (int) floor($bucketStart / $pieceLength);
+            $lastPiece = (int) floor(($bucketEnd - 1) / $pieceLength);
+            $extractedPieces = substr($allPieces, $firstPiece * 20, ($lastPiece - $firstPiece + 1) * 20);
+
+            // Build file list
+            $newFiles = [];
+            foreach ($bucket as $fi) {
+                if ($randomize) {
+                    $ext = '.' . pathinfo($fi['path'], PATHINFO_EXTENSION);
+                    $newFilename = $this->randomReleaseName() . $ext;
+                    $newPath = count($fi['entry']['path']) > 1
+                        ? [['Season' . rand(1, 8), 'Extras', 'Subs', 'Bonus', 'Specials'][rand(0, 4)], $newFilename]
+                        : [$newFilename];
+                    $newFiles[] = ['length' => $fi['entry']['length'], 'path' => $newPath];
+                } else {
+                    $newFiles[] = $fi['entry'];
+                }
+            }
+
+            // Build info dict
+            $newInfo = [
+                'files' => $newFiles,
+                'name' => $partName,
+                'piece length' => $pieceLength,
+                'pieces' => $extractedPieces,
             ];
+
+            if ($randomize) {
+                $newInfo['entropy'] = Str::random(32);
+                $newInfo['source'] = self::SOURCES[rand(0, count(self::SOURCES) - 1)];
+                if (rand(0, 10) > 4) {
+                    $newInfo['private'] = 1;
+                }
+            } else {
+                if (isset($info['source'])) $newInfo['source'] = $info['source'];
+                if (isset($info['private'])) $newInfo['private'] = $info['private'];
+            }
+
+            // Build torrent dict
+            $newTorrent = ['info' => $newInfo];
+
+            if ($randomize) {
+                $numTrackers = rand(1, 4);
+                $selected = array_slice(self::TRACKERS, 0, $numTrackers);
+                shuffle($selected);
+                $newTorrent['announce'] = $selected[0];
+                $newTorrent['announce-list'] = array_map(fn($t) => [$t], $selected);
+                $newTorrent['comment'] = $this->randomReleaseName() . ' - uploaded';
+                $newTorrent['created by'] = self::CLIENTS[rand(0, count(self::CLIENTS) - 1)];
+                $newTorrent['creation date'] = time() - rand(0, 86400 * 60);
+            } else {
+                if (isset($data['announce'])) $newTorrent['announce'] = $data['announce'];
+                if (isset($data['announce-list'])) $newTorrent['announce-list'] = $data['announce-list'];
+                if (isset($data['comment'])) $newTorrent['comment'] = $data['comment'];
+                if (isset($data['created by'])) $newTorrent['created by'] = $data['created by'];
+                $newTorrent['creation date'] = time();
+            }
+
+            // Save
+            $outputFilename = "{$partName}.torrent";
+            $outputPath = "{$outputDir}/{$outputFilename}";
+            file_put_contents($outputPath, Bencode::encode($newTorrent));
+
+            $newHash = sha1(Bencode::encode($newInfo));
+
+            $output[] = "  Part {$partNum}: {$outputFilename}";
+            $output[] = "    Hash: {$newHash}";
+            $output[] = "    Name: {$partName}";
+            $output[] = "    Size: " . round($bucketSize / (1024 ** 3), 2) . " GB";
+            $output[] = "    Files (" . count($bucket) . "):";
+            foreach ($bucket as $idx => $fi) {
+                if ($randomize) {
+                    $newPath = implode('/', $newFiles[$idx]['path']);
+                    $output[] = "      {$fi['path']}  ->  {$newPath}";
+                } else {
+                    $output[] = "      - {$fi['path']} (" . round($fi['size'] / (1024 ** 2), 1) . " MB)";
+                }
+            }
+            $output[] = "";
+
+            $generatedFiles[] = $outputPath;
         }
+
+        $output[] = "Done! " . count($generatedFiles) . " torrents generated.";
+        return ['success' => true, 'output' => implode("\n", $output)];
     }
 
-    /**
-     * Build the command array for the torrent-edit CLI.
-     */
-    protected function buildCommand(string $torrentPath, array $options): array
+    // ─────────────────────────────────────────────────────────────────────
+    // HELPERS
+    // ─────────────────────────────────────────────────────────────────────
+
+    private function randomReleaseName(): string
     {
-        $command = [$this->binary, $torrentPath];
-
-        if (!empty($options['private'])) {
-            $command[] = '--private';
-        }
-
-        if (!empty($options['public'])) {
-            $command[] = '--public';
-        }
-
-        if (!empty($options['inplace'])) {
-            $command[] = '--inplace';
-        }
-
-        if (!empty($options['add']) && is_array($options['add'])) {
-            $command[] = '--add';
-            foreach ($options['add'] as $tracker) {
-                $command[] = $tracker;
-            }
-        }
-
-        if (!empty($options['remove']) && is_array($options['remove'])) {
-            $command[] = '--remove';
-            foreach ($options['remove'] as $tracker) {
-                $command[] = $tracker;
-            }
-        }
-
-        if (!empty($options['replace']) && is_array($options['replace'])) {
-            $command[] = '--replace';
-            foreach ($options['replace'] as $tracker) {
-                $command[] = $tracker;
-            }
-        }
-
-        if (!empty($options['verbose'])) {
-            $command[] = '-v';
-        }
-
-        return $command;
-    }
-
-    /**
-     * Check if a .bak backup file was created.
-     */
-    protected function findBackup(string $torrentPath): ?string
-    {
-        $backupPath = $torrentPath . '.bak';
-        return file_exists($backupPath) ? $backupPath : null;
+        $adj = self::ADJECTIVES[rand(0, count(self::ADJECTIVES) - 1)];
+        $noun = self::NOUNS[rand(0, count(self::NOUNS) - 1)];
+        $year = rand(2019, 2026);
+        $quality = self::QUALITIES[rand(0, count(self::QUALITIES) - 1)];
+        $group = self::GROUPS[rand(0, count(self::GROUPS) - 1)];
+        return "{$adj}.{$noun}.{$year}.{$quality}-{$group}";
     }
 }

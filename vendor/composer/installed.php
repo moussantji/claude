@@ -3,13 +3,31 @@
         'name' => 'laravel/laravel',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => '1b33205ab4a42dd6f2e8dd33d7786fce20c8e8b6',
+        'reference' => 'd5c32f8453cfe34a065791180ff145cf9bbdaf07',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
         'dev' => true,
     ),
     'versions' => array(
+        'arokettu/bencode' => array(
+            'pretty_version' => '3.1.1',
+            'version' => '3.1.1.0',
+            'reference' => 'e49ee6ed23aaabc11f9d2d2e186e3de397c7b7d8',
+            'type' => 'library',
+            'install_path' => __DIR__ . '/../arokettu/bencode',
+            'aliases' => array(),
+            'dev_requirement' => false,
+        ),
+        'arokettu/is-resource' => array(
+            'pretty_version' => '1.0.5',
+            'version' => '1.0.5.0',
+            'reference' => '17d3e955140b23c53c4d47d779f1e443d492ffad',
+            'type' => 'library',
+            'install_path' => __DIR__ . '/../arokettu/is-resource',
+            'aliases' => array(),
+            'dev_requirement' => false,
+        ),
         'brick/math' => array(
             'pretty_version' => '0.18.0',
             'version' => '0.18.0.0',
@@ -424,7 +442,7 @@
         'laravel/laravel' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => '1b33205ab4a42dd6f2e8dd33d7786fce20c8e8b6',
+            'reference' => 'd5c32f8453cfe34a065791180ff145cf9bbdaf07',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
@@ -877,6 +895,12 @@
             'dev_requirement' => false,
             'replaced' => array(
                 0 => '4.9.3',
+            ),
+        ),
+        'sandfoxme/bencode' => array(
+            'dev_requirement' => false,
+            'provided' => array(
+                0 => '3.1.1',
             ),
         ),
         'sebastian/cli-parser' => array(
