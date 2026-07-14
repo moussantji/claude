@@ -139,13 +139,23 @@ class TorrentController extends Controller
         clearstatcache(true, $filePath);
         $size = filesize($filePath);
 
-        // Bulletproof download: exact Content-Length + no compression/transform
-        // so proxies (nginx/apache/gzip) cannot truncate or corrupt the binary.
-        return response()->download($filePath, $name, [
+        // Bulletproof RAW binary streaming. Clears ALL output buffers first so no
+        // stray whitespace/BOM/framework transformation can corrupt the binary.
+        return response()->stream(function () use ($filePath) {
+            // Remove any active output buffering (prevents corruption/injection)
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+            $fp = fopen($filePath, 'rb');
+            fpassthru($fp);
+            fclose($fp);
+        }, 200, [
             'Content-Type' => $mimeType,
             'Content-Length' => (string) $size,
+            'Content-Disposition' => 'attachment; filename="' . $name . '"',
             'Content-Transfer-Encoding' => 'binary',
             'Content-Encoding' => 'identity',
+            'Accept-Ranges' => 'none',
             'Cache-Control' => 'no-store, no-transform',
             'X-Accel-Buffering' => 'no',
         ]);
