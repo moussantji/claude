@@ -141,6 +141,47 @@ class TorrentEditorService
     }
 
     // ──────────────────────────────────────────────────────────────────────
+    // GENERATE RANDOM TORRENT (via advanced script)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Generate a random .torrent file from scratch.
+     *
+     * @param string $outputPath Where to save the generated .torrent
+     * @param array $options Optional: num_files, private, source, comment, created_by
+     */
+    public function generateRandom(string $outputPath, array $options = []): array
+    {
+        $command = [$this->python, $this->advancedScript, 'generate', $outputPath];
+
+        if (!empty($options['num_files'])) {
+            $command[] = '--num-files';
+            $command[] = (string) $options['num_files'];
+        }
+
+        if (!empty($options['private'])) {
+            $command[] = '--private';
+        }
+
+        if (!empty($options['source'])) {
+            $command[] = '--source';
+            $command[] = $options['source'];
+        }
+
+        if (!empty($options['comment'])) {
+            $command[] = '--comment';
+            $command[] = $options['comment'];
+        }
+
+        if (!empty($options['created_by'])) {
+            $command[] = '--created-by';
+            $command[] = $options['created_by'];
+        }
+
+        return $this->runProcess($command);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
     // TORRENT INFO (via advanced script)
     // ──────────────────────────────────────────────────────────────────────
 

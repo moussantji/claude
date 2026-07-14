@@ -241,6 +241,125 @@ def cmd_info(args):
         print(f"\nSingle file: {decode(info.get('name', info.get(b'name', b'')))} ({length} bytes)")
 
 
+def cmd_generate(args):
+    """Generate a random .torrent file from scratch."""
+
+    # Random name generation helpers
+    adjectives = ['Epic', 'Dark', 'Lost', 'Final', 'Hidden', 'Secret', 'Wild', 'Neon', 'Cosmic', 'Iron',
+                  'Golden', 'Silent', 'Frozen', 'Blazing', 'Savage', 'Phantom', 'Eternal', 'Wicked']
+    nouns = ['Phoenix', 'Shadow', 'Storm', 'Horizon', 'Legacy', 'Empire', 'Cipher', 'Vortex', 'Titan',
+             'Ronin', 'Serpent', 'Eclipse', 'Nebula', 'Raven', 'Inferno', 'Abyss', 'Cascade']
+    extensions = ['.mkv', '.mp4', '.avi', '.iso', '.zip', '.tar.gz', '.pdf', '.flac', '.mp3']
+    sub_extensions = ['.srt', '.ass', '.nfo', '.txt', '.jpg', '.png']
+    clients = ['qBittorrent 4.6.3', 'Transmission 4.0.5', 'Deluge 2.1.1', 'rTorrent 0.9.8',
+               'libtorrent 2.0.9', 'uTorrent 3.6.0', 'Vuze 5.7.7.0', 'BiglyBT 3.5']
+    trackers_pool = [
+        'udp://tracker.opentrackr.org:1337/announce',
+        'udp://open.tracker.cl:1337/announce',
+        'udp://tracker.openbittorrent.com:6969/announce',
+        'udp://explodie.org:6969/announce',
+        'udp://exodus.desync.com:6969/announce',
+        'https://tracker.torrent.eu.org:443/announce',
+        'udp://tracker.torrent.eu.org:451/announce',
+        'udp://tracker.moeking.me:6969/announce',
+        'udp://tracker.dler.org:6969/announce',
+        'udp://open.stealth.si:80/announce',
+    ]
+    sources_pool = ['TorrentLeech', 'IPTorrents', 'TorrentDay', 'FileList', 'HDBits',
+                    'PassThePopcorn', 'Empornium', 'GazelleGames', 'Orpheus', 'RED']
+    qualities = ['720p', '1080p', '2160p', '4K', 'REMUX', 'WEB-DL', 'BluRay', 'HDRip', 'DVDRip']
+    groups = ['SPARKS', 'FGT', 'YIFY', 'RARBG', 'EVO', 'FLUX', 'NTb', 'EDITH', 'NOGRP', 'ION10']
+
+    # Generate random torrent name
+    adj = random.choice(adjectives)
+    noun = random.choice(nouns)
+    quality = random.choice(qualities)
+    group = random.choice(groups)
+    year = random.randint(2018, 2026)
+    torrent_name = f"{adj}.{noun}.{year}.{quality}-{group}"
+
+    # Generate random files
+    num_files = args.num_files if args.num_files else random.randint(1, 8)
+    piece_length = random.choice([256 * 1024, 512 * 1024, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024])
+
+    files = []
+    total_length = 0
+
+    # Main file
+    main_ext = random.choice(extensions[:4])  # video/iso
+    main_size = random.randint(500_000_000, 15_000_000_000)
+    files.append({'length': main_size, 'path': [f"{torrent_name}{main_ext}"]})
+    total_length += main_size
+
+    # Additional files
+    for i in range(num_files - 1):
+        sub_ext = random.choice(sub_extensions)
+        sub_size = random.randint(100, 5_000_000)
+        # Some files in subdirectories
+        if random.random() > 0.5:
+            subfolder = random.choice(['Subs', 'Sample', 'Extras', 'Covers', 'Docs'])
+            filename = f"{torrent_name}{sub_ext}"
+            files.append({'length': sub_size, 'path': [subfolder, filename]})
+        else:
+            filename = f"{torrent_name}{sub_ext}"
+            files.append({'length': sub_size, 'path': [filename]})
+        total_length += sub_size
+
+    # Calculate number of pieces needed
+    num_pieces = (total_length + piece_length - 1) // piece_length
+    # Generate random piece hashes (20 bytes each = SHA1)
+    pieces = os.urandom(num_pieces * 20)
+
+    # Build info dict
+    info = {
+        'name': torrent_name,
+        'piece length': piece_length,
+        'pieces': pieces,
+        'files': files,
+    }
+
+    # Optionally add private flag
+    if args.private or random.random() > 0.6:
+        info['private'] = 1
+
+    # Optionally add source
+    if args.source:
+        info['source'] = args.source
+    elif random.random() > 0.5:
+        info['source'] = random.choice(sources_pool)
+
+    # Build torrent dict
+    num_trackers = random.randint(1, 5)
+    selected_trackers = random.sample(trackers_pool, min(num_trackers, len(trackers_pool)))
+
+    torrent_data = {
+        'announce': selected_trackers[0],
+        'announce-list': [[t] for t in selected_trackers],
+        'comment': args.comment if args.comment else f"Generated randomly - {torrent_name}",
+        'created by': args.created_by if args.created_by else random.choice(clients),
+        'creation date': int(time.time()),
+        'info': info,
+    }
+
+    # Save
+    output_path = args.output
+    with open(output_path, 'wb') as f:
+        f.write(bcoding.bencode(torrent_data))
+
+    info_hash = hashlib.sha1(bcoding.bencode(info)).hexdigest()
+    print(f"Generated: {output_path}")
+    print(f"Name: {torrent_name}")
+    print(f"Info hash: {info_hash}")
+    print(f"Files: {len(files)}")
+    print(f"Total size: {total_length} bytes ({total_length / (1024**3):.2f} GB)")
+    print(f"Pieces: {num_pieces} x {piece_length // 1024} KB")
+    print(f"Trackers: {len(selected_trackers)}")
+    print(f"Private: {'yes' if info.get('private') else 'no'}")
+    if info.get('source'):
+        print(f"Source: {info['source']}")
+    print(f"Created by: {torrent_data['created by']}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Advanced torrent editor')
     parser.add_argument('--no-backup', action='store_true', help='Skip creating .bak backup')
@@ -269,6 +388,15 @@ def main():
     info_parser = subparsers.add_parser('info', help='Display torrent information')
     info_parser.add_argument('torrent', help='Path to .torrent file')
 
+    # generate command
+    gen_parser = subparsers.add_parser('generate', help='Generate a random .torrent file')
+    gen_parser.add_argument('output', help='Output path for the generated .torrent file')
+    gen_parser.add_argument('--num-files', type=int, default=None, help='Number of files (random if not set)')
+    gen_parser.add_argument('--private', action='store_true', help='Force private flag')
+    gen_parser.add_argument('--source', '-s', default=None, help='Set source field')
+    gen_parser.add_argument('--comment', '-c', default=None, help='Set comment')
+    gen_parser.add_argument('--created-by', default=None, help='Set "created by" field')
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -283,6 +411,8 @@ def main():
         cmd_change_hash(args)
     elif args.command == 'info':
         cmd_info(args)
+    elif args.command == 'generate':
+        cmd_generate(args)
 
 
 if __name__ == '__main__':

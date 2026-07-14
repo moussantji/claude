@@ -109,6 +109,58 @@ class TorrentController extends Controller
     }
 
     /**
+     * Show the generate form.
+     */
+    public function generateForm()
+    {
+        return view('torrent.generate');
+    }
+
+    /**
+     * Generate a random torrent and offer download.
+     */
+    public function generate(Request $request)
+    {
+        $request->validate([
+            'num_files' => 'nullable|integer|min:1|max:50',
+            'private' => 'nullable|boolean',
+            'source' => 'nullable|string|max:200',
+            'comment' => 'nullable|string|max:500',
+            'created_by' => 'nullable|string|max:200',
+        ]);
+
+        $storagePath = config('torrent-editor.upload_path');
+        if (!is_dir($storagePath)) {
+            mkdir($storagePath, 0755, true);
+        }
+
+        $filename = 'generated_' . uniqid() . '.torrent';
+        $outputPath = $storagePath . '/' . $filename;
+
+        $options = array_filter([
+            'num_files' => $request->input('num_files'),
+            'private' => $request->boolean('private'),
+            'source' => $request->input('source'),
+            'comment' => $request->input('comment'),
+            'created_by' => $request->input('created_by'),
+        ]);
+
+        $result = $this->editor->generateRandom($outputPath, $options);
+
+        if ($result['success']) {
+            session(['edited_torrent' => $outputPath, 'edited_torrent_name' => $filename]);
+
+            return redirect()->route('torrent.result')->with([
+                'success' => true,
+                'output' => $result['output'],
+                'filename' => $filename,
+            ]);
+        }
+
+        return back()->withErrors(['generate' => 'Generation failed: ' . $result['output']])->withInput();
+    }
+
+    /**
      * Handle tracker operations.
      */
     protected function handleTrackers(string $filePath, Request $request, string $mode): array
