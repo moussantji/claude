@@ -9,6 +9,7 @@ use App\Models\TorrentFile;
 use App\Models\TorrentFileTarget;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -222,6 +223,11 @@ class TorrentService
                 $job->markDone();
                 $this->cleanupDownloadArtifacts($job);
             }
+        } catch (RealDebridPermanentException $e) {
+            // Permanent RD error — mark as definitively failed, don't retry.
+            $job->update(['attempts' => 99]);
+            $job->markFailed($this->permanentErrorMessage($e));
+            $this->cleanupDownloadArtifacts($job);
         } catch (Throwable $e) {
             $job->markFailed(mb_substr($e->getMessage(), 0, 500));
             // Free the disk if an aria2 download was partially written.
@@ -561,21 +567,34 @@ class TorrentService
 
         // Kick off: register the magnet/.torrent with Real-Debrid.
         if ($job->isPending()) {
+            // Check active torrent limit before submitting a new one.
+            try {
+                $active = $this->debrid->activeTorrentCount();
+                if ($active['limit'] > 0 && $active['nb'] >= $active['limit']) {
+                    // Don't fail — just skip this pass. The slot will free up.
+                    Log::info("Real-Debrid: {$active['nb']}/{$active['limit']} torrents actifs — batch #{$job->id} attend un slot.");
+
+                    return false;
+                }
+            } catch (Throwable) {
+                // activeCount endpoint may fail — proceed anyway.
+            }
+
             try {
                 $url = trim($job->torrent_url);
                 $id = str_starts_with(strtolower($url), 'magnet:')
                     ? $this->debrid->addMagnet($url)
                     : $this->debrid->addTorrentUrl($url);
-            } catch (\RuntimeException $e) {
-                // HTTP 451 = content blocked by Real-Debrid (DMCA / infringing).
-                // No point retrying: RD will always refuse this hash.
-                if (str_contains($e->getMessage(), '451') || str_contains($e->getMessage(), 'infringing')) {
-                    $job->update(['attempts' => 99]); // prevent automatic retry
-                    $job->markFailed('Contenu bloqué par Real-Debrid (signalement ayant-droit). Essayez un autre magnet/source pour cet anime.');
+            } catch (RealDebridPermanentException $e) {
+                // Permanent errors (infringing, IP blocked, bad token, etc.)
+                $job->update(['attempts' => 99]); // prevent automatic retry
+                $job->markFailed($this->permanentErrorMessage($e));
 
-                    return false;
-                }
-                throw $e; // other errors: bubble up normally
+                return false;
+            } catch (\RuntimeException $e) {
+                // Transient errors that exhausted retries — let the batch
+                // retry from the top on the next pass.
+                throw $e;
             }
             $job->markResolving($id);
 
@@ -588,7 +607,16 @@ class TorrentService
             return false;
         }
 
-        $info = $this->debrid->info($job->debrid_id);
+        // Poll torrent status.
+        try {
+            $info = $this->debrid->info($job->debrid_id);
+        } catch (RealDebridPermanentException $e) {
+            $job->update(['attempts' => 99]);
+            $job->markFailed($this->permanentErrorMessage($e));
+
+            return false;
+        }
+
         $status = $info['status'] ?? 'error';
         $progress = (int) ($info['progress'] ?? 0);
         if ($progress !== $job->debrid_progress) {
@@ -599,11 +627,37 @@ class TorrentService
             case 'waiting_files_selection':
                 // Keep only the video files (skip samples/nfo/images).
                 $ids = $this->videoFileIds($info['files'] ?? []);
-                $this->debrid->selectFiles($job->debrid_id, $ids !== '' ? $ids : 'all');
+                try {
+                    $this->debrid->selectFiles($job->debrid_id, $ids !== '' ? $ids : 'all');
+                } catch (RealDebridPermanentException $e) {
+                    $job->update(['attempts' => 99]);
+                    $job->markFailed($this->permanentErrorMessage($e));
+                    $this->debrid->deleteTorrent($job->debrid_id);
+
+                    return false;
+                }
 
                 return false;
 
             case 'magnet_conversion':
+                // Detect stuck magnet conversion (no seeders). If stuck for
+                // too long, fail gracefully instead of polling forever.
+                $stuckMinutes = (int) env('REALDEBRID_MAGNET_TIMEOUT_MINUTES', 30);
+                if ($stuckMinutes > 0 && $job->updated_at) {
+                    $elapsed = Carbon::now()->diffInMinutes($job->updated_at);
+                    if ($elapsed >= $stuckMinutes && $progress === 0) {
+                        $job->markFailed(
+                            "Real-Debrid: conversion du magnet bloquée depuis {$elapsed} min (pas de seeders?). "
+                            . 'Essayez un autre torrent avec plus de sources.'
+                        );
+                        $this->debrid->deleteTorrent($job->debrid_id);
+
+                        return false;
+                    }
+                }
+
+                return false; // still converting — wait.
+
             case 'queued':
             case 'downloading':
             case 'compressing':
@@ -618,8 +672,35 @@ class TorrentService
 
                 return true;
 
-            default: // magnet_error, error, virus, dead
-                $job->markFailed("Real-Debrid: statut '{$status}'.");
+            case 'dead':
+                $job->markFailed(
+                    'Real-Debrid: torrent mort (aucun seeder disponible). '
+                    . 'Essayez un magnet mieux seedé ou attendez que les sources reviennent.'
+                );
+                $this->debrid->deleteTorrent($job->debrid_id);
+
+                return false;
+
+            case 'virus':
+                $job->update(['attempts' => 99]); // no point retrying
+                $job->markFailed('Real-Debrid: fichier signalé comme virus/malware par le scan.');
+                $this->debrid->deleteTorrent($job->debrid_id);
+
+                return false;
+
+            case 'magnet_error':
+                $job->markFailed(
+                    'Real-Debrid: erreur de magnet (lien invalide ou expiré). '
+                    . 'Vérifiez le hash/magnet et réessayez.'
+                );
+                $this->debrid->deleteTorrent($job->debrid_id);
+
+                return false;
+
+            default: // error, or unknown
+                $errorDetail = $info['error'] ?? $status;
+                $job->markFailed("Real-Debrid: statut '{$status}'" . ($errorDetail !== $status ? " — {$errorDetail}" : '.'));
+                $this->debrid->deleteTorrent($job->debrid_id);
 
                 return false;
         }
@@ -647,6 +728,8 @@ class TorrentService
      * link and create a torrent_files row (mapped to an episode).
      *
      * RD returns links[] in the same order as the SELECTED files[].
+     * Handles per-file errors gracefully: infringing files are marked as
+     * permanently failed, transient errors are retryable.
      */
     private function createFilesFromDebrid(TorrentDownload $job, array $info): void
     {
@@ -677,14 +760,27 @@ class TorrentService
             // Unrestrict the RD hoster link into a direct URL we can send.
             $directUrl = null;
             $error = null;
+            $status = 'pending';
             if ($rdLink) {
                 try {
                     $directUrl = $this->debrid->unrestrict($rdLink);
+                } catch (RealDebridPermanentException $e) {
+                    // Infringing or permanently blocked at the file level.
+                    $error = $e->isInfringing()
+                        ? 'Fichier bloqué par Real-Debrid (signalement ayant-droit). Ce fichier ne peut pas être débridé.'
+                        : 'Real-Debrid unrestrict: ' . mb_substr($e->getMessage(), 0, 200);
+                    $status = 'failed';
+                    Log::warning("RD unrestrict permanent error for file '{$fileName}' in batch #{$job->id}", [
+                        'error_code' => $e->rdErrorCode,
+                    ]);
                 } catch (Throwable $e) {
+                    // Transient/other errors — file stays pending for retry.
                     $error = 'Real-Debrid unrestrict: ' . mb_substr($e->getMessage(), 0, 200);
+                    $status = 'failed';
                 }
             } else {
                 $error = 'Real-Debrid: aucun lien pour ce fichier.';
+                $status = 'failed';
             }
 
             TorrentFile::create([
@@ -694,7 +790,7 @@ class TorrentService
                 'detected_episode' => $epNum,
                 'episode_id' => $episodeId,
                 'language' => $job->language,
-                'status' => $directUrl ? 'pending' : 'failed',
+                'status' => $directUrl ? 'pending' : $status,
                 'error' => $error,
             ]);
         }
@@ -1200,6 +1296,40 @@ class TorrentService
                 'api_base' => env('TRANSFER_MP4UPLOAD_API_BASE', 'https://www.mp4upload.com/api'),
             ]),
             default => [],
+        };
+    }
+
+    /* =====================================================================
+     * ERROR MESSAGES (human-friendly, actionable)
+     * =================================================================== */
+
+    /**
+     * Build a clear, actionable error message from a RealDebridPermanentException.
+     */
+    private function permanentErrorMessage(RealDebridPermanentException $e): string
+    {
+        if ($e->isInfringing()) {
+            return 'Contenu bloqué par Real-Debrid (signalement ayant-droit / DMCA, code 35). '
+                . 'Ce hash est définitivement refusé. Essayez un autre magnet/source pour cet anime.';
+        }
+
+        if ($e->isIpBlocked()) {
+            return 'Adresse IP rejetée par Real-Debrid (code 22). '
+                . 'RD bloque les VPS/cloud. Utilisez un token obtenu depuis votre IP résidentielle, '
+                . 'ou activez le "Remote Traffic" dans les paramètres RD.';
+        }
+
+        if ($e->isAuthError()) {
+            return 'Authentification Real-Debrid échouée (token invalide ou compte verrouillé, code '
+                . $e->rdErrorCode . '). Vérifiez REALDEBRID_API_TOKEN dans .env.';
+        }
+
+        return match ($e->rdErrorCode) {
+            29 => 'Torrent trop volumineux pour Real-Debrid (code 29). Essayez un torrent plus petit.',
+            30 => 'Fichier .torrent invalide (code 30). Le fichier est peut-être corrompu ou mal encodé.',
+            28 => 'Type de fichier non autorisé par Real-Debrid (code 28).',
+            36 => 'Limite d\'utilisation quotidienne Real-Debrid atteinte (Fair Usage). Réessayez demain.',
+            default => mb_substr($e->getMessage(), 0, 300),
         };
     }
 }
