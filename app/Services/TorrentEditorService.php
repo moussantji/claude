@@ -65,6 +65,59 @@ class TorrentEditorService
         return sha1(Bencode::encode($info));
     }
 
+    /**
+     * Download a .torrent file from an HTTP(S) URL and save it locally.
+     * Works great on a VPS (server has internet). Validates it's a real torrent.
+     *
+     * @param string $url        HTTP(S) link to a .torrent file
+     * @param string $destPath   Local path to save it
+     * @return array{success: bool, output: string}
+     */
+    public function fetchTorrentFromUrl(string $url, string $destPath): array
+    {
+        // Only allow http/https
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            return ['success' => false, 'output' => 'URL invalide (http/https uniquement).'];
+        }
+
+        try {
+            $response = \Illuminate\Support\Facades\Http::withHeaders([
+                'User-Agent' => 'Mozilla/5.0 (compatible; TorrentEditor/1.0)',
+                'Accept' => 'application/x-bittorrent,*/*',
+            ])->timeout(30)->withOptions([
+                'allow_redirects' => true,
+                'verify' => false, // some trackers have odd certs
+            ])->get($url);
+        } catch (\Throwable $e) {
+            return ['success' => false, 'output' => 'Echec du telechargement: ' . $e->getMessage()];
+        }
+
+        if (!$response->successful()) {
+            return ['success' => false, 'output' => 'HTTP ' . $response->status() . ' en telechargeant le lien.'];
+        }
+
+        $body = $response->body();
+
+        // A bencoded torrent starts with 'd' (dictionary). Reject HTML pages etc.
+        if ($body === '' || $body[0] !== 'd') {
+            $head = substr(ltrim($body), 0, 40);
+            return ['success' => false, 'output' => 'Le lien ne renvoie pas un fichier .torrent valide (recu: ' . $head . '...). Verifie que c\'est un lien DIRECT vers le .torrent.'];
+        }
+
+        file_put_contents($destPath, $body);
+
+        // Validate by decoding
+        try {
+            $this->loadTorrent($destPath);
+        } catch (\Throwable $e) {
+            @unlink($destPath);
+            return ['success' => false, 'output' => 'Fichier telecharge invalide: ' . $e->getMessage()];
+        }
+
+        return ['success' => true, 'output' => 'Torrent telecharge depuis le lien (' . strlen($body) . ' octets).'];
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // TRACKER OPERATIONS
     // ─────────────────────────────────────────────────────────────────────

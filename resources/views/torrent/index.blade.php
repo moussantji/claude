@@ -22,8 +22,16 @@
 
                     <div class="mb-5">
                         <label for="torrent" class="block text-sm font-medium text-gray-700 mb-1">Fichier .torrent</label>
-                        <input type="file" name="torrent" id="torrent" accept=".torrent" required
+                        <input type="file" name="torrent" id="torrent" accept=".torrent"
                                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    </div>
+
+                    <div class="mb-5">
+                        <div class="text-center text-xs text-gray-400 mb-2">— OU —</div>
+                        <label for="torrent_url" class="block text-sm font-medium text-gray-700 mb-1">Lien vers le .torrent (URL directe)</label>
+                        <input type="url" name="torrent_url" id="torrent_url" value="{{ old('torrent_url') }}"
+                               placeholder="https://tracker.example/download/123.torrent"
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
                     </div>
 
                     <div class="mb-5">

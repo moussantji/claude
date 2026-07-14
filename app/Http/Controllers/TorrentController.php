@@ -33,7 +33,8 @@ class TorrentController extends Controller
     public function edit(Request $request)
     {
         $request->validate([
-            'torrent' => 'required|file|max:10240',
+            'torrent' => 'nullable|file|max:10240',
+            'torrent_url' => 'nullable|url',
             'action' => 'required|in:add_trackers,remove_trackers,replace_trackers,make_private,make_public,rename_files,alter_metadata,change_hash',
             'trackers' => 'nullable|string',
             'renames' => 'nullable|string',
@@ -43,24 +44,17 @@ class TorrentController extends Controller
             'source' => 'nullable|string|max:200',
         ]);
 
-        $uploadedFile = $request->file('torrent');
-        $originalName = $uploadedFile->getClientOriginalName();
         $storagePath = config('torrent-editor.upload_path');
-
         if (!is_dir($storagePath)) {
             mkdir($storagePath, 0755, true);
         }
 
-        $editedName = $this->safeName(pathinfo($originalName, PATHINFO_FILENAME)) . '_edited_' . uniqid() . '.torrent';
+        $editedName = 'edited_' . uniqid() . '.torrent';
         $filePath = $storagePath . '/' . $editedName;
-        $uploadedFile->move($storagePath, $editedName);
 
-        // Validate torrent
-        try {
-            $this->editor->loadTorrent($filePath);
-        } catch (\Exception $e) {
-            if (file_exists($filePath)) unlink($filePath);
-            return back()->withErrors(['torrent' => 'Fichier torrent invalide: ' . $e->getMessage()])->withInput();
+        $src = $this->resolveSource($request, $filePath);
+        if (!$src['ok']) {
+            return back()->withErrors(['torrent' => $src['error']])->withInput();
         }
 
         $result = match ($request->input('action')) {
@@ -226,30 +220,25 @@ class TorrentController extends Controller
     public function keepHash(Request $request)
     {
         $request->validate([
-            'torrent' => 'required|file|max:10240',
+            'torrent' => 'nullable|file|max:10240',
+            'torrent_url' => 'nullable|url',
             'trackers' => 'nullable|string',
             'comment' => 'nullable|string|max:500',
             'created_by' => 'nullable|string|max:200',
             'randomize_meta' => 'nullable|boolean',
         ]);
 
-        $uploadedFile = $request->file('torrent');
-        $originalName = pathinfo($uploadedFile->getClientOriginalName(), PATHINFO_FILENAME);
         $storagePath = config('torrent-editor.upload_path');
         if (!is_dir($storagePath)) {
             mkdir($storagePath, 0755, true);
         }
 
-        $editedName = $this->safeName($originalName) . '_keephash_' . uniqid() . '.torrent';
+        $editedName = 'keephash_' . uniqid() . '.torrent';
         $filePath = $storagePath . '/' . $editedName;
-        $uploadedFile->move($storagePath, $editedName);
 
-        // Validate
-        try {
-            $this->editor->loadTorrent($filePath);
-        } catch (\Exception $e) {
-            if (file_exists($filePath)) unlink($filePath);
-            return back()->withErrors(['torrent' => 'Fichier torrent invalide: ' . $e->getMessage()])->withInput();
+        $src = $this->resolveSource($request, $filePath);
+        if (!$src['ok']) {
+            return back()->withErrors(['torrent' => $src['error']])->withInput();
         }
 
         // Build options
@@ -305,30 +294,23 @@ class TorrentController extends Controller
     public function split(Request $request)
     {
         $request->validate([
-            'torrent' => 'required|file|max:10240',
+            'torrent' => 'nullable|file|max:10240',
+            'torrent_url' => 'nullable|url',
             'max_size' => 'nullable|numeric|min:0.1|max:100',
         ]);
 
-        $uploadedFile = $request->file('torrent');
-        $originalFullName = $uploadedFile->getClientOriginalName();
-        $originalName = pathinfo($originalFullName, PATHINFO_FILENAME);
         $storagePath = config('torrent-editor.upload_path');
-
         if (!is_dir($storagePath)) {
             mkdir($storagePath, 0755, true);
         }
 
-        // Save the upload
-        $filePath = $storagePath . '/' . uniqid('torrent_') . '_' . $originalFullName;
-        $uploadedFile->move($storagePath, basename($filePath));
+        $filePath = $storagePath . '/' . uniqid('torrent_') . '.torrent';
 
-        // Validate: check the file is a valid torrent
-        try {
-            $this->editor->loadTorrent($filePath);
-        } catch (\Exception $e) {
-            if (file_exists($filePath)) unlink($filePath);
-            return back()->withErrors(['torrent' => 'Fichier torrent invalide: ' . $e->getMessage()])->withInput();
+        $src = $this->resolveSource($request, $filePath);
+        if (!$src['ok']) {
+            return back()->withErrors(['torrent' => $src['error']])->withInput();
         }
+        $originalName = $this->safeName($src['name']);
 
         // ── STEP 1: Auto-randomize the GLOBAL torrent file ──
         $globalName = $this->safeName($originalName) . '_global_' . uniqid() . '.torrent';
@@ -394,6 +376,43 @@ class TorrentController extends Controller
     {
         $name = preg_replace('/[^A-Za-z0-9._-]/', '_', $name);
         return substr($name, 0, 60) ?: 'torrent';
+    }
+
+    /**
+     * Resolve a torrent source from either a file upload OR a URL.
+     * Saves it to $destPath. Returns [success, path|null, name, error].
+     *
+     * @return array{ok: bool, path: ?string, name: string, error: ?string}
+     */
+    protected function resolveSource(Request $request, string $destPath): array
+    {
+        // 1) File upload takes priority
+        if ($request->hasFile('torrent')) {
+            $uploaded = $request->file('torrent');
+            $name = pathinfo($uploaded->getClientOriginalName(), PATHINFO_FILENAME);
+            $uploaded->move(dirname($destPath), basename($destPath));
+        } elseif ($request->filled('torrent_url')) {
+            // 2) URL to a .torrent
+            $url = trim($request->input('torrent_url'));
+            $res = $this->editor->fetchTorrentFromUrl($url, $destPath);
+            if (!$res['success']) {
+                return ['ok' => false, 'path' => null, 'name' => 'torrent', 'error' => $res['output']];
+            }
+            // Derive a name from the URL
+            $name = pathinfo(parse_url($url, PHP_URL_PATH) ?: 'torrent', PATHINFO_FILENAME) ?: 'torrent';
+        } else {
+            return ['ok' => false, 'path' => null, 'name' => 'torrent', 'error' => 'Fournis un fichier .torrent OU un lien.'];
+        }
+
+        // Validate the torrent
+        try {
+            $this->editor->loadTorrent($destPath);
+        } catch (\Throwable $e) {
+            if (file_exists($destPath)) unlink($destPath);
+            return ['ok' => false, 'path' => null, 'name' => $name, 'error' => 'Fichier torrent invalide: ' . $e->getMessage()];
+        }
+
+        return ['ok' => true, 'path' => $destPath, 'name' => $name, 'error' => null];
     }
 
     // ──────────────────────────────────────────────────────────────────────
