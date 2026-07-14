@@ -29,6 +29,7 @@ class TorrentDownload extends Model
         'target_platforms',
         'provider',
         'torrent_url',
+        'torrent_file_path',
         'aria2_gid',
         'aria2_files',
         'debrid_id',
@@ -103,7 +104,7 @@ class TorrentDownload extends Model
     /** Whether this batch has a magnet/.torrent source to fetch. */
     public function usesTorrent(): bool
     {
-        return ! empty($this->torrent_url);
+        return ! empty($this->torrent_url) || ! empty($this->torrent_file_path);
     }
 
     /** Free self-hosted provider (aria2c downloads on our server). */

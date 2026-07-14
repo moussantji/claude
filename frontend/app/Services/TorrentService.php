@@ -131,12 +131,12 @@ class TorrentService
         return $out;
     }
 
-    /** Default provider from config (aria2 = free). */
+    /** Default provider from config (realdebrid = paid, preferred). */
     public static function defaultProvider(): string
     {
-        $p = strtolower((string) env('TORRENT_PROVIDER', 'aria2'));
+        $p = strtolower((string) env('TORRENT_PROVIDER', 'realdebrid'));
 
-        return in_array($p, ['aria2', 'realdebrid'], true) ? $p : 'aria2';
+        return in_array($p, ['aria2', 'realdebrid'], true) ? $p : 'realdebrid';
     }
 
     /**
@@ -262,7 +262,18 @@ class TorrentService
 
         // Kick off the download.
         if ($job->isPending()) {
-            $gid = $this->aria2->add(trim($job->torrent_url));
+            // Determine what to pass to aria2: uploaded file path, magnet, or URL.
+            $source = trim($job->torrent_url ?? '');
+            if ($job->torrent_file_path && is_file($job->torrent_file_path)) {
+                // aria2 can accept a local .torrent file path directly.
+                $source = $job->torrent_file_path;
+            }
+            if ($source === '') {
+                $job->markFailed('Aucune source torrent pour aria2 (ni fichier, ni magnet, ni URL).');
+
+                return false;
+            }
+            $gid = $this->aria2->add($source);
             $job->markDownloading($gid);
 
             // Slice mode: select only the first slice ASAP (bounded metadata
@@ -588,10 +599,27 @@ class TorrentService
             }
 
             try {
-                $url = trim($job->torrent_url);
-                $id = str_starts_with(strtolower($url), 'magnet:')
-                    ? $this->debrid->addMagnet($url)
-                    : $this->debrid->addTorrentUrl($url);
+                $url = trim($job->torrent_url ?? '');
+                $filePath = $job->torrent_file_path;
+
+                if ($filePath && is_file($filePath)) {
+                    // Uploaded .torrent file — send binary directly to RD.
+                    $binary = file_get_contents($filePath);
+                    if ($binary === false) {
+                        $job->markFailed("Impossible de lire le fichier .torrent : {$filePath}");
+
+                        return false;
+                    }
+                    $id = $this->debrid->addTorrentFile($binary);
+                } elseif (str_starts_with(strtolower($url), 'magnet:')) {
+                    $id = $this->debrid->addMagnet($url);
+                } elseif ($url !== '') {
+                    $id = $this->debrid->addTorrentUrl($url);
+                } else {
+                    $job->markFailed('Aucune source torrent (ni fichier, ni magnet, ni URL).');
+
+                    return false;
+                }
             } catch (RealDebridPermanentException $e) {
                 // Infringing content: try automatic fallback to aria2.
                 if ($e->isInfringing() && $this->canFallbackToAria2($job)) {

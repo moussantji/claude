@@ -779,19 +779,20 @@ class AdminController extends Controller
     }
 
     /**
-     * Submit a batch: a magnet/.torrent (resolved via Real-Debrid) OR direct
-     * download links.
+     * Submit a batch: a magnet/.torrent file/URL (resolved via Real-Debrid)
+     * OR direct download links.
      *
-     * Body:
-     *   target_platform : doodstream|vidmoly|streamtape|mp4upload  (required)
-     *   season_id       : season pack — files auto-matched to episodes
-     *   episode_id      : single episode — everything maps to it
-     *   language        : default VOSTFR
-     *   title           : optional label
-     *   torrent_url     : a magnet: URI or an http(s) .torrent URL
-     *   provider        : aria2 (free, default) | realdebrid (paid)
-     *   links           : OR direct download links (string / array). Provide
-     *                     torrent_url OR links.
+     * Body (multipart/form-data or JSON):
+     *   target_platform  : doodstream|vidmoly|streamtape|mp4upload  (required)
+     *   target_platforms : array of the above (multi-select)
+     *   season_id        : season pack — files auto-matched to episodes
+     *   episode_id       : single episode — everything maps to it
+     *   language         : default VOSTFR
+     *   title            : optional label
+     *   torrent_url      : a magnet: URI or an http(s) .torrent URL
+     *   torrent_file     : uploaded .torrent file (binary, multipart)
+     *   links            : OR direct download links (string / array).
+     *                      Provide torrent_url OR torrent_file OR links.
      */
     public function torrentStore(Request $request, TorrentService $service): JsonResponse
     {
@@ -804,7 +805,7 @@ class AdminController extends Controller
             'language' => ['nullable', 'string', 'max:16'],
             'title' => ['nullable', 'string', 'max:500'],
             'torrent_url' => ['nullable', 'string', 'max:8192'],
-            'provider' => ['nullable', 'string', 'in:aria2,realdebrid'],
+            'torrent_file' => ['nullable', 'file', 'max:10240'], // max 10MB .torrent
             'links' => ['nullable'],
         ]);
 
@@ -827,17 +828,30 @@ class AdminController extends Controller
             ], 422);
         }
 
+        // Determine torrent source: uploaded file > URL/magnet > direct links
         $torrentUrl = trim((string) ($validated['torrent_url'] ?? ''));
-        $isTorrent = $torrentUrl !== '';
-        // aria2 (free, self-hosted) by default; realdebrid if explicitly chosen.
-        $provider = $validated['provider'] ?? TorrentService::defaultProvider();
+        $torrentFilePath = null;
+        $uploadedFile = $request->file('torrent_file');
 
-        // Only validate the URL format here. We do NOT require the provider
-        // (aria2/Real-Debrid) to be available ON THIS web server: the torrent
-        // is merely queued, and a WORKER (which may run on another machine,
-        // e.g. your PC) is what actually downloads/resolves it. If no capable
-        // worker ever runs, the job is marked failed with a clear message.
-        if ($isTorrent && ! preg_match('#^(magnet:|https?://)#i', $torrentUrl)) {
+        if ($uploadedFile && $uploadedFile->isValid()) {
+            // Store the uploaded .torrent file to disk for the worker to read.
+            $storedPath = $uploadedFile->store('torrents', 'local');
+            if (! $storedPath) {
+                return response()->json([
+                    'message' => 'Impossible de sauvegarder le fichier .torrent.',
+                    'errors' => ['torrent_file' => ['Erreur lors du stockage du fichier.']],
+                ], 422);
+            }
+            $torrentFilePath = storage_path('app/' . $storedPath);
+        }
+
+        $isTorrent = $torrentFilePath !== null || $torrentUrl !== '';
+
+        // Provider: always realdebrid by default.
+        $provider = 'realdebrid';
+
+        // Validate URL format (only when using a URL, not a file upload).
+        if ($torrentFilePath === null && $torrentUrl !== '' && ! preg_match('#^(magnet:|https?://)#i', $torrentUrl)) {
             return response()->json([
                 'message' => 'Lien invalide.',
                 'errors' => ['torrent_url' => ['Fournissez un magnet: ou une URL http(s) vers un .torrent.']],
@@ -848,7 +862,7 @@ class AdminController extends Controller
         if (! $isTorrent && empty($links)) {
             return response()->json([
                 'message' => 'Aucune source fournie.',
-                'errors' => ['links' => ['Fournissez un magnet/.torrent ou au moins un lien http(s).']],
+                'errors' => ['links' => ['Fournissez un fichier .torrent, un magnet ou au moins un lien http(s).']],
             ], 422);
         }
 
@@ -859,17 +873,16 @@ class AdminController extends Controller
             'episode_id' => $validated['episode_id'] ?? null,
             'language' => $validated['language'] ?? 'VOSTFR',
             'title' => $validated['title'] ?? null,
-            'torrent_url' => $isTorrent ? $torrentUrl : null,
+            'torrent_url' => $torrentUrl !== '' ? $torrentUrl : null,
+            'torrent_file_path' => $torrentFilePath,
             'provider' => $provider,
             'status' => 'pending',
             'submitted_by' => $request->user()?->id,
         ]);
 
         if ($isTorrent) {
-            // Files are created later, once the torrent is downloaded/resolved.
-            $message = $provider === 'aria2'
-                ? 'Torrent en file — aria2 va le télécharger puis envoyer les épisodes au lecteur.'
-                : 'Torrent en file — Real-Debrid va le résoudre puis envoyer les épisodes au lecteur.';
+            $source = $torrentFilePath ? 'fichier .torrent uploadé' : 'magnet/URL';
+            $message = "Torrent en file ({$source}) — Real-Debrid va le résoudre puis envoyer les épisodes au lecteur.";
         } else {
             $count = $service->createFilesFromLinks($job, $links);
             $message = "Batch créé — {$count} lien(s) en file.";
