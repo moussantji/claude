@@ -564,17 +564,12 @@ class TorrentEditorService
     public function resolveMagnet(string $magnetUri, string $outputPath, int $timeout = 120): array
     {
         $script = base_path('scripts/magnet_to_torrent.py');
-        $python = '/root/.pyenv/shims/python3';
+        $python = config('torrent-editor.python', 'python3');
 
         $process = new \Symfony\Component\Process\Process([
             $python, $script, $magnetUri, $outputPath, (string) $timeout
         ]);
         $process->setTimeout($timeout + 30);
-        $process->setEnv([
-            'PATH' => '/root/.pyenv/shims:/root/.pyenv/bin:/usr/local/bin:/usr/bin:/bin',
-            'PYENV_ROOT' => '/root/.pyenv',
-            'HOME' => '/root',
-        ]);
 
         $process->run();
         $output = trim($process->getOutput() . $process->getErrorOutput());
