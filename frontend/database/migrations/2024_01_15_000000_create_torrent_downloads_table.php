@@ -38,11 +38,10 @@ return new class extends Migration
             $table->unsignedBigInteger('episode_id')->nullable()->index();
             $table->string('language', 16)->default('VOSTFR');
 
-            // Target player host(s). `target_platform` keeps the primary/legacy
-            // single value; `target_platforms` is the JSON list used for
-            // MULTI-target (upload every episode to several players at once).
+            // Primary/legacy single target player host. The JSON multi-target
+            // list (`target_platforms`) is added by a later migration
+            // (2024_01_16_000000_add_torrent_multi_target).
             $table->string('target_platform', 50)->default('doodstream');
-            $table->text('target_platforms')->nullable(); // JSON: ["doodstream","vidmoly",...]
 
             // How the torrent is fetched: 'aria2' (free, self-hosted) or
             // 'realdebrid' (paid remote upload).
@@ -127,35 +126,14 @@ return new class extends Migration
             $table->foreign('episode_id')->references('id')->on('episodes')->nullOnDelete();
         });
 
-        // One row per (episode file × target player). This is what actually
-        // drives the multi-target upload: the same episode is pushed to every
-        // selected player, each with its own status / quota / embed URL / retry.
-        Schema::create('torrent_file_targets', function (Blueprint $table) {
-            $table->id();
-
-            $table->unsignedBigInteger('torrent_file_id')->index();
-            $table->string('platform', 50); // doodstream, vidmoly, streamtape, mp4upload
-
-            // pending → queued (host fetching, remote upload) → done / failed
-            $table->string('status', 20)->default('pending')->index();
-
-            $table->string('remote_job_id', 255)->nullable();
-            $table->string('embed_url', 2048)->nullable();
-            $table->string('file_code', 255)->nullable();
-
-            $table->unsignedTinyInteger('attempts')->default(0);
-            $table->text('error')->nullable();
-
-            $table->timestamps();
-
-            $table->foreign('torrent_file_id')->references('id')->on('torrent_files')->cascadeOnDelete();
-            $table->unique(['torrent_file_id', 'platform']);
-        });
+        // NOTE: the multi-target table (torrent_file_targets) and the
+        // `target_platforms` JSON column are created by a separate, later
+        // migration so servers that already ran THIS migration still pick
+        // them up: 2024_01_16_000000_add_torrent_multi_target.
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('torrent_file_targets');
         Schema::dropIfExists('torrent_files');
         Schema::dropIfExists('torrent_downloads');
     }
