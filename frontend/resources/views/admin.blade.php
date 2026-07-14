@@ -258,8 +258,8 @@
                 <button type="button" class="btn" id="torrentsClose">Fermer</button>
             </div>
             <p class="muted" style="margin:8px 0 6px">
-                Collez un <b>magnet / lien .torrent</b> : il est récupéré (selon le fournisseur), puis chaque
-                épisode est mis en ligne sur le lecteur cible. Ou collez directement des liens HTTP (un par ligne).
+                Uploadez un <b>fichier .torrent</b>, collez un <b>magnet</b> ou des liens HTTP directs.
+                Real-Debrid résout le torrent, puis chaque épisode est mis en ligne sur le(s) lecteur(s) cible(s).
             </p>
             <p class="muted" id="tProviderInfo" style="margin:0 0 12px;font-size:12px"></p>
             <p class="muted hide" id="tProviderWarn" style="margin:0 0 12px;color:var(--danger)"></p>
@@ -286,14 +286,6 @@
                         <label>Langue</label>
                         <input id="tLang" value="VOSTFR" placeholder="VOSTFR">
                     </div>
-                    <div style="flex:1;min-width:150px">
-                        <label>Fournisseur</label>
-                        <select id="tProvider">
-                            <option value="">Défaut serveur</option>
-                            <option value="realdebrid">Real-Debrid (recommandé LWS)</option>
-                            <option value="aria2">aria2 (serveur/worker)</option>
-                        </select>
-                    </div>
                 </div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
                     <div style="flex:1;min-width:120px">
@@ -309,6 +301,8 @@
                 <input id="tTitle" placeholder="ex: One Piece — Saison 1">
                 <label>Magnet / lien .torrent <span class="muted" id="tProviderTag" style="text-transform:none;font-size:11px"></span></label>
                 <input id="tTorrentUrl" placeholder="magnet:?xt=urn:btih:… ou https://…/pack.torrent">
+                <label>OU fichier .torrent <span class="muted" style="text-transform:none;font-size:11px">(upload direct, max 10 MB)</span></label>
+                <input id="tTorrentFile" type="file" accept=".torrent,application/x-bittorrent" style="padding:8px">
                 <label>OU liens HTTP directs (un par ligne)</label>
                 <textarea id="tLinks" placeholder="https://seedbox.example/One.Piece.S01E01.1080p.mp4&#10;https://seedbox.example/One.Piece.S01E02.1080p.mp4&#10;…"></textarea>
                 <p class="err" id="tErr"></p>
@@ -394,6 +388,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=17"></script>
+    <script src="/js/admin.js?v=18"></script>
 </body>
 </html>
