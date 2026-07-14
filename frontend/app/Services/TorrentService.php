@@ -561,10 +561,22 @@ class TorrentService
 
         // Kick off: register the magnet/.torrent with Real-Debrid.
         if ($job->isPending()) {
-            $url = trim($job->torrent_url);
-            $id = str_starts_with(strtolower($url), 'magnet:')
-                ? $this->debrid->addMagnet($url)
-                : $this->debrid->addTorrentUrl($url);
+            try {
+                $url = trim($job->torrent_url);
+                $id = str_starts_with(strtolower($url), 'magnet:')
+                    ? $this->debrid->addMagnet($url)
+                    : $this->debrid->addTorrentUrl($url);
+            } catch (\RuntimeException $e) {
+                // HTTP 451 = content blocked by Real-Debrid (DMCA / infringing).
+                // No point retrying: RD will always refuse this hash.
+                if (str_contains($e->getMessage(), '451') || str_contains($e->getMessage(), 'infringing')) {
+                    $job->update(['attempts' => 99]); // prevent automatic retry
+                    $job->markFailed('Contenu bloqué par Real-Debrid (signalement ayant-droit). Essayez un autre magnet/source pour cet anime.');
+
+                    return false;
+                }
+                throw $e; // other errors: bubble up normally
+            }
             $job->markResolving($id);
 
             return false; // poll on the next pass
