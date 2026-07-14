@@ -24,6 +24,9 @@
                     <x-nav-link :href="route('torrent.generate')" :active="request()->routeIs('torrent.generate')">
                         Generer
                     </x-nav-link>
+                    <x-nav-link :href="route('torrent.magnet')" :active="request()->routeIs('torrent.magnet')">
+                        Magnet
+                    </x-nav-link>
                 </div>
             </div>
 

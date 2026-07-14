@@ -30,6 +30,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/result', [TorrentController::class, 'result'])->name('torrent.result');
     Route::get('/download', [TorrentController::class, 'download'])->name('torrent.download');
 
+    // Magnet link resolution
+    Route::get('/magnet', [TorrentController::class, 'magnetForm'])->name('torrent.magnet');
+    Route::post('/magnet', [TorrentController::class, 'magnet'])->name('torrent.magnet.post');
+
     // Profile
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

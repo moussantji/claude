@@ -551,6 +551,42 @@ class TorrentEditorService
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // MAGNET LINK RESOLUTION
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Resolve a magnet link to a .torrent file using Python libtorrent.
+     *
+     * @param string $magnetUri The magnet link
+     * @param string $outputPath Where to save the resolved .torrent
+     * @param int $timeout Max seconds to wait (default 120)
+     */
+    public function resolveMagnet(string $magnetUri, string $outputPath, int $timeout = 120): array
+    {
+        $script = base_path('scripts/magnet_to_torrent.py');
+        $python = '/root/.pyenv/shims/python3';
+
+        $process = new \Symfony\Component\Process\Process([
+            $python, $script, $magnetUri, $outputPath, (string) $timeout
+        ]);
+        $process->setTimeout($timeout + 30);
+        $process->setEnv([
+            'PATH' => '/root/.pyenv/shims:/root/.pyenv/bin:/usr/local/bin:/usr/bin:/bin',
+            'PYENV_ROOT' => '/root/.pyenv',
+            'HOME' => '/root',
+        ]);
+
+        $process->run();
+        $output = trim($process->getOutput() . $process->getErrorOutput());
+
+        if ($process->isSuccessful() && file_exists($outputPath)) {
+            return ['success' => true, 'output' => $output];
+        }
+
+        return ['success' => false, 'output' => $output ?: 'Failed to resolve magnet link (timeout or no peers found)'];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // HELPERS
     // ─────────────────────────────────────────────────────────────────────
 
