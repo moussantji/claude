@@ -253,6 +253,7 @@ class TorrentController extends Controller
         $request->validate([
             'torrent' => 'required|file|max:10240',
             'max_size' => 'nullable|numeric|min:0.1|max:100',
+            'randomize' => 'nullable|boolean',
         ]);
 
         // Store uploaded torrent file
@@ -272,8 +273,9 @@ class TorrentController extends Controller
         mkdir($outputDir, 0755, true);
 
         $maxSize = $request->input('max_size', 1.0);
+        $randomize = $request->boolean('randomize');
 
-        $result = $this->editor->splitTorrent($filePath, $outputDir, (float) $maxSize);
+        $result = $this->editor->splitTorrent($filePath, $outputDir, (float) $maxSize, $randomize);
 
         if ($result['success']) {
             // Zip the split torrents for download

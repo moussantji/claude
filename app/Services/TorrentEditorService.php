@@ -191,14 +191,19 @@ class TorrentEditorService
      * @param string $torrentPath Path to the .torrent file to split
      * @param string $outputDir Directory where split torrents will be saved
      * @param float $maxSizeGb Maximum size per torrent in GB (default 1.0)
+     * @param bool $randomize Randomize all metadata for each part
      */
-    public function splitTorrent(string $torrentPath, string $outputDir, float $maxSizeGb = 1.0): array
+    public function splitTorrent(string $torrentPath, string $outputDir, float $maxSizeGb = 1.0, bool $randomize = false): array
     {
         $command = [
             $this->python, $this->advancedScript, 'split',
             $torrentPath, $outputDir,
             '--max-size', (string) $maxSizeGb,
         ];
+
+        if ($randomize) {
+            $command[] = '--randomize';
+        }
 
         return $this->runProcess($command);
     }
