@@ -9,3 +9,5 @@ Route::get('/result', [TorrentController::class, 'result'])->name('torrent.resul
 Route::get('/download', [TorrentController::class, 'download'])->name('torrent.download');
 Route::get('/generate', [TorrentController::class, 'generateForm'])->name('torrent.generate');
 Route::post('/generate', [TorrentController::class, 'generate'])->name('torrent.generate.post');
+Route::get('/split', [TorrentController::class, 'splitForm'])->name('torrent.split');
+Route::post('/split', [TorrentController::class, 'split'])->name('torrent.split.post');

@@ -89,6 +89,7 @@
         <div class="actions">
             <button type="submit" class="btn">Éditer le torrent</button>
             <a href="{{ route('torrent.generate') }}" class="btn btn-secondary">Générer un torrent aléatoire</a>
+            <a href="{{ route('torrent.split') }}" class="btn btn-secondary">Splitter un torrent</a>
         </div>
     </form>
 </div>

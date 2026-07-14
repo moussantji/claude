@@ -182,6 +182,28 @@ class TorrentEditorService
     }
 
     // ──────────────────────────────────────────────────────────────────────
+    // SPLIT TORRENT (via advanced script)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Split a multi-file torrent into smaller torrents (max size each).
+     *
+     * @param string $torrentPath Path to the .torrent file to split
+     * @param string $outputDir Directory where split torrents will be saved
+     * @param float $maxSizeGb Maximum size per torrent in GB (default 1.0)
+     */
+    public function splitTorrent(string $torrentPath, string $outputDir, float $maxSizeGb = 1.0): array
+    {
+        $command = [
+            $this->python, $this->advancedScript, 'split',
+            $torrentPath, $outputDir,
+            '--max-size', (string) $maxSizeGb,
+        ];
+
+        return $this->runProcess($command);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
     // TORRENT INFO (via advanced script)
     // ──────────────────────────────────────────────────────────────────────
 

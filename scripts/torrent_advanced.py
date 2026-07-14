@@ -241,6 +241,174 @@ def cmd_info(args):
         print(f"\nSingle file: {decode(info.get('name', info.get(b'name', b'')))} ({length} bytes)")
 
 
+def cmd_split(args):
+    """Split a multi-file torrent into smaller torrents (max size per torrent)."""
+    data = load_torrent(args.torrent)
+    info = data.get('info', data.get(b'info', {}))
+
+    def decode(v):
+        if isinstance(v, bytes):
+            return v.decode('utf-8', errors='replace')
+        return v
+
+    # Get keys
+    name_key = 'name' if 'name' in info else b'name'
+    files_key = 'files' if 'files' in info else b'files' if b'files' in info else None
+    pieces_key = 'pieces' if 'pieces' in info else b'pieces'
+    piece_length_key = 'piece length' if 'piece length' in info else b'piece length'
+
+    torrent_name = decode(info[name_key])
+    piece_length = info[piece_length_key]
+    all_pieces = info[pieces_key]
+
+    # Max size per split (default 1 GB)
+    max_size = int(args.max_size * 1024 * 1024 * 1024)  # Convert GB to bytes
+
+    # Handle single-file torrent
+    if not files_key:
+        length_key = 'length' if 'length' in info else b'length'
+        file_size = info[length_key]
+        if file_size <= max_size:
+            print(f"Single file torrent ({file_size / (1024**3):.2f} GB) is already under {args.max_size} GB. Nothing to split.")
+            return
+        else:
+            print(f"ERROR: Single-file torrent cannot be split (the file itself is {file_size / (1024**3):.2f} GB).")
+            print("Splitting requires a multi-file torrent or the actual data on disk.")
+            sys.exit(1)
+
+    # Multi-file torrent: group files into buckets of max_size
+    files_list = info[files_key]
+
+    # Build file info with offsets
+    file_infos = []
+    current_offset = 0
+    for f in files_list:
+        path_key = 'path' if 'path' in f else b'path'
+        length_key = 'length' if 'length' in f else b'length'
+        file_path = '/'.join(decode(p) for p in f[path_key])
+        file_size = f[length_key]
+        file_infos.append({
+            'entry': f,
+            'path': file_path,
+            'size': file_size,
+            'offset': current_offset,
+        })
+        current_offset += file_size
+
+    total_size = current_offset
+
+    # Group files into buckets (greedy: fill each bucket up to max_size)
+    buckets = []
+    current_bucket = []
+    current_bucket_size = 0
+
+    for fi in file_infos:
+        # If a single file exceeds max_size, it gets its own bucket
+        if fi['size'] > max_size:
+            if current_bucket:
+                buckets.append(current_bucket)
+                current_bucket = []
+                current_bucket_size = 0
+            buckets.append([fi])
+        elif current_bucket_size + fi['size'] > max_size:
+            # Start a new bucket
+            buckets.append(current_bucket)
+            current_bucket = [fi]
+            current_bucket_size = fi['size']
+        else:
+            current_bucket.append(fi)
+            current_bucket_size += fi['size']
+
+    if current_bucket:
+        buckets.append(current_bucket)
+
+    if len(buckets) <= 1:
+        print(f"All files fit within {args.max_size} GB. No split needed.")
+        print(f"Total size: {total_size / (1024**3):.2f} GB, Files: {len(file_infos)}")
+        return
+
+    # Create output directory
+    output_dir = args.output_dir
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Get announce/metadata from original torrent
+    announce = data.get('announce', data.get(b'announce'))
+    announce_list = data.get('announce-list', data.get(b'announce-list'))
+    comment = data.get('comment', data.get(b'comment'))
+    created_by = data.get('created by', data.get(b'created by'))
+
+    print(f"Original: {torrent_name}")
+    print(f"Total size: {total_size / (1024**3):.2f} GB")
+    print(f"Total files: {len(file_infos)}")
+    print(f"Splitting into {len(buckets)} parts (max {args.max_size} GB each)")
+    print(f"Output: {output_dir}")
+    print()
+
+    generated_files = []
+
+    for i, bucket in enumerate(buckets, 1):
+        bucket_size = sum(fi['size'] for fi in bucket)
+        part_name = f"{torrent_name}.part{i}"
+
+        # Calculate pieces for this bucket
+        bucket_start = bucket[0]['offset']
+        bucket_end = bucket[-1]['offset'] + bucket[-1]['size']
+
+        # Piece indices
+        first_piece = bucket_start // piece_length
+        last_piece = (bucket_end - 1) // piece_length
+
+        # Extract pieces (20 bytes each)
+        extracted_pieces = all_pieces[first_piece * 20:(last_piece + 1) * 20]
+
+        # Build new info dict
+        new_info = {
+            'name': part_name,
+            'piece length': piece_length,
+            'pieces': extracted_pieces,
+            'files': [fi['entry'] for fi in bucket],
+        }
+
+        # Copy optional info fields
+        source = info.get('source', info.get(b'source'))
+        if source:
+            new_info['source'] = source
+        private = info.get('private', info.get(b'private'))
+        if private:
+            new_info['private'] = private
+
+        # Build new torrent
+        new_torrent = {'info': new_info}
+        if announce:
+            new_torrent['announce'] = announce
+        if announce_list:
+            new_torrent['announce-list'] = announce_list
+        if comment:
+            new_torrent['comment'] = comment
+        if created_by:
+            new_torrent['created by'] = created_by
+        new_torrent['creation date'] = int(time.time())
+
+        # Save
+        output_path = os.path.join(output_dir, f"{part_name}.torrent")
+        with open(output_path, 'wb') as f:
+            f.write(bcoding.bencode(new_torrent))
+
+        new_hash = hashlib.sha1(bcoding.bencode(new_info)).hexdigest()
+
+        print(f"  Part {i}: {part_name}.torrent")
+        print(f"    Hash: {new_hash}")
+        print(f"    Size: {bucket_size / (1024**3):.2f} GB")
+        print(f"    Files ({len(bucket)}):")
+        for fi in bucket:
+            print(f"      - {fi['path']} ({fi['size'] / (1024**2):.1f} MB)")
+        print()
+
+        generated_files.append(output_path)
+
+    print(f"Done! {len(generated_files)} torrents generated in {output_dir}")
+
+
 def cmd_generate(args):
     """Generate a random .torrent file from scratch."""
 
@@ -397,6 +565,13 @@ def main():
     gen_parser.add_argument('--comment', '-c', default=None, help='Set comment')
     gen_parser.add_argument('--created-by', default=None, help='Set "created by" field')
 
+    # split command
+    split_parser = subparsers.add_parser('split', help='Split a multi-file torrent into smaller torrents')
+    split_parser.add_argument('torrent', help='Path to .torrent file to split')
+    split_parser.add_argument('output_dir', help='Output directory for split torrent files')
+    split_parser.add_argument('--max-size', type=float, default=1.0,
+                             help='Maximum size per torrent in GB (default: 1.0)')
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -413,6 +588,8 @@ def main():
         cmd_info(args)
     elif args.command == 'generate':
         cmd_generate(args)
+    elif args.command == 'split':
+        cmd_split(args)
 
 
 if __name__ == '__main__':

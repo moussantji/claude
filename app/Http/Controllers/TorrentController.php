@@ -236,4 +236,81 @@ class TorrentController extends Controller
 
         return $this->editor->alterMetadata($filePath, $metadata);
     }
+
+    /**
+     * Show the split form.
+     */
+    public function splitForm()
+    {
+        return view('torrent.split');
+    }
+
+    /**
+     * Handle torrent split.
+     */
+    public function split(Request $request)
+    {
+        $request->validate([
+            'torrent' => 'required|file|max:10240',
+            'max_size' => 'nullable|numeric|min:0.1|max:100',
+        ]);
+
+        // Store uploaded torrent file
+        $uploadedFile = $request->file('torrent');
+        $originalName = pathinfo($uploadedFile->getClientOriginalName(), PATHINFO_FILENAME);
+        $storagePath = config('torrent-editor.upload_path');
+
+        if (!is_dir($storagePath)) {
+            mkdir($storagePath, 0755, true);
+        }
+
+        $filePath = $storagePath . '/' . uniqid('torrent_') . '_' . $uploadedFile->getClientOriginalName();
+        $uploadedFile->move($storagePath, basename($filePath));
+
+        // Output directory for split parts
+        $outputDir = $storagePath . '/split_' . uniqid();
+        mkdir($outputDir, 0755, true);
+
+        $maxSize = $request->input('max_size', 1.0);
+
+        $result = $this->editor->splitTorrent($filePath, $outputDir, (float) $maxSize);
+
+        if ($result['success']) {
+            // Zip the split torrents for download
+            $splitFiles = glob($outputDir . '/*.torrent');
+
+            if (count($splitFiles) === 0) {
+                return back()->withErrors(['torrent' => 'Split produced no files (torrent may already be under the size limit).'])->withInput();
+            }
+
+            if (count($splitFiles) === 1) {
+                // Only one part — just return it
+                $singleFile = $splitFiles[0];
+                session(['edited_torrent' => $singleFile, 'edited_torrent_name' => basename($singleFile)]);
+            } else {
+                // Multiple parts — create a zip
+                $zipPath = $storagePath . '/' . $originalName . '_split.zip';
+                $zip = new \ZipArchive();
+                $zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+                foreach ($splitFiles as $sf) {
+                    $zip->addFile($sf, basename($sf));
+                }
+                $zip->close();
+                session(['edited_torrent' => $zipPath, 'edited_torrent_name' => $originalName . '_split.zip']);
+            }
+
+            return redirect()->route('torrent.result')->with([
+                'success' => true,
+                'output' => $result['output'],
+                'filename' => session('edited_torrent_name'),
+            ]);
+        }
+
+        // Clean up
+        if (file_exists($filePath)) {
+            unlink($filePath);
+        }
+
+        return back()->withErrors(['torrent' => 'Split failed: ' . $result['output']])->withInput();
+    }
 }
