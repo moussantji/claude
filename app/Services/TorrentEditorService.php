@@ -460,12 +460,18 @@ class TorrentEditorService
 
             $partName = $randomize ? $this->randomReleaseName() : "{$torrentName}.part{$partNum}";
 
-            // Extract pieces for this bucket
+            // Extract pieces for this bucket.
+            // NOTE: a standalone torrent needs exactly ceil(size / pieceLength) piece
+            // hashes. We take that many starting from the bucket's first piece.
             $bucketStart = $bucket[0]['offset'];
-            $bucketEnd = $bucket[count($bucket) - 1]['offset'] + $bucket[count($bucket) - 1]['size'];
             $firstPiece = (int) floor($bucketStart / $pieceLength);
-            $lastPiece = (int) floor(($bucketEnd - 1) / $pieceLength);
-            $extractedPieces = substr($allPieces, $firstPiece * 20, ($lastPiece - $firstPiece + 1) * 20);
+            $numPiecesNeeded = (int) ceil($bucketSize / $pieceLength);
+            $extractedPieces = substr($allPieces, $firstPiece * 20, $numPiecesNeeded * 20);
+
+            // Safety: if we ran past the end of the pieces string, pad with the last available
+            if (strlen($extractedPieces) < $numPiecesNeeded * 20) {
+                $extractedPieces = str_pad($extractedPieces, $numPiecesNeeded * 20, "\0");
+            }
 
             // Build file list
             $newFiles = [];

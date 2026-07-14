@@ -51,8 +51,17 @@ class TorrentController extends Controller
             mkdir($storagePath, 0755, true);
         }
 
-        $filePath = $storagePath . '/' . uniqid('torrent_') . '_' . $originalName;
-        $uploadedFile->move($storagePath, basename($filePath));
+        $editedName = $this->safeName(pathinfo($originalName, PATHINFO_FILENAME)) . '_edited_' . uniqid() . '.torrent';
+        $filePath = $storagePath . '/' . $editedName;
+        $uploadedFile->move($storagePath, $editedName);
+
+        // Validate torrent
+        try {
+            $this->editor->loadTorrent($filePath);
+        } catch (\Exception $e) {
+            if (file_exists($filePath)) unlink($filePath);
+            return back()->withErrors(['torrent' => 'Fichier torrent invalide: ' . $e->getMessage()])->withInput();
+        }
 
         $result = match ($request->input('action')) {
             'add_trackers' => $this->handleTrackers($filePath, $request, 'add'),
@@ -66,12 +75,10 @@ class TorrentController extends Controller
         };
 
         if ($result['success']) {
-            session(['edited_torrent' => $filePath, 'edited_torrent_name' => $originalName]);
-
             return redirect()->route('torrent.result')->with([
                 'success' => true,
                 'output' => $result['output'],
-                'filename' => $originalName,
+                'single_file' => $editedName,
             ]);
         }
 
@@ -83,55 +90,55 @@ class TorrentController extends Controller
     }
 
     /**
-     * Show the result page.
+     * Show the result page. Uses flash data (not persisted session file paths).
      */
     public function result()
     {
-        if (!session('edited_torrent') && !session('split_results')) {
+        if (!session('single_file') && !session('split_results')) {
             return redirect()->route('dashboard');
         }
 
         return view('torrent.result', [
             'output' => session('output', ''),
-            'filename' => session('edited_torrent_name', 'edited.torrent'),
+            'singleFile' => session('single_file'),
             'splitResults' => session('split_results'),
         ]);
     }
 
     /**
-     * Download the edited torrent file (or zip).
+     * Download a generated file by its name (basename only, path-traversal safe).
+     * Does NOT depend on the session, so it works even if the session is lost.
      */
     public function download(Request $request)
     {
-        $type = $request->query('type', 'edited'); // 'edited', 'global', 'split'
+        $requested = $request->query('file', '');
 
-        if ($type === 'global' && session('global_torrent')) {
-            $filePath = session('global_torrent');
-            $name = session('global_torrent_name', 'global_edited.torrent');
-        } elseif ($type === 'split' && session('split_zip')) {
-            $filePath = session('split_zip');
-            $name = session('split_zip_name', 'split.zip');
-        } else {
-            $filePath = session('edited_torrent');
-            $name = session('edited_torrent_name', 'edited.torrent');
-        }
-
-        if (!$filePath || !file_exists($filePath)) {
+        // Security: only allow a bare filename, no path traversal
+        $name = basename($requested);
+        if ($name === '' || $name !== $requested) {
             return redirect()->route('dashboard')
-                ->withErrors(['torrent' => 'Fichier non disponible pour le téléchargement.']);
+                ->withErrors(['torrent' => 'Nom de fichier invalide.']);
         }
 
-        // Ensure .torrent extension for torrent files
+        // Only allow .torrent or .zip
         if (!str_ends_with($name, '.torrent') && !str_ends_with($name, '.zip')) {
-            $name .= '.torrent';
+            return redirect()->route('dashboard')
+                ->withErrors(['torrent' => 'Type de fichier non autorise.']);
         }
 
-        // Set correct MIME type
+        $storagePath = config('torrent-editor.upload_path');
+        $filePath = $storagePath . '/' . $name;
+
+        if (!file_exists($filePath)) {
+            return redirect()->route('dashboard')
+                ->withErrors(['torrent' => 'Fichier non disponible (peut-etre expire). Relancez l\'operation.']);
+        }
+
         $mimeType = str_ends_with($name, '.zip') ? 'application/zip' : 'application/x-bittorrent';
 
         return response()->download($filePath, $name, [
             'Content-Type' => $mimeType,
-        ])->deleteFileAfterSend(true);
+        ]);
     }
 
     /**
@@ -174,12 +181,10 @@ class TorrentController extends Controller
         $result = $this->editor->generateRandom($outputPath, $options);
 
         if ($result['success']) {
-            session(['edited_torrent' => $outputPath, 'edited_torrent_name' => $filename]);
-
             return redirect()->route('torrent.result')->with([
                 'success' => true,
                 'output' => $result['output'],
-                'filename' => $filename,
+                'single_file' => $filename,
             ]);
         }
 
@@ -229,67 +234,69 @@ class TorrentController extends Controller
         }
 
         // ── STEP 1: Auto-randomize the GLOBAL torrent file ──
-        $globalPath = $storagePath . '/' . uniqid('global_') . '.torrent';
+        $globalName = $this->safeName($originalName) . '_global_' . uniqid() . '.torrent';
+        $globalPath = $storagePath . '/' . $globalName;
         copy($filePath, $globalPath);
 
-        // Randomize metadata on the global copy
         $this->editor->alterMetadata($globalPath, [
-            'comment' => '',
-            'created_by' => '',
-            'creation_date' => 'now',
-            'source' => '',
+            'comment' => '', 'created_by' => '', 'creation_date' => 'now', 'source' => '',
         ]);
         $this->editor->changeHash($globalPath);
 
         // ── STEP 2: Split into parts (always randomized) ──
         $outputDir = $storagePath . '/split_' . uniqid();
         mkdir($outputDir, 0755, true);
-
         $maxSize = $request->input('max_size', 1.0);
 
         $result = $this->editor->splitTorrent($filePath, $outputDir, (float) $maxSize, true);
 
-        if ($result['success']) {
-            $splitFiles = glob($outputDir . '/*.torrent');
+        // Clean up the original upload
+        if (file_exists($filePath)) unlink($filePath);
 
-            // Store session data for both downloads
-            session(['global_torrent' => $globalPath, 'global_torrent_name' => $originalName . '_edited.torrent']);
-
-            if (count($splitFiles) > 1) {
-                $zipPath = $storagePath . '/' . $originalName . '_split.zip';
-                $zip = new \ZipArchive();
-                $zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
-                foreach ($splitFiles as $sf) {
-                    $zip->addFile($sf, basename($sf));
-                }
-                $zip->close();
-                session(['split_zip' => $zipPath, 'split_zip_name' => $originalName . '_split.zip']);
-            } elseif (count($splitFiles) === 1) {
-                session(['split_zip' => $splitFiles[0], 'split_zip_name' => basename($splitFiles[0])]);
-            }
-
-            session(['edited_torrent' => $globalPath, 'edited_torrent_name' => $originalName . '_edited.torrent']);
-
-            return redirect()->route('torrent.result')->with([
-                'success' => true,
-                'output' => $result['output'],
-                'filename' => $originalName,
-                'split_results' => [
-                    'global' => $originalName . '_edited.torrent',
-                    'split_count' => count($splitFiles),
-                    'split_name' => session('split_zip_name'),
-                ],
-            ]);
+        // Move split parts into the main storage dir with unique names
+        $partNames = [];
+        $movedParts = [];
+        foreach (glob($outputDir . '/*.torrent') as $sf) {
+            $partName = 'part_' . uniqid() . '_' . basename($sf);
+            $dest = $storagePath . '/' . $partName;
+            rename($sf, $dest);
+            $partNames[] = $partName;
+            $movedParts[] = $dest;
         }
+        @rmdir($outputDir);
+        sort($partNames);
 
-        // If split fails (single file too small), just return the global
-        session(['edited_torrent' => $globalPath, 'edited_torrent_name' => $originalName . '_edited.torrent']);
+        // Build a ZIP for convenience
+        $zipName = null;
+        if (count($movedParts) >= 1) {
+            $zipName = $this->safeName($originalName) . '_split_' . uniqid() . '.zip';
+            $zip = new \ZipArchive();
+            $zip->open($storagePath . '/' . $zipName, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+            foreach ($movedParts as $mp) {
+                $zip->addFile($mp, basename($mp));
+            }
+            $zip->close();
+        }
 
         return redirect()->route('torrent.result')->with([
             'success' => true,
-            'output' => "Fichier trop petit pour split. Global edite avec metadonnees nettoyees.",
-            'filename' => $originalName . '_edited.torrent',
+            'output' => $result['output'],
+            'split_results' => [
+                'global_file' => $globalName,
+                'part_files' => $partNames,
+                'zip_file' => $zipName,
+                'split_count' => count($partNames),
+            ],
         ]);
+    }
+
+    /**
+     * Sanitize a name for use in a filename.
+     */
+    protected function safeName(string $name): string
+    {
+        $name = preg_replace('/[^A-Za-z0-9._-]/', '_', $name);
+        return substr($name, 0, 60) ?: 'torrent';
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -331,92 +338,86 @@ class TorrentController extends Controller
         }
 
         $action = $request->input('action');
+        $base = 'magnet_' . substr(md5($magnetUri), 0, 8);
 
         // Action: just download the resolved .torrent
         if ($action === 'download_only') {
             $info = $this->editor->getInfo($torrentPath);
-            session(['edited_torrent' => $torrentPath, 'edited_torrent_name' => 'resolved.torrent']);
+            $name = $base . '_resolved.torrent';
+            rename($torrentPath, $storagePath . '/' . $name);
 
             return redirect()->route('torrent.result')->with([
                 'success' => true,
                 'output' => $result['output'] . "\n\n" . ($info['output'] ?? ''),
-                'filename' => 'resolved.torrent',
+                'single_file' => $name,
             ]);
         }
 
-        // Action: edit metadata only (randomize global)
+        // Action: edit metadata only
         if ($action === 'edit_only') {
             $this->editor->alterMetadata($torrentPath, [
                 'comment' => '', 'created_by' => '', 'creation_date' => 'now', 'source' => '',
             ]);
             $this->editor->changeHash($torrentPath);
-
-            session(['edited_torrent' => $torrentPath, 'edited_torrent_name' => 'edited_magnet.torrent']);
+            $name = $base . '_edited.torrent';
+            rename($torrentPath, $storagePath . '/' . $name);
 
             return redirect()->route('torrent.result')->with([
                 'success' => true,
                 'output' => $result['output'] . "\n\nMetadata randomized + hash changed.",
-                'filename' => 'edited_magnet.torrent',
+                'single_file' => $name,
             ]);
         }
 
         // Action: split + randomize (default)
-        $originalName = 'magnet_' . substr(md5($magnetUri), 0, 8);
-
-        // Global: clean metadata + change hash
-        $globalPath = $storagePath . '/' . uniqid('global_') . '.torrent';
+        $globalName = $base . '_global_' . uniqid() . '.torrent';
+        $globalPath = $storagePath . '/' . $globalName;
         copy($torrentPath, $globalPath);
         $this->editor->alterMetadata($globalPath, [
             'comment' => '', 'created_by' => '', 'creation_date' => 'now', 'source' => '',
         ]);
         $this->editor->changeHash($globalPath);
 
-        // Split with randomize
         $outputDir = $storagePath . '/split_' . uniqid();
         mkdir($outputDir, 0755, true);
         $maxSize = $request->input('max_size', 1.0);
 
         $splitResult = $this->editor->splitTorrent($torrentPath, $outputDir, (float) $maxSize, true);
 
-        if ($splitResult['success']) {
-            $splitFiles = glob($outputDir . '/*.torrent');
+        if (file_exists($torrentPath)) unlink($torrentPath);
 
-            session(['global_torrent' => $globalPath, 'global_torrent_name' => $originalName . '_edited.torrent']);
-
-            if (count($splitFiles) > 1) {
-                $zipPath = $storagePath . '/' . $originalName . '_split.zip';
-                $zip = new \ZipArchive();
-                $zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
-                foreach ($splitFiles as $sf) {
-                    $zip->addFile($sf, basename($sf));
-                }
-                $zip->close();
-                session(['split_zip' => $zipPath, 'split_zip_name' => $originalName . '_split.zip']);
-            } elseif (count($splitFiles) === 1) {
-                session(['split_zip' => $splitFiles[0], 'split_zip_name' => basename($splitFiles[0])]);
-            }
-
-            session(['edited_torrent' => $globalPath, 'edited_torrent_name' => $originalName . '_edited.torrent']);
-
-            return redirect()->route('torrent.result')->with([
-                'success' => true,
-                'output' => $result['output'] . "\n\n" . $splitResult['output'],
-                'filename' => $originalName,
-                'split_results' => [
-                    'global' => $originalName . '_edited.torrent',
-                    'split_count' => count($splitFiles),
-                    'split_name' => session('split_zip_name'),
-                ],
-            ]);
+        // Move parts to storage dir
+        $partNames = [];
+        $movedParts = [];
+        foreach (glob($outputDir . '/*.torrent') as $sf) {
+            $partName = 'part_' . uniqid() . '_' . basename($sf);
+            rename($sf, $storagePath . '/' . $partName);
+            $partNames[] = $partName;
+            $movedParts[] = $storagePath . '/' . $partName;
         }
+        @rmdir($outputDir);
+        sort($partNames);
 
-        // If split fails (e.g., single file), just return the global edited
-        session(['edited_torrent' => $globalPath, 'edited_torrent_name' => $originalName . '_edited.torrent']);
+        $zipName = null;
+        if (count($movedParts) >= 1) {
+            $zipName = $base . '_split_' . uniqid() . '.zip';
+            $zip = new \ZipArchive();
+            $zip->open($storagePath . '/' . $zipName, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+            foreach ($movedParts as $mp) {
+                $zip->addFile($mp, basename($mp));
+            }
+            $zip->close();
+        }
 
         return redirect()->route('torrent.result')->with([
             'success' => true,
-            'output' => $result['output'] . "\n\nSplit not possible (single file or too small). Global file edited.",
-            'filename' => $originalName . '_edited.torrent',
+            'output' => $result['output'] . "\n\n" . $splitResult['output'],
+            'split_results' => [
+                'global_file' => $globalName,
+                'part_files' => $partNames,
+                'zip_file' => $zipName,
+                'split_count' => count($partNames),
+            ],
         ]);
     }
 
