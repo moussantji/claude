@@ -212,6 +212,83 @@ class TorrentController extends Controller
     }
 
     /**
+     * Show the "keep hash" edit form (stays downloadable).
+     */
+    public function keepHashForm()
+    {
+        return view('torrent.keephash');
+    }
+
+    /**
+     * Edit trackers/metadata while preserving the info hash.
+     * The torrent stays downloadable from the same seeds.
+     */
+    public function keepHash(Request $request)
+    {
+        $request->validate([
+            'torrent' => 'required|file|max:10240',
+            'trackers' => 'nullable|string',
+            'comment' => 'nullable|string|max:500',
+            'created_by' => 'nullable|string|max:200',
+            'randomize_meta' => 'nullable|boolean',
+        ]);
+
+        $uploadedFile = $request->file('torrent');
+        $originalName = pathinfo($uploadedFile->getClientOriginalName(), PATHINFO_FILENAME);
+        $storagePath = config('torrent-editor.upload_path');
+        if (!is_dir($storagePath)) {
+            mkdir($storagePath, 0755, true);
+        }
+
+        $editedName = $this->safeName($originalName) . '_keephash_' . uniqid() . '.torrent';
+        $filePath = $storagePath . '/' . $editedName;
+        $uploadedFile->move($storagePath, $editedName);
+
+        // Validate
+        try {
+            $this->editor->loadTorrent($filePath);
+        } catch (\Exception $e) {
+            if (file_exists($filePath)) unlink($filePath);
+            return back()->withErrors(['torrent' => 'Fichier torrent invalide: ' . $e->getMessage()])->withInput();
+        }
+
+        // Build options
+        $options = [];
+
+        $trackers = array_values(array_filter(
+            array_map('trim', explode("\n", $request->input('trackers', ''))),
+            fn($u) => $u !== ''
+        ));
+        if (!empty($trackers)) {
+            $options['trackers'] = $trackers;
+        }
+
+        if ($request->boolean('randomize_meta')) {
+            $options['randomize_meta'] = true;
+        } else {
+            if ($request->filled('comment')) {
+                $options['comment'] = $request->input('comment');
+            }
+            if ($request->filled('created_by')) {
+                $options['created_by'] = $request->input('created_by');
+            }
+        }
+
+        $result = $this->editor->editKeepHash($filePath, $options);
+
+        if ($result['success']) {
+            return redirect()->route('torrent.result')->with([
+                'success' => true,
+                'output' => $result['output'],
+                'single_file' => $editedName,
+            ]);
+        }
+
+        if (file_exists($filePath)) unlink($filePath);
+        return back()->withErrors(['torrent' => 'Erreur: ' . $result['output']])->withInput();
+    }
+
+    /**
      * Show the split form.
      */
     public function splitForm()

@@ -15,6 +15,9 @@
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                         Dashboard
                     </x-nav-link>
+                    <x-nav-link :href="route('torrent.keephash')" :active="request()->routeIs('torrent.keephash')">
+                        Garder le Hash
+                    </x-nav-link>
                     <x-nav-link :href="route('torrent.split')" :active="request()->routeIs('torrent.split')">
                         Split + Randomize
                     </x-nav-link>

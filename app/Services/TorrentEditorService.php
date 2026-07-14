@@ -124,6 +124,115 @@ class TorrentEditorService
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // EDIT WHILE PRESERVING THE INFO HASH
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Edit a torrent while KEEPING the same info hash, so it stays
+     * downloadable from the same seeds/peers.
+     *
+     * Only fields OUTSIDE the `info` dict are touched (trackers, comment,
+     * created by, creation date, web seeds). The `info` dict is left byte
+     * for byte identical, guaranteeing an unchanged hash.
+     *
+     * @param string $torrentPath
+     * @param array  $options  Keys (all optional):
+     *   - trackers (array)      : replace announce + announce-list
+     *   - add_trackers (array)  : append to announce-list
+     *   - comment (string|null) : '' removes, null leaves as-is
+     *   - created_by (string|null)
+     *   - creation_date (string|null): 'now', unix ts, '0' removes
+     *   - web_seeds (array)     : url-list (HTTP/FTP seeds)
+     *   - randomize_meta (bool) : randomize comment/created_by/date
+     */
+    public function editKeepHash(string $torrentPath, array $options = []): array
+    {
+        $data = $this->loadTorrent($torrentPath);
+        $hashBefore = $this->getInfoHash($data);
+        $output = [];
+
+        // --- Trackers ---
+        if (!empty($options['trackers']) && is_array($options['trackers'])) {
+            $t = array_values($options['trackers']);
+            $data['announce'] = $t[0];
+            $data['announce-list'] = array_map(fn($u) => [$u], $t);
+            $output[] = 'Trackers remplaces: ' . count($t);
+        } elseif (!empty($options['add_trackers']) && is_array($options['add_trackers'])) {
+            $list = $data['announce-list'] ?? [];
+            foreach ($options['add_trackers'] as $u) {
+                $list[] = [$u];
+            }
+            $data['announce-list'] = $list;
+            if (empty($data['announce'])) {
+                $data['announce'] = $options['add_trackers'][0];
+            }
+            $output[] = 'Trackers ajoutes: ' . count($options['add_trackers']);
+        }
+
+        // --- Web seeds (url-list) ---
+        if (!empty($options['web_seeds']) && is_array($options['web_seeds'])) {
+            $data['url-list'] = array_values($options['web_seeds']);
+            $output[] = 'Web seeds: ' . count($options['web_seeds']);
+        }
+
+        // --- Randomize cosmetic metadata ---
+        if (!empty($options['randomize_meta'])) {
+            $data['comment'] = $this->randomReleaseName() . ' - uploaded';
+            $data['created by'] = self::CLIENTS[array_rand(self::CLIENTS)];
+            $data['creation date'] = time() - rand(0, 86400 * 60);
+            $output[] = 'Metadonnees randomisees (comment / created by / date)';
+        } else {
+            // --- Individual cosmetic fields ---
+            if (array_key_exists('comment', $options) && $options['comment'] !== null) {
+                if ($options['comment'] === '') {
+                    unset($data['comment']);
+                    $output[] = 'Commentaire supprime';
+                } else {
+                    $data['comment'] = $options['comment'];
+                    $output[] = 'Commentaire modifie';
+                }
+            }
+            if (array_key_exists('created_by', $options) && $options['created_by'] !== null) {
+                if ($options['created_by'] === '') {
+                    unset($data['created by']);
+                    $output[] = "'Created by' supprime";
+                } else {
+                    $data['created by'] = $options['created_by'];
+                    $output[] = "'Created by' modifie";
+                }
+            }
+            if (array_key_exists('creation_date', $options) && $options['creation_date'] !== null) {
+                if ($options['creation_date'] === '0') {
+                    unset($data['creation date']);
+                    $output[] = 'Date supprimee';
+                } elseif ($options['creation_date'] === 'now') {
+                    $data['creation date'] = time();
+                    $output[] = 'Date = maintenant';
+                } else {
+                    $data['creation date'] = (int) $options['creation_date'];
+                    $output[] = 'Date modifiee';
+                }
+            }
+        }
+
+        $this->saveTorrent($data, $torrentPath);
+
+        // Verify the hash is unchanged (safety guarantee)
+        $hashAfter = $this->getInfoHash($this->loadTorrent($torrentPath));
+
+        $output[] = '';
+        $output[] = "Hash avant : {$hashBefore}";
+        $output[] = "Hash apres : {$hashAfter}";
+        $output[] = 'Hash preserve : ' . ($hashBefore === $hashAfter ? 'OUI (toujours telechargeable, memes seeds)' : 'NON - ERREUR');
+
+        return [
+            'success' => $hashBefore === $hashAfter,
+            'output' => implode("\n", $output),
+            'hash_preserved' => $hashBefore === $hashAfter,
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // PRIVACY FLAG
     // ─────────────────────────────────────────────────────────────────────
 

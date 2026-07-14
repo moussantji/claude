@@ -22,6 +22,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/split', [TorrentController::class, 'splitForm'])->name('torrent.split');
     Route::post('/split', [TorrentController::class, 'split'])->name('torrent.split.post');
 
+    // Edit keeping the hash (stays downloadable)
+    Route::get('/keep-hash', [TorrentController::class, 'keepHashForm'])->name('torrent.keephash');
+    Route::post('/keep-hash', [TorrentController::class, 'keepHash'])->name('torrent.keephash.post');
+
     // Generate random torrent
     Route::get('/generate', [TorrentController::class, 'generateForm'])->name('torrent.generate');
     Route::post('/generate', [TorrentController::class, 'generate'])->name('torrent.generate.post');

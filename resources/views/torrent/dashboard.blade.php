@@ -23,6 +23,19 @@
                     </div>
                 </a>
 
+                {{-- Keep Hash --}}
+                <a href="{{ route('torrent.keephash') }}" class="block bg-white overflow-hidden shadow-sm sm:rounded-lg hover:shadow-md transition-shadow">
+                    <div class="p-6">
+                        <div class="text-3xl mb-3">&#128274;</div>
+                        <h3 class="text-lg font-bold text-gray-900 mb-2">Garder le Hash</h3>
+                        <p class="text-gray-600 text-sm">
+                            Changer trackers + metadonnees en <strong>gardant le hash</strong>.
+                            Le torrent reste telechargeable avec les memes seeds. Ideal pour migrer de tracker.
+                        </p>
+                        <span class="inline-block mt-3 px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">Reste telechargeable</span>
+                    </div>
+                </a>
+
                 {{-- Edit --}}
                 <a href="{{ route('torrent.index') }}" class="block bg-white overflow-hidden shadow-sm sm:rounded-lg hover:shadow-md transition-shadow">
                     <div class="p-6">
