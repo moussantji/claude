@@ -675,9 +675,13 @@ class AdminController extends Controller
             'total' => array_sum($counts),
             'links_unmatched' => TorrentFile::where('status', 'skipped')->count(),
             'links_failed' => TorrentFile::where('status', 'failed')->count(),
-            // Multi-target: per-player upload results across all batches.
-            'targets_done' => TorrentFileTarget::where('status', 'done')->count(),
-            'targets_failed' => TorrentFileTarget::where('status', 'failed')->count(),
+            // Multi-target: per-player upload results across all batches. Guarded
+            // so the panel still works before the torrent_file_targets migration
+            // has been run.
+            'targets_done' => \Illuminate\Support\Facades\Schema::hasTable('torrent_file_targets')
+                ? TorrentFileTarget::where('status', 'done')->count() : 0,
+            'targets_failed' => \Illuminate\Support\Facades\Schema::hasTable('torrent_file_targets')
+                ? TorrentFileTarget::where('status', 'failed')->count() : 0,
             'platforms' => TorrentService::remoteHosts(),
             // Active provider + readiness so the UI can guide the admin.
             'provider' => TorrentService::defaultProvider(),

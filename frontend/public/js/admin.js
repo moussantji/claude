@@ -862,6 +862,9 @@
         $('#tErr').textContent = '';
         $('#torrentStats').innerHTML = '<span class="muted">Chargement…</span>';
         $('#torrentList').innerHTML = '';
+        // Render the player checkboxes immediately (with defaults) so the admin
+        // can always pick players even if the stats endpoint fails.
+        renderPlatformSelect();
         await reloadTorrents();
     }
 
