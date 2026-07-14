@@ -264,6 +264,12 @@
             <p class="muted" id="tProviderInfo" style="margin:0 0 12px;font-size:12px"></p>
             <p class="muted hide" id="tProviderWarn" style="margin:0 0 12px;color:var(--danger)"></p>
 
+            <div class="hide" id="tMigrateWarn" style="margin:0 0 12px;padding:10px;border:1px solid var(--danger);border-radius:8px;background:rgba(255,77,109,.08)">
+                <div style="color:var(--danger);font-size:13px;margin-bottom:8px">⚠ La table multi-lecteurs n'existe pas encore en base. Lance la migration pour activer l'envoi vers plusieurs lecteurs.</div>
+                <button class="btn btn--primary" id="tMigrateBtn">🛠 Migrer la base maintenant</button>
+                <pre id="tMigrateOut" class="hide" style="margin:10px 0 0;font-size:11px;white-space:pre-wrap;max-height:160px;overflow:auto"></pre>
+            </div>
+
             <div class="stats" id="torrentStats" style="margin-bottom:12px"></div>
             <div class="muted" style="font-size:12px;margin-bottom:4px">Quota d'upload par lecteur aujourd'hui (repris demain si atteint)</div>
             <div class="stats" id="torrentDailyUsage" style="margin-bottom:14px"></div>
@@ -379,6 +385,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=15"></script>
+    <script src="/js/admin.js?v=16"></script>
 </body>
 </html>

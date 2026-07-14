@@ -689,7 +689,35 @@ class AdminController extends Controller
             'debrid_ready' => (new \App\Services\RealDebridClient())->isConfigured(),
             // Per-host daily upload quota usage (shared with episodes:remote).
             'daily_usage' => $service->dailyUsage(),
+            // Whether the multi-target table exists yet (drives the "migrate" hint).
+            'migrated' => \Illuminate\Support\Facades\Schema::hasTable('torrent_file_targets'),
         ]]);
+    }
+
+    /**
+     * Run pending database migrations from the admin panel.
+     *
+     * Useful on shared hosting (no SSH / CLI) where `php artisan migrate`
+     * cannot be run manually. Admin-only (protected by the route middleware).
+     */
+    public function runMigrations(): JsonResponse
+    {
+        try {
+            \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+            $output = trim(\Illuminate\Support\Facades\Artisan::output());
+
+            return response()->json([
+                'data' => [
+                    'ok' => true,
+                    'migrated' => \Illuminate\Support\Facades\Schema::hasTable('torrent_file_targets'),
+                    'output' => $output !== '' ? $output : 'Aucune migration en attente.',
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Échec de la migration : ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**

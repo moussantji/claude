@@ -528,6 +528,7 @@
         $('#tSubmitBtn').addEventListener('click', submitTorrent);
         $('#tRefreshBtn').addEventListener('click', reloadTorrents);
         $('#tRetryAllBtn').addEventListener('click', () => torrentAction('/admin/torrents/retry-all', 'Réarmer TOUS les échecs (batches + liens) ?'));
+        $('#tMigrateBtn').addEventListener('click', runMigrate);
         $('#torrentFilesClose').addEventListener('click', () => $('#torrentFilesModal').classList.remove('open'));
         $('#torrentFilesModal').addEventListener('click', (e) => { if (e.target === $('#torrentFilesModal')) $('#torrentFilesModal').classList.remove('open'); });
 
@@ -878,6 +879,8 @@
             torrentState.provider = data.provider || 'aria2';
             renderProviderInfo(data);
             renderDailyUsage(data.daily_usage || []);
+            // Show the migrate helper if the multi-target table is missing.
+            $('#tMigrateWarn').classList.toggle('hide', data.migrated !== false);
             const labels = { total: 'Total', pending: 'En attente', downloading: 'Téléchargement', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminés', failed: 'Échecs', links_unmatched: 'Non mappés', links_failed: 'Liens KO' };
             $('#torrentStats').innerHTML = Object.entries(labels).map(([k, label]) => {
                 const val = data[k] ?? 0;
@@ -889,6 +892,31 @@
             $('#torrentStats').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
         }
         loadTorrentList();
+    }
+
+    async function runMigrate() {
+        const btn = $('#tMigrateBtn');
+        const out = $('#tMigrateOut');
+        if (!confirm('Lancer les migrations de base de données maintenant ?')) return;
+        btn.disabled = true;
+        const prev = btn.textContent;
+        btn.textContent = 'Migration en cours…';
+        out.classList.add('hide');
+        try {
+            const { data } = await api('/admin/system/migrate', { method: 'POST' });
+            out.textContent = data.output || 'Terminé.';
+            out.classList.remove('hide');
+            toast(data.migrated ? 'Base migrée ✓' : 'Migrations exécutées.');
+            if (data.migrated) $('#tMigrateWarn').classList.add('hide');
+            await reloadTorrents();
+        } catch (e) {
+            out.textContent = e.message;
+            out.classList.remove('hide');
+            toast(e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = prev;
+        }
     }
 
     function renderPlatformSelect() {

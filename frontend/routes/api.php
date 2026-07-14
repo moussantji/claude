@@ -112,4 +112,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     // playback (+ Real-Debrid check when configured).
     Route::get('/recent-content', [AdminController::class, 'recentContent']);
     Route::get('/recent-content/{anime}', [AdminController::class, 'recentContentLinks']);
+
+    // Run pending DB migrations from the panel (shared hosting without CLI).
+    Route::post('/system/migrate', [AdminController::class, 'runMigrations']);
 });
