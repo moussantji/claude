@@ -721,6 +721,64 @@ class AdminController extends Controller
     }
 
     /**
+     * Advance the torrent queue on demand, straight from the admin panel.
+     *
+     * Runs one processing pass over in-flight + pending batches (like the
+     * `torrents:process` command). Meant for shared hosting where no persistent
+     * worker / cron runs. Each pass is incremental and safe to repeat.
+     */
+    public function torrentProcessNow(TorrentService $service): JsonResponse
+    {
+        @set_time_limit(120); // best-effort; shared hosting may cap this
+
+        $limit = 3;
+
+        // In-flight first (aria2 download / RD resolution / upload), then new.
+        $jobs = TorrentDownload::whereIn('status', ['downloading', 'resolving', 'processing'])
+            ->orderBy('updated_at')
+            ->limit($limit)
+            ->get();
+
+        $slots = max(0, $limit - $jobs->count());
+        if ($slots > 0) {
+            $pending = TorrentDownload::where('status', 'pending')
+                ->where('attempts', '<', 3)
+                ->orderBy('created_at')
+                ->limit($slots)
+                ->get();
+            $jobs = $jobs->concat($pending);
+        }
+
+        $results = [];
+        foreach ($jobs as $job) {
+            try {
+                $service->processJob($job);
+            } catch (\Throwable $e) {
+                // processJob already marks the job failed; keep going.
+            }
+            $job->refresh();
+            $results[] = [
+                'id' => $job->id,
+                'title' => $job->title ?: ('#' . $job->id),
+                'status' => $job->status,
+                'files_done' => $job->files_done,
+                'files_total' => $job->files_total,
+                'error' => $job->error,
+            ];
+        }
+
+        return response()->json([
+            'data' => [
+                'processed' => count($results),
+                'jobs' => $results,
+                'message' => count($results)
+                    ? 'File avancée. Relancez tant que des batches sont en cours.'
+                    : 'Rien à traiter pour le moment.',
+            ],
+        ]);
+    }
+
+    /**
      * Submit a batch: a magnet/.torrent (resolved via Real-Debrid) OR direct
      * download links.
      *

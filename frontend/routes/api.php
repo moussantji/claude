@@ -101,6 +101,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('/torrents', [AdminController::class, 'torrentIndex']);
     Route::get('/torrents/stats', [AdminController::class, 'torrentStats']);
     Route::post('/torrents', [AdminController::class, 'torrentStore']);
+    Route::post('/torrents/process', [AdminController::class, 'torrentProcessNow']);
     Route::post('/torrents/retry-all', [AdminController::class, 'torrentRetryAll']);
     Route::put('/torrent-files/{file}', [AdminController::class, 'torrentFileUpdate']);
     Route::get('/torrents/{torrent}', [AdminController::class, 'torrentShow']);

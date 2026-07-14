@@ -529,6 +529,7 @@
         $('#tRefreshBtn').addEventListener('click', reloadTorrents);
         $('#tRetryAllBtn').addEventListener('click', () => torrentAction('/admin/torrents/retry-all', 'Réarmer TOUS les échecs (batches + liens) ?'));
         $('#tMigrateBtn').addEventListener('click', runMigrate);
+        $('#tProcessBtn').addEventListener('click', processTorrentsNow);
         $('#torrentFilesClose').addEventListener('click', () => $('#torrentFilesModal').classList.remove('open'));
         $('#torrentFilesModal').addEventListener('click', (e) => { if (e.target === $('#torrentFilesModal')) $('#torrentFilesModal').classList.remove('open'); });
 
@@ -894,6 +895,23 @@
         loadTorrentList();
     }
 
+    async function processTorrentsNow() {
+        const btn = $('#tProcessBtn');
+        btn.disabled = true;
+        const prev = btn.textContent;
+        btn.textContent = '⏳ Traitement…';
+        try {
+            const { data } = await api('/admin/torrents/process', { method: 'POST' });
+            toast(data.message || 'File avancée.');
+            await reloadTorrents();
+        } catch (e) {
+            toast(e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = prev;
+        }
+    }
+
     async function runMigrate() {
         const btn = $('#tMigrateBtn');
         const out = $('#tMigrateOut');
@@ -1045,6 +1063,9 @@
         const body = { target_platforms: platforms, language: lang, title };
         if (seasonId) body.season_id = +seasonId;
         if (episodeId) body.episode_id = +episodeId;
+        // Provider override (empty = server default TORRENT_PROVIDER).
+        const provider = $('#tProvider').value;
+        if (provider) body.provider = provider;
         // A magnet/.torrent takes precedence over pasted links.
         if (torrentUrl) body.torrent_url = torrentUrl;
         else body.links = links;

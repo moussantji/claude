@@ -286,6 +286,14 @@
                         <label>Langue</label>
                         <input id="tLang" value="VOSTFR" placeholder="VOSTFR">
                     </div>
+                    <div style="flex:1;min-width:150px">
+                        <label>Fournisseur</label>
+                        <select id="tProvider">
+                            <option value="">Défaut serveur</option>
+                            <option value="realdebrid">Real-Debrid (recommandé LWS)</option>
+                            <option value="aria2">aria2 (serveur/worker)</option>
+                        </select>
+                    </div>
                 </div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
                     <div style="flex:1;min-width:120px">
@@ -312,6 +320,7 @@
             <!-- Batch list -->
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
                 <b style="font-size:14px;flex:1">Batches</b>
+                <button class="btn btn--primary" id="tProcessBtn" title="Traiter la file maintenant (résout les torrents + envoie aux lecteurs)">▶ Traiter maintenant</button>
                 <button class="btn" id="tContentBtn" title="Animes ajoutés/modifiés récemment + liens de vérification">📚 Contenu ajouté</button>
                 <button class="btn" id="tRetryAllBtn" title="Réarmer tous les échecs">↻ Réessayer erreurs</button>
                 <button class="btn" id="tRefreshBtn">Actualiser</button>
@@ -385,6 +394,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=16"></script>
+    <script src="/js/admin.js?v=17"></script>
 </body>
 </html>
