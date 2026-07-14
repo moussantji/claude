@@ -121,7 +121,17 @@ class TorrentController extends Controller
                 ->withErrors(['torrent' => 'Fichier non disponible pour le téléchargement.']);
         }
 
-        return response()->download($filePath, $name)->deleteFileAfterSend(true);
+        // Ensure .torrent extension for torrent files
+        if (!str_ends_with($name, '.torrent') && !str_ends_with($name, '.zip')) {
+            $name .= '.torrent';
+        }
+
+        // Set correct MIME type
+        $mimeType = str_ends_with($name, '.zip') ? 'application/zip' : 'application/x-bittorrent';
+
+        return response()->download($filePath, $name, [
+            'Content-Type' => $mimeType,
+        ])->deleteFileAfterSend(true);
     }
 
     /**
@@ -210,9 +220,16 @@ class TorrentController extends Controller
         $filePath = $storagePath . '/' . uniqid('torrent_') . '_' . $originalFullName;
         $uploadedFile->move($storagePath, basename($filePath));
 
+        // Validate: check the file is a valid torrent
+        try {
+            $this->editor->loadTorrent($filePath);
+        } catch (\Exception $e) {
+            if (file_exists($filePath)) unlink($filePath);
+            return back()->withErrors(['torrent' => 'Fichier torrent invalide: ' . $e->getMessage()])->withInput();
+        }
+
         // ── STEP 1: Auto-randomize the GLOBAL torrent file ──
-        // Copy to a "global" file that we'll randomize
-        $globalPath = $storagePath . '/' . uniqid('global_') . '_' . $originalFullName;
+        $globalPath = $storagePath . '/' . uniqid('global_') . '.torrent';
         copy($filePath, $globalPath);
 
         // Randomize metadata on the global copy
@@ -222,7 +239,6 @@ class TorrentController extends Controller
             'creation_date' => 'now',
             'source' => '',
         ]);
-        // Rename + change hash on global
         $this->editor->changeHash($globalPath);
 
         // ── STEP 2: Split into parts (always randomized) ──
@@ -240,7 +256,6 @@ class TorrentController extends Controller
             session(['global_torrent' => $globalPath, 'global_torrent_name' => $originalName . '_edited.torrent']);
 
             if (count($splitFiles) > 1) {
-                // Create zip of split parts
                 $zipPath = $storagePath . '/' . $originalName . '_split.zip';
                 $zip = new \ZipArchive();
                 $zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
@@ -253,7 +268,6 @@ class TorrentController extends Controller
                 session(['split_zip' => $splitFiles[0], 'split_zip_name' => basename($splitFiles[0])]);
             }
 
-            // Also keep the global as default "edited_torrent"
             session(['edited_torrent' => $globalPath, 'edited_torrent_name' => $originalName . '_edited.torrent']);
 
             return redirect()->route('torrent.result')->with([
@@ -268,12 +282,14 @@ class TorrentController extends Controller
             ]);
         }
 
-        // Clean up on failure
-        foreach ([$filePath, $globalPath] as $f) {
-            if (file_exists($f)) unlink($f);
-        }
+        // If split fails (single file too small), just return the global
+        session(['edited_torrent' => $globalPath, 'edited_torrent_name' => $originalName . '_edited.torrent']);
 
-        return back()->withErrors(['torrent' => 'Split failed: ' . $result['output']])->withInput();
+        return redirect()->route('torrent.result')->with([
+            'success' => true,
+            'output' => "Fichier trop petit pour split. Global edite avec metadonnees nettoyees.",
+            'filename' => $originalName . '_edited.torrent',
+        ]);
     }
 
     // ──────────────────────────────────────────────────────────────────────
