@@ -136,8 +136,18 @@ class TorrentController extends Controller
 
         $mimeType = str_ends_with($name, '.zip') ? 'application/zip' : 'application/x-bittorrent';
 
+        clearstatcache(true, $filePath);
+        $size = filesize($filePath);
+
+        // Bulletproof download: exact Content-Length + no compression/transform
+        // so proxies (nginx/apache/gzip) cannot truncate or corrupt the binary.
         return response()->download($filePath, $name, [
             'Content-Type' => $mimeType,
+            'Content-Length' => (string) $size,
+            'Content-Transfer-Encoding' => 'binary',
+            'Content-Encoding' => 'identity',
+            'Cache-Control' => 'no-store, no-transform',
+            'X-Accel-Buffering' => 'no',
         ]);
     }
 
