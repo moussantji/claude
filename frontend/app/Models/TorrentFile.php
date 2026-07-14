@@ -54,6 +54,18 @@ class TorrentFile extends Model
         return $this->belongsTo(Episode::class);
     }
 
+    /** Per-player uploads of this episode (multi-target). */
+    public function targets(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(TorrentFileTarget::class);
+    }
+
+    /** True once every target player has finished (done/failed), none pending. */
+    public function allTargetsResolved(): bool
+    {
+        return $this->targets()->whereIn('status', ['pending', 'queued'])->doesntExist();
+    }
+
     /* ---- Status helpers ---- */
 
     public function isPending(): bool

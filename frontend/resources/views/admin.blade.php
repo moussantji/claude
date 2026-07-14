@@ -272,9 +272,9 @@
             <div style="border:1px solid var(--accent);border-radius:12px;padding:14px;margin-bottom:16px;background:rgba(124,92,255,0.05)">
                 <b style="font-size:13px;display:block;margin-bottom:10px">Nouveau batch</b>
                 <div style="display:flex;gap:10px;flex-wrap:wrap">
-                    <div style="flex:1;min-width:150px">
-                        <label>Lecteur cible</label>
-                        <select id="tPlatform" style="width:100%;padding:10px;border-radius:8px;background:#0f0f18;border:1px solid var(--border);color:var(--text)"></select>
+                    <div style="flex:2;min-width:220px">
+                        <label>Lecteurs cibles <span class="muted" style="text-transform:none;font-size:11px">(coche = envoyé à CE lecteur ; chaque épisode part vers tous les cochés)</span></label>
+                        <div id="tPlatforms" style="display:flex;flex-wrap:wrap;gap:6px"></div>
                     </div>
                     <div style="flex:1;min-width:120px">
                         <label>Langue</label>
@@ -306,6 +306,7 @@
             <!-- Batch list -->
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
                 <b style="font-size:14px;flex:1">Batches</b>
+                <button class="btn" id="tContentBtn" title="Animes ajoutés/modifiés récemment + liens de vérification">📚 Contenu ajouté</button>
                 <button class="btn" id="tRetryAllBtn" title="Réarmer tous les échecs">↻ Réessayer erreurs</button>
                 <button class="btn" id="tRefreshBtn">Actualiser</button>
             </div>
@@ -322,6 +323,34 @@
             </div>
             <p class="muted" style="margin:8px 0 12px">Détail par lien. Un lien non mappé (⊘) peut être rattaché manuellement à un épisode.</p>
             <div id="torrentFilesList" style="max-height:60vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <!-- Recently added / modified content modal -->
+    <div class="modal" id="recentContentModal">
+        <div class="card" style="width:820px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0">Contenu ajouté / modifié</h2>
+                <button type="button" class="btn" id="recentContentClose">Fermer</button>
+            </div>
+            <p class="muted" style="margin:8px 0 12px">Animes disposant de liens vidéo, triés du plus récemment modifié. Cliquez sur un anime pour voir les épisodes et vérifier chaque lecteur.</p>
+            <div style="display:flex;gap:8px;margin-bottom:10px">
+                <input id="rcSearch" placeholder="Rechercher un anime…" style="flex:1">
+                <button class="btn" id="rcRefreshBtn">Actualiser</button>
+            </div>
+            <div id="recentContentList" style="max-height:56vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <!-- One anime: episodes × player links to verify -->
+    <div class="modal" id="recentLinksModal">
+        <div class="card" style="width:820px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0" id="rcLinksTitle">Liens de l'anime</h2>
+                <button type="button" class="btn" id="recentLinksClose">Fermer</button>
+            </div>
+            <p class="muted" id="rcLinksHint" style="margin:8px 0 12px">Cliquez un lien pour l'ouvrir dans un nouvel onglet et vérifier la lecture.</p>
+            <div id="recentLinksList" style="max-height:60vh;overflow-y:auto"></div>
         </div>
     </div>
 
@@ -350,6 +379,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=12"></script>
+    <script src="/js/admin.js?v=14"></script>
 </body>
 </html>

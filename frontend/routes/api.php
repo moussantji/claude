@@ -107,4 +107,9 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('/torrents/{torrent}/files', [AdminController::class, 'torrentFiles']);
     Route::post('/torrents/{torrent}/retry', [AdminController::class, 'torrentRetry']);
     Route::delete('/torrents/{torrent}', [AdminController::class, 'torrentDestroy']);
+
+    // Recently added / modified content, with clickable player links to verify
+    // playback (+ Real-Debrid check when configured).
+    Route::get('/recent-content', [AdminController::class, 'recentContent']);
+    Route::get('/recent-content/{anime}', [AdminController::class, 'recentContentLinks']);
 });

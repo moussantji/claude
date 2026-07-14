@@ -26,6 +26,7 @@ class TorrentDownload extends Model
         'episode_id',
         'language',
         'target_platform',
+        'target_platforms',
         'provider',
         'torrent_url',
         'aria2_gid',
@@ -51,6 +52,7 @@ class TorrentDownload extends Model
             'files_failed' => 'integer',
             'attempts' => 'integer',
             'aria2_files' => 'array',
+            'target_platforms' => 'array',
         ];
     }
 
@@ -108,6 +110,20 @@ class TorrentDownload extends Model
     public function usesAria2(): bool
     {
         return $this->provider === 'aria2';
+    }
+
+    /**
+     * Target player hosts for this batch (multi-target). Falls back to the
+     * single legacy `target_platform` when `target_platforms` is empty.
+     *
+     * @return list<string>
+     */
+    public function platforms(): array
+    {
+        $list = is_array($this->target_platforms) ? $this->target_platforms : [];
+        $list = array_values(array_unique(array_filter(array_map('strval', $list))));
+
+        return ! empty($list) ? $list : [$this->target_platform];
     }
 
     /** Paid provider (Real-Debrid resolves the torrent into direct links). */

@@ -119,8 +119,12 @@ class TorrentsProcess extends Command
 
                 case 'processing':
                     $stats['processing']++;
-                    $queued = $job->files()->where('status', 'queued')->count();
-                    $this->line("  <fg=magenta>↻</> {$label} — {$job->files_done}/{$job->files_total} live · {$queued} en cours (✗{$job->files_failed})");
+                    // Per-player upload counts (multi-target).
+                    $tDone = \App\Models\TorrentFileTarget::whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))->where('status', 'done')->count();
+                    $tPend = \App\Models\TorrentFileTarget::whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))->whereIn('status', ['pending', 'queued'])->count();
+                    $tFail = \App\Models\TorrentFileTarget::whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))->where('status', 'failed')->count();
+                    $players = implode('+', $job->platforms());
+                    $this->line("  <fg=magenta>↻</> {$label} — épisodes {$job->files_done}/{$job->files_total} · uploads [{$players}] ✓{$tDone} ⏳{$tPend} ✗{$tFail}");
                     $this->renderFileLines($job);
                     break;
 
@@ -149,6 +153,7 @@ class TorrentsProcess extends Command
     private function renderFileLines(TorrentDownload $job): void
     {
         $files = $job->files()
+            ->with('targets')
             ->whereIn('status', ['done', 'failed', 'skipped'])
             ->orderByDesc('updated_at')
             ->limit(5)
@@ -162,10 +167,18 @@ class TorrentsProcess extends Command
                 'skipped' => '<fg=yellow>⊘</>',
                 default => '·',
             };
+            // Per-player result for this episode (✓doodstream ✗vidmoly ...).
+            $players = '';
+            foreach ($file->targets as $t) {
+                $mark = match ($t->status) {
+                    'done' => '✓', 'failed' => '✗', 'queued' => '⏳', default => '·',
+                };
+                $players .= " {$mark}{$t->platform}";
+            }
             $note = in_array($file->status, ['failed', 'skipped'], true)
-                ? ' — ' . mb_substr($file->error ?? '', 0, 50)
+                ? ' — ' . mb_substr($file->error ?? '', 0, 40)
                 : '';
-            $this->line("      {$icon} {$ep} " . mb_substr($file->file_name ?? $file->source_url, 0, 60) . $note);
+            $this->line("      {$icon} {$ep} " . mb_substr($file->file_name ?? $file->source_url ?? '?', 0, 44) . $players . $note);
         }
     }
 
@@ -174,6 +187,17 @@ class TorrentsProcess extends Command
         $batches = TorrentDownload::where('status', 'failed')
             ->where('attempts', '<', $maxAttempts)
             ->update(['status' => 'pending', 'error' => null]);
+
+        // Re-arm failed per-player uploads + put their files/batches back.
+        $failedTargets = \App\Models\TorrentFileTarget::where('status', 'failed')->get(['id', 'torrent_file_id']);
+        if ($failedTargets->isNotEmpty()) {
+            \App\Models\TorrentFileTarget::whereIn('id', $failedTargets->pluck('id'))
+                ->update(['status' => 'pending', 'error' => null, 'remote_job_id' => null]);
+            $fileIds = $failedTargets->pluck('torrent_file_id')->unique();
+            TorrentFile::whereIn('id', $fileIds)->update(['status' => 'pending']);
+            $batchIds = TorrentFile::whereIn('id', $fileIds)->pluck('torrent_download_id')->unique();
+            TorrentDownload::whereIn('id', $batchIds)->where('status', 'done')->update(['status' => 'processing']);
+        }
 
         $affected = TorrentFile::where('status', 'failed')
             ->pluck('torrent_download_id')->unique();

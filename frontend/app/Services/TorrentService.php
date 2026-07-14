@@ -6,6 +6,7 @@ use App\Models\Episode;
 use App\Models\EpisodeLink;
 use App\Models\TorrentDownload;
 use App\Models\TorrentFile;
+use App\Models\TorrentFileTarget;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
@@ -161,11 +162,12 @@ class TorrentService
     public function processJob(TorrentDownload $job): void
     {
         try {
-            $credentials = $this->getCredentials($job->target_platform);
-            if (empty($credentials)) {
+            // At least one target player must have credentials (multi-target).
+            $withCreds = array_filter($job->platforms(), fn ($p) => ! empty($this->getCredentials($p)));
+            if (empty($withCreds)) {
                 $job->markFailed(
-                    "No credentials for {$job->target_platform}. "
-                    . 'Set TRANSFER_' . strtoupper($job->target_platform) . '_* in .env'
+                    'Aucun identifiant configuré pour les lecteurs cibles ('
+                    . implode(', ', $job->platforms()) . '). Renseignez TRANSFER_<HOST>_* dans .env'
                 );
 
                 return;
@@ -194,14 +196,18 @@ class TorrentService
                 return;
             }
 
-            // Stage B: make each file live, then poll the async (RD) ones.
-            $this->submitPending($job, $credentials);
-            $this->pollQueued($job, $credentials);
+            // Stage B (multi-target): make a per-player target for each episode,
+            // push pending targets (quota-aware), poll queued ones, then finalize
+            // files whose every target is resolved.
+            $this->ensureTargets($job);
+            $this->submitPendingTargets($job);
+            $this->pollQueuedTargets($job);
+            $this->finalizeFiles($job);
 
             $job->refreshCounters();
 
-            // Done when nothing is left in a non-terminal state.
-            $remaining = $job->files()->whereIn('status', ['pending', 'queued'])->count();
+            // Done when no episode file is still awaiting its players.
+            $remaining = $job->files()->where('status', 'pending')->count();
             if ($remaining === 0) {
                 // Slice mode: if more slices remain to download, go back to the
                 // download stage instead of finishing (the uploaded slice's
@@ -706,179 +712,219 @@ class TorrentService
         return $episodesByIndex->get($epNum)?->id;
     }
 
-    /**
-     * Push pending files to the target host, honoring the host's daily cap.
-     * When the cap is reached, remaining files stay pending and resume the
-     * next day (the counter resets at midnight).
-     */
-    private function submitPending(TorrentDownload $job, array $credentials): void
-    {
-        // How many uploads this host still allows today.
-        $remaining = $this->dailyRemaining($job->target_platform);
-        if ($remaining <= 0) {
-            return; // cap reached — defer remaining files to tomorrow
-        }
-
-        $take = min($this->filesPerRun, $remaining);
-
-        $pending = $job->files()
-            ->where('status', 'pending')
-            ->orderBy('detected_episode')
-            ->limit($take)
-            ->get();
-
-        foreach ($pending as $file) {
-            // Re-check the shared budget before each upload (other batches /
-            // episodes:remote may consume it concurrently).
-            if ($this->dailyRemaining($job->target_platform) <= 0) {
-                break;
-            }
-            $this->submitFile($job, $file, $credentials);
-        }
-    }
+    /* =====================================================================
+     * MULTI-TARGET UPLOAD (each episode → every selected player)
+     * =================================================================== */
 
     /**
-     * Poll queued links; finalize the ones the host has finished fetching.
+     * Ensure every ready episode file has one target per selected player.
+     * Files with no matching episode are skipped (need manual mapping first).
      */
-    private function pollQueued(TorrentDownload $job, array $credentials): void
+    private function ensureTargets(TorrentDownload $job): void
     {
-        $queued = $job->files()
-            ->where('status', 'queued')
-            ->limit($this->filesPerRun)
-            ->get();
+        $platforms = $job->platforms();
 
-        foreach ($queued as $file) {
-            $this->pollFile($job, $file, $credentials);
-        }
-    }
-
-    /**
-     * Make one file live on the host.
-     *   • local_path present (aria2) → upload the local file, then delete it.
-     *   • otherwise (RD/direct link) → remote upload (host fetches the link).
-     */
-    private function submitFile(TorrentDownload $job, TorrentFile $file, array $credentials): void
-    {
-        try {
+        foreach ($job->files()->where('status', 'pending')->get() as $file) {
             if ($file->episode_id === null) {
                 $file->markSkipped('Aucun épisode correspondant — mappez-le manuellement puis réessayez.');
 
-                return;
+                continue;
+            }
+            $existing = $file->targets()->pluck('platform')->all();
+            foreach ($platforms as $platform) {
+                if (! in_array($platform, $existing, true)) {
+                    TorrentFileTarget::create([
+                        'torrent_file_id' => $file->id,
+                        'platform' => $platform,
+                        'status' => 'pending',
+                    ]);
+                }
+            }
+        }
+    }
+
+    /**
+     * Push pending (file × player) targets, honoring each player's daily cap.
+     * When a player's cap is reached, its targets stay pending and resume the
+     * next day (the per-host counter resets at midnight).
+     */
+    private function submitPendingTargets(TorrentDownload $job): void
+    {
+        $targets = TorrentFileTarget::query()
+            ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
+            ->where('status', 'pending')
+            ->with('file')
+            ->orderBy('id')
+            ->limit($this->filesPerRun)
+            ->get();
+
+        foreach ($targets as $target) {
+            $platform = $target->platform;
+
+            // Per-player daily quota (shared with episodes:remote).
+            if ($this->dailyRemaining($platform) <= 0) {
+                continue; // this player is capped today — try again tomorrow
+            }
+            $creds = $this->getCredentials($platform);
+            if (empty($creds)) {
+                $target->markFailed("Aucun identifiant pour {$platform} (TRANSFER_" . strtoupper($platform) . '_*).');
+
+                continue;
             }
 
+            $this->submitTarget($job, $target, $creds);
+        }
+    }
+
+    /**
+     * Upload one episode to ONE player.
+     *   • aria2 (file->local_path) → upload the local file (kept until every
+     *     player is done, then deleted by finalizeFiles()).
+     *   • RD/direct link (file->source_url) → remote upload (host fetches it).
+     */
+    private function submitTarget(TorrentDownload $job, TorrentFileTarget $target, array $creds): void
+    {
+        $file = $target->file;
+        if (! $file) {
+            $target->markFailed('Fichier introuvable.');
+
+            return;
+        }
+
+        try {
             $title = $this->buildTitle($job, $file);
+            $platform = $target->platform;
 
-            // aria2 provider: upload the locally-downloaded file to the host.
+            // --- aria2: upload the locally-downloaded file ---
             if ($file->local_path) {
-                $this->uploadLocalFile($job, $file, $title, $credentials);
+                $path = $file->local_path;
+                if (! $path || ! is_file($path)) {
+                    $target->markFailed("Fichier introuvable sur le disque : {$path}");
+
+                    return;
+                }
+                if (filesize($path) < self::MIN_VIDEO_SIZE) {
+                    $target->markFailed('Fichier trop petit (probablement corrompu).');
+
+                    return;
+                }
+                $driver = $this->transferService->driverByName($platform);
+                if (! $driver) {
+                    $target->markFailed("Aucun driver pour la plateforme : {$platform}");
+
+                    return;
+                }
+                $result = $driver->upload($path, $title, $creds);
+                $embed = $result['embed_url'] ?? null;
+                if (! $embed) {
+                    $target->markFailed('Upload effectué mais aucune URL embed retournée.');
+
+                    return;
+                }
+                $target->markDone($embed, $result['file_code'] ?? null);
+                $this->attachToEpisode($file, $embed, $platform);
+                $this->bumpDaily($platform);
 
                 return;
             }
 
-            // remote upload: the host fetches the direct link itself.
+            // --- RD/direct link: the host fetches the link itself ---
             $result = $this->transferService->transferRemote(
                 trim((string) $file->source_url),
                 $title,
-                $credentials,
-                $job->target_platform,
+                $creds,
+                $platform,
             );
-
             $state = $result['state'] ?? 'queued';
 
             if ($state === 'done' && ! empty($result['embed_url'])) {
-                $file->markDone($result['embed_url'], $result['file_code'] ?? null);
-                $this->attachToEpisode($file, $result['embed_url'], $job->target_platform);
-                $this->bumpDaily($job->target_platform); // counts against the host's daily cap
+                $target->markDone($result['embed_url'], $result['file_code'] ?? null);
+                $this->attachToEpisode($file, $result['embed_url'], $platform);
+                $this->bumpDaily($platform);
 
                 return;
             }
 
-            // Async: the host is now fetching the link; poll it later.
-            $file->markQueued($result['job_id'] ?? null);
-            $this->bumpDaily($job->target_platform); // the request counts now
+            // Async: host is now fetching the link; poll it later.
+            $target->markQueued($result['job_id'] ?? null);
+            $this->bumpDaily($platform);
         } catch (Throwable $e) {
-            $file->markFailed(mb_substr($e->getMessage(), 0, 500));
+            $target->markFailed(mb_substr($e->getMessage(), 0, 500));
         }
     }
 
     /**
-     * Upload a locally-downloaded file to the host, then free the disk space.
+     * Poll queued targets (remote upload) and finalize the ones the player has
+     * finished fetching.
      */
-    private function uploadLocalFile(TorrentDownload $job, TorrentFile $file, string $title, array $credentials): void
+    private function pollQueuedTargets(TorrentDownload $job): void
     {
-        $path = $file->local_path;
-        if (! $path || ! is_file($path)) {
-            $file->markFailed("Fichier introuvable sur le disque : {$path}");
+        $targets = TorrentFileTarget::query()
+            ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
+            ->where('status', 'queued')
+            ->with('file')
+            ->limit($this->filesPerRun)
+            ->get();
 
-            return;
+        foreach ($targets as $target) {
+            try {
+                if (! $target->remote_job_id) {
+                    $target->update(['status' => 'pending']); // nothing to poll — re-submit
+
+                    continue;
+                }
+                $status = $this->transferService->remoteStatus(
+                    $target->platform,
+                    $target->remote_job_id,
+                    $this->getCredentials($target->platform),
+                );
+                switch ($status['state'] ?? 'pending') {
+                    case 'done':
+                        $embed = $status['embed_url'] ?? null;
+                        if ($embed) {
+                            $target->markDone($embed, $status['file_code'] ?? null);
+                            if ($target->file) {
+                                $this->attachToEpisode($target->file, $embed, $target->platform);
+                            }
+                        } else {
+                            $target->markFailed('Le lecteur signale « terminé » sans URL embed.');
+                        }
+                        break;
+
+                    case 'error':
+                        $target->markFailed($status['error'] ?? 'Le lecteur a signalé une erreur.');
+                        break;
+
+                    // 'pending' → still fetching, leave queued.
+                }
+            } catch (Throwable $e) {
+                $target->markFailed(mb_substr($e->getMessage(), 0, 500));
+            }
         }
-        if (filesize($path) < self::MIN_VIDEO_SIZE) {
-            $file->markFailed('Fichier trop petit (probablement corrompu).');
-
-            return;
-        }
-
-        $driver = $this->transferService->driverByName($job->target_platform);
-        if (! $driver) {
-            $file->markFailed("Aucun driver pour la plateforme : {$job->target_platform}");
-
-            return;
-        }
-
-        $result = $driver->upload($path, $title, $credentials);
-        $embed = $result['embed_url'] ?? null;
-        if (! $embed) {
-            $file->markFailed('Upload effectué mais aucune URL embed retournée.');
-
-            return;
-        }
-
-        $file->markDone($embed, $result['file_code'] ?? null);
-        $this->attachToEpisode($file, $embed, $job->target_platform);
-        $this->bumpDaily($job->target_platform); // counts against the host's daily cap
-
-        // Free disk space immediately after a successful upload.
-        $this->deleteLocalFile($path);
     }
 
     /**
-     * Check whether the host has finished fetching a queued link.
+     * Mark files whose every player target is resolved as done, and (aria2)
+     * free the local file only once ALL players have uploaded it.
      */
-    private function pollFile(TorrentDownload $job, TorrentFile $file, array $credentials): void
+    private function finalizeFiles(TorrentDownload $job): void
     {
-        try {
-            if (! $file->remote_job_id) {
-                // Nothing to poll against — re-submit on the next pass.
-                $file->update(['status' => 'pending']);
+        $files = $job->files()->where('status', 'pending')->with('targets')->get();
 
-                return;
+        foreach ($files as $file) {
+            if ($file->targets->isEmpty()) {
+                continue; // targets not created yet
+            }
+            $pending = $file->targets->whereIn('status', ['pending', 'queued'])->count();
+            if ($pending > 0) {
+                continue; // some players still working
             }
 
-            $status = $this->transferService->remoteStatus(
-                $job->target_platform,
-                $file->remote_job_id,
-                $credentials,
-            );
+            $file->update(['status' => 'done']);
 
-            switch ($status['state'] ?? 'pending') {
-                case 'done':
-                    $embed = $status['embed_url'] ?? null;
-                    if ($embed) {
-                        $file->markDone($embed, $status['file_code'] ?? null);
-                        $this->attachToEpisode($file, $embed, $job->target_platform);
-                    } else {
-                        $file->markFailed('Host reported done but returned no embed URL.');
-                    }
-                    break;
-
-                case 'error':
-                    $file->markFailed($status['error'] ?? 'Host reported an error.');
-                    break;
-
-                // 'pending' → still fetching, leave queued.
+            if ($file->local_path) {
+                $this->deleteLocalFile($file->local_path);
             }
-        } catch (Throwable $e) {
-            $file->markFailed(mb_substr($e->getMessage(), 0, 500));
         }
     }
 

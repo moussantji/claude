@@ -31,6 +31,11 @@
     const escapeHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+    function debounce(fn, ms) {
+        let t;
+        return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+    }
+
     function show(view) {
         $('#login').classList.toggle('hide', view !== 'login');
         $('#dash').classList.toggle('hide', view !== 'dash');
@@ -526,6 +531,15 @@
         $('#torrentFilesClose').addEventListener('click', () => $('#torrentFilesModal').classList.remove('open'));
         $('#torrentFilesModal').addEventListener('click', (e) => { if (e.target === $('#torrentFilesModal')) $('#torrentFilesModal').classList.remove('open'); });
 
+        // Recently added/modified content (verify player links)
+        $('#tContentBtn').addEventListener('click', openRecentContent);
+        $('#rcRefreshBtn').addEventListener('click', reloadRecentContent);
+        $('#rcSearch').addEventListener('input', debounce(reloadRecentContent, 300));
+        $('#recentContentClose').addEventListener('click', () => $('#recentContentModal').classList.remove('open'));
+        $('#recentContentModal').addEventListener('click', (e) => { if (e.target === $('#recentContentModal')) $('#recentContentModal').classList.remove('open'); });
+        $('#recentLinksClose').addEventListener('click', () => $('#recentLinksModal').classList.remove('open'));
+        $('#recentLinksModal').addEventListener('click', (e) => { if (e.target === $('#recentLinksModal')) $('#recentLinksModal').classList.remove('open'); });
+
         // Team manual tracking
         $('#teamBtn').addEventListener('click', openTeam);
         $('#teamClose').addEventListener('click', () => $('#teamModal').classList.remove('open'));
@@ -875,11 +889,26 @@
     }
 
     function renderPlatformSelect() {
-        const sel = $('#tPlatform');
-        if (!sel) return;
-        const current = sel.value;
-        sel.innerHTML = torrentState.platforms.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
-        if (current) sel.value = current;
+        const box = $('#tPlatforms');
+        if (!box) return;
+        // Preserve current selection across refreshes.
+        const checked = new Set(Array.from(box.querySelectorAll('input:checked')).map(i => i.value));
+        // Default: first platform checked on first render.
+        const first = torrentState.platforms[0];
+        box.innerHTML = torrentState.platforms.map(p => {
+            const isOn = checked.size ? checked.has(p) : (p === first);
+            return `<label class="genre-tag ${isOn ? 'active' : ''}" style="cursor:pointer">
+                <input type="checkbox" value="${escapeHtml(p)}" ${isOn ? 'checked' : ''} style="width:auto;margin-right:5px"> ${escapeHtml(p)}
+            </label>`;
+        }).join('');
+        // Toggle the visual "active" class on change.
+        box.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', () => {
+            cb.closest('label').classList.toggle('active', cb.checked);
+        }));
+    }
+
+    function selectedPlatforms() {
+        return Array.from(document.querySelectorAll('#tPlatforms input:checked')).map(i => i.value);
     }
 
     /** Per-host daily upload quota usage (used / limit). */
@@ -944,7 +973,7 @@
                 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
                     <span style="font-weight:700;flex:1;min-width:140px">${escapeHtml(t.title || 'Batch #' + t.id)}</span>
                     <span style="font-size:11px;padding:2px 10px;border-radius:999px;background:${color};color:#000;font-weight:700">${TORRENT_STATUS_LABELS[t.status] || t.status}</span>
-                    <span class="muted" style="font-size:12px">→ ${escapeHtml(t.target_platform)}</span>
+                    <span class="muted" style="font-size:12px">→ ${escapeHtml((Array.isArray(t.target_platforms) && t.target_platforms.length ? t.target_platforms : [t.target_platform]).join(', '))}</span>
                 </div>
                 <div class="muted" style="font-size:12px;margin:4px 0">${target} · ${(t.status === 'resolving' || t.status === 'downloading') ? (t.status === 'downloading' ? 'aria2 ' : 'Real-Debrid ') + (t.debrid_progress || 0) + '%' : t.files_done + '/' + t.files_total + ' en ligne' + (t.files_failed ? ' · <span style="color:var(--danger)">' + t.files_failed + ' KO</span>' : '')}</div>
                 ${t.error ? `<div class="err" style="font-size:12px">${escapeHtml(t.error)}</div>` : ''}
@@ -970,7 +999,7 @@
 
     async function submitTorrent() {
         $('#tErr').textContent = '';
-        const platform = $('#tPlatform').value;
+        const platforms = selectedPlatforms();
         const lang = $('#tLang').value.trim() || 'VOSTFR';
         const seasonId = $('#tSeasonId').value.trim();
         const episodeId = $('#tEpisodeId').value.trim();
@@ -978,10 +1007,11 @@
         const torrentUrl = $('#tTorrentUrl').value.trim();
         const links = $('#tLinks').value.trim();
 
+        if (!platforms.length) { $('#tErr').textContent = 'Cochez au moins un lecteur cible.'; return; }
         if (!torrentUrl && !links) { $('#tErr').textContent = 'Collez un magnet/.torrent OU des liens HTTP directs.'; return; }
         if (!seasonId && !episodeId) { $('#tErr').textContent = 'Indiquez une Saison ID (pack) ou un Épisode ID (unique).'; return; }
 
-        const body = { target_platform: platform, language: lang, title };
+        const body = { target_platforms: platforms, language: lang, title };
         if (seasonId) body.season_id = +seasonId;
         if (episodeId) body.episode_id = +episodeId;
         // A magnet/.torrent takes precedence over pasted links.
@@ -1045,13 +1075,22 @@
             const ep = f.episode ? `#${f.episode.index}${f.episode.name ? ' — ' + escapeHtml(f.episode.name) : ''}`
                 : (f.detected_episode ? `E${String(f.detected_episode).padStart(2, '0')} (détecté)` : '<span style="color:#f0ad4e">non mappé</span>');
             const needsMap = f.status === 'skipped' || !f.episode;
+            // Per-player results (status pill + clickable embed link to verify).
+            const targets = (f.targets || []).map(t => {
+                const tc = FILE_STATUS[t.status] || ['#666', t.status];
+                const link = t.embed_url
+                    ? `<a href="${escapeHtml(t.embed_url)}" target="_blank" rel="noopener" title="Vérifier ${escapeHtml(t.platform)}">${escapeHtml(t.platform)} ↗</a>`
+                    : `<span>${escapeHtml(t.platform)}</span>`;
+                const err = t.error ? ` title="${escapeHtml(t.error)}"` : '';
+                return `<span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${tc[0]};color:#000;font-weight:700"${err}>${link}</span>`;
+            }).join(' ');
             return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                     <span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${color};color:#000;font-weight:700">${label}</span>
                     <span style="flex:1;min-width:120px">${ep}</span>
-                    ${f.embed_url ? `<a href="${escapeHtml(f.embed_url)}" target="_blank" rel="noopener" style="font-size:12px">voir</a>` : ''}
                 </div>
-                <div class="muted" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px">${escapeHtml(f.file_name || f.source_url)}</div>
+                ${targets ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${targets}</div>` : ''}
+                <div class="muted" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px">${escapeHtml(f.file_name || f.source_url || '')}</div>
                 ${f.error ? `<div class="err" style="font-size:11px">${escapeHtml(f.error)}</div>` : ''}
                 ${needsMap ? `<div style="display:flex;gap:6px;margin-top:6px">
                     <input data-mapep="${f.id}" type="number" placeholder="Épisode ID" style="width:130px">
@@ -1074,6 +1113,91 @@
             toast('Rattaché — sera renvoyé au lecteur.');
             reloadTorrentFiles();
         } catch (e) { toast(e.message); }
+    }
+
+    /* ---- Recently added / modified content (verify player links) ---- */
+    let recentRdReady = false;
+
+    function openRecentContent() {
+        $('#recentContentModal').classList.add('open');
+        reloadRecentContent();
+    }
+
+    async function reloadRecentContent() {
+        const q = $('#rcSearch').value.trim();
+        $('#recentContentList').innerHTML = '<span class="muted">Chargement…</span>';
+        try {
+            const res = await api('/admin/recent-content?per_page=30' + (q ? '&q=' + encodeURIComponent(q) : ''));
+            renderRecentContent(res.data || []);
+        } catch (e) {
+            $('#recentContentList').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    function renderRecentContent(items) {
+        if (!items.length) {
+            $('#recentContentList').innerHTML = '<span class="muted">Aucun anime avec des liens.</span>';
+            return;
+        }
+        $('#recentContentList').innerHTML = items.map(a => {
+            const hosts = (a.hosts || []).map(h => `<span class="genre-tag">${escapeHtml(h)}</span>`).join(' ');
+            return `<div style="display:flex;gap:10px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
+                ${a.image_url ? `<img class="thumb" src="${escapeHtml(a.image_url)}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'" style="width:40px;height:56px;object-fit:cover;border-radius:4px">` : ''}
+                <div style="flex:1;min-width:120px">
+                    <div style="font-weight:700">${escapeHtml(a.name)}</div>
+                    <div class="muted" style="font-size:11px">${a.seasons_count} saison(s) · ${a.links_count} lien(s) · maj ${escapeHtml(a.updated_at || '')}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${hosts}</div>
+                </div>
+                <button class="btn" data-rclinks="${a.id}" data-rcname="${escapeHtml(a.name)}">Voir liens</button>
+            </div>`;
+        }).join('');
+
+        $('#recentContentList').querySelectorAll('[data-rclinks]').forEach(b => b.addEventListener('click', () => {
+            openRecentLinks(b.dataset.rclinks, b.dataset.rcname);
+        }));
+    }
+
+    async function openRecentLinks(animeId, name) {
+        $('#rcLinksTitle').textContent = 'Liens — ' + (name || '');
+        $('#recentLinksList').innerHTML = '<span class="muted">Chargement…</span>';
+        $('#recentLinksModal').classList.add('open');
+        try {
+            const { data } = await api(`/admin/recent-content/${animeId}`);
+            recentRdReady = !!(data && data.realdebrid_ready);
+            renderRecentLinks(data);
+        } catch (e) {
+            $('#recentLinksList').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    function renderRecentLinks(data) {
+        $('#rcLinksHint').textContent = recentRdReady
+            ? 'Cliquez un lien pour vérifier la lecture. Real-Debrid est configuré (vérif possible côté serveur).'
+            : 'Cliquez un lien pour l\u2019ouvrir et vérifier la lecture.';
+
+        const seasons = (data && data.seasons) || [];
+        const withEpisodes = seasons.filter(s => (s.episodes || []).length);
+        if (!withEpisodes.length) {
+            $('#recentLinksList').innerHTML = '<span class="muted">Aucun épisode avec des liens.</span>';
+            return;
+        }
+        $('#recentLinksList').innerHTML = withEpisodes.map(s => {
+            const eps = s.episodes.map(ep => {
+                const links = ep.links.map(l => {
+                    const label = `${escapeHtml(l.host || 'lien')}${l.language ? ' · ' + escapeHtml(l.language) : ''}`;
+                    return `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener" class="genre-tag" style="text-decoration:none">${label} ↗</a>`;
+                }).join(' ');
+                const epTitle = `#${ep.index}${ep.name ? ' — ' + escapeHtml(ep.name) : ''}`;
+                return `<div style="border-top:1px solid var(--border);padding:6px 0">
+                    <div style="font-size:13px;margin-bottom:4px">${epTitle}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:5px">${links}</div>
+                </div>`;
+            }).join('');
+            return `<div style="margin-bottom:12px">
+                <b style="font-size:13px">${escapeHtml(s.name || 'Saison ' + s.position)}</b>
+                ${eps}
+            </div>`;
+        }).join('');
     }
 
     document.addEventListener('DOMContentLoaded', boot);

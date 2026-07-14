@@ -10,6 +10,7 @@ use App\Models\MediaUpload;
 use App\Models\Season;
 use App\Models\TorrentDownload;
 use App\Models\TorrentFile;
+use App\Models\TorrentFileTarget;
 use App\Models\TransferProgress;
 use App\Models\User;
 use App\Services\TorrentService;
@@ -674,6 +675,9 @@ class AdminController extends Controller
             'total' => array_sum($counts),
             'links_unmatched' => TorrentFile::where('status', 'skipped')->count(),
             'links_failed' => TorrentFile::where('status', 'failed')->count(),
+            // Multi-target: per-player upload results across all batches.
+            'targets_done' => TorrentFileTarget::where('status', 'done')->count(),
+            'targets_failed' => TorrentFileTarget::where('status', 'failed')->count(),
             'platforms' => TorrentService::remoteHosts(),
             // Active provider + readiness so the UI can guide the admin.
             'provider' => TorrentService::defaultProvider(),
@@ -702,7 +706,9 @@ class AdminController extends Controller
     public function torrentStore(Request $request, TorrentService $service): JsonResponse
     {
         $validated = $request->validate([
-            'target_platform' => ['required', 'string', 'in:doodstream,vidmoly,streamtape,mp4upload'],
+            'target_platform' => ['nullable', 'string', 'in:doodstream,vidmoly,streamtape,mp4upload'],
+            'target_platforms' => ['nullable', 'array'],
+            'target_platforms.*' => ['string', 'in:doodstream,vidmoly,streamtape,mp4upload'],
             'season_id' => ['nullable', 'integer', 'exists:seasons,id'],
             'episode_id' => ['nullable', 'integer', 'exists:episodes,id'],
             'language' => ['nullable', 'string', 'max:16'],
@@ -711,6 +717,18 @@ class AdminController extends Controller
             'provider' => ['nullable', 'string', 'in:aria2,realdebrid'],
             'links' => ['nullable'],
         ]);
+
+        // Target player(s): accept a multi-select list OR a single platform.
+        $platforms = array_values(array_unique(array_filter((array) ($validated['target_platforms'] ?? []))));
+        if (empty($platforms) && ! empty($validated['target_platform'])) {
+            $platforms = [$validated['target_platform']];
+        }
+        if (empty($platforms)) {
+            return response()->json([
+                'message' => 'Choisissez au moins un lecteur cible.',
+                'errors' => ['target_platforms' => ['Sélectionnez au moins un lecteur.']],
+            ], 422);
+        }
 
         if (empty($validated['season_id']) && empty($validated['episode_id'])) {
             return response()->json([
@@ -745,7 +763,8 @@ class AdminController extends Controller
         }
 
         $job = TorrentDownload::create([
-            'target_platform' => $validated['target_platform'],
+            'target_platform' => $platforms[0],        // primary/legacy
+            'target_platforms' => $platforms,          // full multi-target list
             'season_id' => $validated['season_id'] ?? null,
             'episode_id' => $validated['episode_id'] ?? null,
             'language' => $validated['language'] ?? 'VOSTFR',
@@ -827,19 +846,20 @@ class AdminController extends Controller
             'season.anime:id,name',
             'episode:id,index,name,season_id',
             'submitter:id,name',
-            'files' => fn ($q) => $q->with('episode:id,index,name')->orderBy('detected_episode'),
+            'files' => fn ($q) => $q->with(['episode:id,index,name', 'targets'])->orderBy('detected_episode'),
         ]);
 
         return response()->json(['data' => $torrent]);
     }
 
     /**
-     * List the links (episodes) inside a batch.
+     * List the episodes inside a batch, each with its per-player targets
+     * (status + embed URL for every selected player).
      */
     public function torrentFiles(TorrentDownload $torrent): JsonResponse
     {
         $files = $torrent->files()
-            ->with('episode:id,index,name')
+            ->with(['episode:id,index,name', 'targets'])
             ->orderBy('detected_episode')
             ->get();
 
@@ -878,7 +898,7 @@ class AdminController extends Controller
     }
 
     /**
-     * Retry a failed batch, or re-arm its failed links.
+     * Retry a failed batch, or re-arm its failed per-player targets.
      */
     public function torrentRetry(TorrentDownload $torrent): JsonResponse
     {
@@ -888,42 +908,70 @@ class AdminController extends Controller
             return response()->json(['data' => $torrent->fresh(), 'message' => 'Batch réarmé.']);
         }
 
-        $files = $torrent->files()->where('status', 'failed')
+        // Re-arm failed per-player uploads.
+        $targets = TorrentFileTarget::whereHas('file', fn ($q) => $q->where('torrent_download_id', $torrent->id))
+            ->where('status', 'failed')->get();
+
+        // Re-arm failed files (download-stage failures, e.g. RD unrestrict).
+        $failedFiles = $torrent->files()->where('status', 'failed')->count();
+        $torrent->files()->where('status', 'failed')
             ->update(['status' => 'pending', 'error' => null, 'remote_job_id' => null]);
 
-        if ($files > 0) {
+        if ($targets->isNotEmpty()) {
+            $fileIds = $targets->pluck('torrent_file_id')->unique();
+            TorrentFileTarget::whereIn('id', $targets->pluck('id'))
+                ->update(['status' => 'pending', 'error' => null, 'remote_job_id' => null]);
+            // Put the affected episode files back to pending so they re-finalize.
+            TorrentFile::whereIn('id', $fileIds)->update(['status' => 'pending']);
+        }
+
+        $count = $targets->count() + $failedFiles;
+        if ($count > 0) {
             $torrent->update(['status' => 'processing']);
 
-            return response()->json(['data' => $torrent->fresh(), 'message' => "{$files} lien(s) réarmé(s)."]);
+            return response()->json(['data' => $torrent->fresh(), 'message' => "{$count} upload(s) réarmé(s)."]);
         }
 
         return response()->json(['message' => 'Rien à réessayer pour ce batch.'], 422);
     }
 
     /**
-     * Retry ALL failed batches and failed links.
+     * Retry ALL failed batches, files and per-player targets.
      */
     public function torrentRetryAll(): JsonResponse
     {
         $batches = TorrentDownload::where('status', 'failed')
             ->update(['status' => 'pending', 'error' => null]);
 
-        $affected = TorrentFile::where('status', 'failed')
-            ->pluck('torrent_download_id')->unique();
+        // Failed per-player targets → re-arm, and reset their files + batches.
+        $failedTargets = TorrentFileTarget::where('status', 'failed')->get(['id', 'torrent_file_id']);
+        $targets = $failedTargets->count();
+        if ($targets > 0) {
+            TorrentFileTarget::whereIn('id', $failedTargets->pluck('id'))
+                ->update(['status' => 'pending', 'error' => null, 'remote_job_id' => null]);
 
+            $fileIds = $failedTargets->pluck('torrent_file_id')->unique();
+            TorrentFile::whereIn('id', $fileIds)->update(['status' => 'pending']);
+
+            $batchIds = TorrentFile::whereIn('id', $fileIds)->pluck('torrent_download_id')->unique();
+            TorrentDownload::whereIn('id', $batchIds)->where('status', 'done')
+                ->update(['status' => 'processing']);
+        }
+
+        // Failed files (download-stage) → re-arm too.
+        $failedFileBatches = TorrentFile::where('status', 'failed')->pluck('torrent_download_id')->unique();
         $files = TorrentFile::where('status', 'failed')
             ->update(['status' => 'pending', 'error' => null, 'remote_job_id' => null]);
-
-        if ($affected->isNotEmpty()) {
-            TorrentDownload::whereIn('id', $affected)
-                ->where('status', 'done')
+        if ($failedFileBatches->isNotEmpty()) {
+            TorrentDownload::whereIn('id', $failedFileBatches)->where('status', 'done')
                 ->update(['status' => 'processing']);
         }
 
         return response()->json([
-            'message' => "{$batches} batch(es) et {$files} lien(s) réarmé(s).",
+            'message' => "{$batches} batch(es), {$files} fichier(s) et {$targets} upload(s) réarmé(s).",
             'batches' => $batches,
             'files' => $files,
+            'targets' => $targets,
         ]);
     }
 
@@ -940,5 +988,98 @@ class AdminController extends Controller
         $torrent->delete(); // cascades to torrent_files
 
         return response()->json(['message' => 'Batch supprimé.']);
+    }
+
+    /* ====================================================================
+     * RECENTLY ADDED / MODIFIED CONTENT (verify links)
+     * ==================================================================== */
+
+    /**
+     * Animes recently added or modified, with the episodes that have video
+     * links and every player URL — so the admin can click to verify playback.
+     *
+     * ?q= filters by name, ?per_page=, ?page=.
+     */
+    public function recentContent(Request $request): JsonResponse
+    {
+        $perPage = min(50, max(1, (int) $request->query('per_page', 20)));
+
+        // Animes that actually have at least one episode video link, most
+        // recently touched first.
+        $query = Anime::query()
+            ->whereHas('seasons.episodes.links')
+            ->withCount(['seasons'])
+            ->orderByDesc('updated_at');
+
+        if ($q = trim((string) $request->query('q', ''))) {
+            $query->where('name', 'like', "%{$q}%");
+        }
+
+        $paginated = $query->paginate($perPage);
+
+        $data = collect($paginated->items())->map(function (Anime $anime) {
+            // Count links + collect the distinct hosts used across this anime.
+            $links = EpisodeLink::query()
+                ->whereHas('episode.season', fn ($s) => $s->where('anime_id', $anime->id))
+                ->get(['id', 'host']);
+
+            return [
+                'id' => $anime->id,
+                'name' => $anime->name,
+                'image_url' => $anime->image_url,
+                'seasons_count' => (int) $anime->seasons_count,
+                'links_count' => $links->count(),
+                'hosts' => $links->pluck('host')->filter()->unique()->values()->all(),
+                'updated_at' => $anime->updated_at?->toDateTimeString(),
+            ];
+        })->values()->all();
+
+        return response()->json([
+            'data' => $data,
+            'current_page' => $paginated->currentPage(),
+            'last_page' => $paginated->lastPage(),
+            'total' => $paginated->total(),
+        ]);
+    }
+
+    /**
+     * Every episode link of one anime, grouped by episode, with clickable
+     * player URLs (+ a Real-Debrid quick-check link when configured) to verify.
+     */
+    public function recentContentLinks(Anime $anime): JsonResponse
+    {
+        $anime->load(['seasons' => fn ($s) => $s->orderBy('position')
+            ->with(['episodes' => fn ($e) => $e->orderBy('index')
+                ->with(['links' => fn ($l) => $l->orderBy('language')])]),
+        ]);
+
+        $rdReady = (new \App\Services\RealDebridClient())->isConfigured();
+
+        $seasons = $anime->seasons->map(function ($season) {
+            return [
+                'id' => $season->id,
+                'name' => $season->name,
+                'position' => $season->position,
+                'episodes' => $season->episodes
+                    ->filter(fn ($ep) => $ep->links->isNotEmpty())
+                    ->map(fn ($ep) => [
+                        'id' => $ep->id,
+                        'index' => $ep->index,
+                        'name' => $ep->name,
+                        'links' => $ep->links->map(fn ($l) => [
+                            'id' => $l->id,
+                            'language' => $l->language,
+                            'host' => $l->host,
+                            'url' => $l->url,
+                        ])->values()->all(),
+                    ])->values()->all(),
+            ];
+        })->values()->all();
+
+        return response()->json(['data' => [
+            'anime' => ['id' => $anime->id, 'name' => $anime->name, 'image_url' => $anime->image_url],
+            'seasons' => $seasons,
+            'realdebrid_ready' => $rdReady,
+        ]]);
     }
 }
