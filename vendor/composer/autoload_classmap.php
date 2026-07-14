@@ -7,8 +7,10 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'App\\Http\\Controllers\\Controller' => $baseDir . '/app/Http/Controllers/Controller.php',
+    'App\\Http\\Controllers\\TorrentController' => $baseDir . '/app/Http/Controllers/TorrentController.php',
     'App\\Models\\User' => $baseDir . '/app/Models/User.php',
     'App\\Providers\\AppServiceProvider' => $baseDir . '/app/Providers/AppServiceProvider.php',
+    'App\\Services\\TorrentEditorService' => $baseDir . '/app/Services/TorrentEditorService.php',
     'Attribute' => $vendorDir . '/symfony/polyfill-php80/Resources/stubs/Attribute.php',
     'Brick\\Math\\BigDecimal' => $vendorDir . '/brick/math/src/BigDecimal.php',
     'Brick\\Math\\BigInteger' => $vendorDir . '/brick/math/src/BigInteger.php',
@@ -2608,6 +2610,12 @@ return array(
     'Laravel\\AgentDetector\\AgentDetector' => $vendorDir . '/laravel/agent-detector/src/AgentDetector.php',
     'Laravel\\AgentDetector\\AgentResult' => $vendorDir . '/laravel/agent-detector/src/AgentResult.php',
     'Laravel\\AgentDetector\\KnownAgent' => $vendorDir . '/laravel/agent-detector/src/KnownAgent.php',
+    'Laravel\\Breeze\\BreezeServiceProvider' => $vendorDir . '/laravel/breeze/src/BreezeServiceProvider.php',
+    'Laravel\\Breeze\\Console\\InstallCommand' => $vendorDir . '/laravel/breeze/src/Console/InstallCommand.php',
+    'Laravel\\Breeze\\Console\\InstallsApiStack' => $vendorDir . '/laravel/breeze/src/Console/InstallsApiStack.php',
+    'Laravel\\Breeze\\Console\\InstallsBladeStack' => $vendorDir . '/laravel/breeze/src/Console/InstallsBladeStack.php',
+    'Laravel\\Breeze\\Console\\InstallsInertiaStacks' => $vendorDir . '/laravel/breeze/src/Console/InstallsInertiaStacks.php',
+    'Laravel\\Breeze\\Console\\InstallsLivewireStack' => $vendorDir . '/laravel/breeze/src/Console/InstallsLivewireStack.php',
     'Laravel\\Pail\\Console\\Commands\\PailCommand' => $vendorDir . '/laravel/pail/src/Console/Commands/PailCommand.php',
     'Laravel\\Pail\\Contracts\\Printer' => $vendorDir . '/laravel/pail/src/Contracts/Printer.php',
     'Laravel\\Pail\\File' => $vendorDir . '/laravel/pail/src/File.php',
