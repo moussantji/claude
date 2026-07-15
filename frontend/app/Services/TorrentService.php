@@ -131,12 +131,12 @@ class TorrentService
         return $out;
     }
 
-    /** Default provider from config (realdebrid = paid, preferred). */
+    /** Default provider from config (aria2 = VPS télécharge directement). */
     public static function defaultProvider(): string
     {
-        $p = strtolower((string) env('TORRENT_PROVIDER', 'realdebrid'));
+        $p = strtolower((string) env('TORRENT_PROVIDER', 'aria2'));
 
-        return in_array($p, ['aria2', 'realdebrid'], true) ? $p : 'realdebrid';
+        return in_array($p, ['aria2', 'realdebrid'], true) ? $p : 'aria2';
     }
 
     /**

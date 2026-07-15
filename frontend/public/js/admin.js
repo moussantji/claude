@@ -987,21 +987,26 @@
 
     /** Show which provider handles magnets and whether it's ready. */
     function renderProviderInfo(data) {
-        const provider = data.provider || 'realdebrid';
+        const provider = data.provider || 'aria2';
+        const isAria2 = provider === 'aria2';
         const tag = $('#tProviderTag');
         const info = $('#tProviderInfo');
         const warn = $('#tProviderWarn');
 
         if (tag) {
-            tag.textContent = '(résolu par Real-Debrid)';
+            tag.textContent = isAria2 ? '(téléchargé par le VPS — aria2)' : '(résolu par Real-Debrid)';
         }
         if (info) {
-            info.innerHTML = 'Fournisseur : <b>Real-Debrid</b> — le magnet/.torrent est résolu puis récupéré par le lecteur cible.';
+            info.innerHTML = isAria2
+                ? 'Fournisseur : <b>aria2 (VPS)</b> — le VPS télécharge le torrent directement, puis met chaque épisode en ligne.'
+                : 'Fournisseur : <b>Real-Debrid</b> — le magnet/.torrent est résolu puis récupéré par le lecteur cible.';
         }
         if (warn) {
             let msg = '';
-            if (data.debrid_ready === false) {
-                msg = 'ℹ Real-Debrid non configuré sur CE serveur — le worker qui traite la file doit avoir le token (REALDEBRID_API_TOKEN dans .env). Tu peux soumettre : les jobs attendent en file.';
+            if (isAria2 && data.aria2_ready === false) {
+                msg = 'ℹ aria2c n\'est pas détecté sur CE serveur. Sur ton VPS, installe aria2 (apt install aria2) et configure ARIA2_* dans .env, puis lance « php artisan torrents:process » (ou un cron). Tu peux déjà soumettre : les jobs attendent en file.';
+            } else if (!isAria2 && data.debrid_ready === false) {
+                msg = 'ℹ Real-Debrid non configuré sur CE serveur (REALDEBRID_API_TOKEN dans .env).';
             }
             warn.textContent = msg;
             warn.classList.toggle('hide', msg === '');
@@ -1060,40 +1065,13 @@
         const episodeId = $('#tEpisodeId').value.trim();
         const title = $('#tTitle').value.trim() || null;
         const torrentUrl = $('#tTorrentUrl').value.trim();
-        const torrentFile = $('#tTorrentFile').files[0] || null;
         const links = $('#tLinks').value.trim();
 
         if (!platforms.length) { $('#tErr').textContent = 'Cochez au moins un lecteur cible.'; return; }
-        if (!torrentUrl && !torrentFile && !links) { $('#tErr').textContent = 'Uploadez un .torrent, collez un magnet OU des liens HTTP directs.'; return; }
+        if (!torrentUrl && !links) { $('#tErr').textContent = 'Collez un lien magnet/.torrent OU des liens HTTP directs.'; return; }
         if (!seasonId && !episodeId) { $('#tErr').textContent = 'Indiquez une Saison ID (pack) ou un Épisode ID (unique).'; return; }
 
-        // Use FormData when a file is being uploaded (multipart/form-data).
-        if (torrentFile) {
-            const fd = new FormData();
-            platforms.forEach(p => fd.append('target_platforms[]', p));
-            fd.append('language', lang);
-            if (title) fd.append('title', title);
-            if (seasonId) fd.append('season_id', seasonId);
-            if (episodeId) fd.append('episode_id', episodeId);
-            fd.append('torrent_file', torrentFile);
-            // Also send the magnet/URL if provided (file takes priority server-side)
-            if (torrentUrl) fd.append('torrent_url', torrentUrl);
-
-            try {
-                const res = await apiFormData('/admin/torrents', fd);
-                toast(res.message || 'Batch créé');
-                $('#tLinks').value = '';
-                $('#tTorrentUrl').value = '';
-                $('#tTorrentFile').value = '';
-                $('#tTitle').value = '';
-                reloadTorrents();
-            } catch (e) {
-                $('#tErr').textContent = e.message + (e.errors ? ' — ' + Object.values(e.errors).flat().join(' ') : '');
-            }
-            return;
-        }
-
-        // JSON submission (magnet/URL or direct links — no file).
+        // JSON submission (magnet/URL or direct links).
         const body = { target_platforms: platforms, language: lang, title };
         if (seasonId) body.season_id = +seasonId;
         if (episodeId) body.episode_id = +episodeId;

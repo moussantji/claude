@@ -258,8 +258,9 @@
                 <button type="button" class="btn" id="torrentsClose">Fermer</button>
             </div>
             <p class="muted" style="margin:8px 0 6px">
-                Uploadez un <b>fichier .torrent</b>, collez un <b>magnet</b> ou des liens HTTP directs.
-                Real-Debrid résout le torrent, puis chaque épisode est mis en ligne sur le(s) lecteur(s) cible(s).
+                Collez un <b>lien magnet / .torrent</b> (copié depuis uTorrent, qBittorrent, etc.) :
+                le <b>VPS le télécharge directement (aria2)</b>, puis chaque épisode est mis en ligne
+                sur le(s) lecteur(s) cible(s). Ou collez des liens HTTP directs (un par ligne).
             </p>
             <p class="muted" id="tProviderInfo" style="margin:0 0 12px;font-size:12px"></p>
             <p class="muted hide" id="tProviderWarn" style="margin:0 0 12px;color:var(--danger)"></p>
@@ -299,10 +300,8 @@
                 </div>
                 <label>Titre (optionnel)</label>
                 <input id="tTitle" placeholder="ex: One Piece — Saison 1">
-                <label>Magnet / lien .torrent <span class="muted" id="tProviderTag" style="text-transform:none;font-size:11px"></span></label>
-                <input id="tTorrentUrl" placeholder="magnet:?xt=urn:btih:… ou https://…/pack.torrent">
-                <label>OU fichier .torrent <span class="muted" style="text-transform:none;font-size:11px">(upload direct, max 10 MB)</span></label>
-                <input id="tTorrentFile" type="file" accept=".torrent,application/x-bittorrent" style="padding:8px">
+                <label>Lien magnet / .torrent <span class="muted" id="tProviderTag" style="text-transform:none;font-size:11px"></span></label>
+                <input id="tTorrentUrl" placeholder="magnet:?xt=urn:btih:… (copié depuis uTorrent) ou https://…/pack.torrent">
                 <label>OU liens HTTP directs (un par ligne)</label>
                 <textarea id="tLinks" placeholder="https://seedbox.example/One.Piece.S01E01.1080p.mp4&#10;https://seedbox.example/One.Piece.S01E02.1080p.mp4&#10;…"></textarea>
                 <p class="err" id="tErr"></p>
@@ -388,6 +387,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=18"></script>
+    <script src="/js/admin.js?v=19"></script>
 </body>
 </html>
