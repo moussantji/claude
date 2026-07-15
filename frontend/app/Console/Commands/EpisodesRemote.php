@@ -241,7 +241,7 @@ class EpisodesRemote extends Command
         $this->info("Queued: {$queued} | Finalized: {$finalized['done']} | Failed: {$failed}");
 
         // Show per-host usage today
-        foreach (['doodstream', 'streamtape', 'vidmoly', 'mixdrop'] as $p) {
+        foreach (['doodstream', 'streamtape', 'vidmoly'] as $p) {
             $used = $this->dailyUsed($p, $today);
             if ($used > 0) {
                 $this->line("  {$p}: {$used}/{$this->hostDailyLimit($p, $defaultLimit)} today");
@@ -472,12 +472,6 @@ class EpisodesRemote extends Command
                 'login' => env('TRANSFER_STREAMTAPE_LOGIN', ''),
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
-            ]),
-            'mixdrop' => array_filter([
-                'email' => env('TRANSFER_MIXDROP_EMAIL', ''),
-                'api_key' => env('TRANSFER_MIXDROP_API_KEY', ''),
-                'api_base' => env('TRANSFER_MIXDROP_API_BASE', 'https://api.mixdrop.ag'),
-                'embed_base' => env('TRANSFER_MIXDROP_EMBED_BASE', 'https://mixdrop.ag'),
             ]),
             default => [],
         };

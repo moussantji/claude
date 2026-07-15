@@ -261,11 +261,6 @@ class EpisodesTransfer extends Command
                 'api_key' => $this->option('target-api-key') ?: env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
             ]),
-            'mixdrop' => array_filter([
-                'email' => env('TRANSFER_MIXDROP_EMAIL', ''),
-                'api_key' => $this->option('target-api-key') ?: env('TRANSFER_MIXDROP_API_KEY', ''),
-                'api_base' => env('TRANSFER_MIXDROP_API_BASE', 'https://api.mixdrop.ag'),
-            ]),
             'myvi' => array_filter([
                 'login' => $this->option('target-login') ?: env('TRANSFER_MYVI_LOGIN', ''),
                 'password' => $this->option('target-password') ?: env('TRANSFER_MYVI_PASSWORD', ''),

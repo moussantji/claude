@@ -6,7 +6,6 @@ use App\Services\PlayerDrivers\PlayerDriverInterface;
 use App\Services\PlayerDrivers\RemoteUploadInterface;
 use App\Services\PlayerDrivers\DailymotionDriver;
 use App\Services\PlayerDrivers\DoodstreamDriver;
-use App\Services\PlayerDrivers\MixdropDriver;
 use App\Services\PlayerDrivers\MyviDriver;
 use App\Services\PlayerDrivers\SendvidDriver;
 use App\Services\PlayerDrivers\SibnetDriver;
@@ -35,7 +34,6 @@ class PlayerTransferService
             new SendvidDriver(),
             new DoodstreamDriver(),
             new StreamtapeDriver(),
-            new MixdropDriver(),
             new MyviDriver(),
             new DailymotionDriver(),
         ];

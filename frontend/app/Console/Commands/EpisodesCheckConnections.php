@@ -78,7 +78,6 @@ class EpisodesCheckConnections extends Command
                 'vidmoly' => $this->checkVidmoly(),
                 'doodstream' => $this->checkDoodstream(),
                 'streamtape' => $this->checkStreamtape(),
-                'mixdrop' => $this->checkFilemoon(),
                 'dailymotion' => $this->checkDailymotion(),
                 'sendvid' => $this->checkGenericKey('TRANSFER_SENDVID_API_KEY', 'API key set (upload API unverified)'),
                 'sibnet' => $this->checkGenericLogin('TRANSFER_SIBNET_LOGIN', 'TRANSFER_SIBNET_PASSWORD', 'credentials set (form upload, unverified)'),
@@ -188,22 +187,6 @@ class EpisodesCheckConnections extends Command
         return strlen($body) > 60 ? substr($body, 0, 60).'…' : $body;
     }
 
-    private function checkMixdrop(): array
-    {
-        $email = env('TRANSFER_MIXDROP_EMAIL', '');
-        $key = env('TRANSFER_MIXDROP_API_KEY', '');
-        if ($email === '' || $key === '') {
-            return ['no-creds', 'TRANSFER_MIXDROP_EMAIL or TRANSFER_MIXDROP_API_KEY empty'];
-        }
-        $base = rtrim(env('TRANSFER_MIXDROP_API_BASE', 'https://api.mixdrop.ag'), '/');
-        $resp = Http::timeout(15)->acceptJson()->get("{$base}/remotestatus", ['email' => $email, 'key' => $key]);
-        if ($resp->successful() && ($resp->json('success') === true)) {
-            return ['ok', 'account reachable'];
-        }
-        $msg = $resp->json('result.msg') ?? ('HTTP ' . $resp->status());
-
-        return ['auth-fail', $msg . ' — check email/key'];
-    }
 
     private function checkDailymotion(): array
     {

@@ -18,7 +18,7 @@ use Throwable;
  * The source video is extracted, downloaded, then uploaded to the target
  * monetizing host. The DB link can be updated (or a new link added).
  *
- * Monetizing hosts (pay-per-view): doodstream, vidmoly, streamtape, mixdrop.
+ * Monetizing hosts (pay-per-view): doodstream, vidmoly, streamtape.
  *
  * Examples:
  *   # Move all sendvid/sibnet/myvi videos to doodstream (the paying host)
@@ -42,10 +42,10 @@ class EpisodesConsolidate extends Command
     private const DEFAULT_UNRELIABLE = ['sendvid', 'sibnet', 'myvi'];
 
     /** Hosts that monetize (valid targets). */
-    private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape', 'mixdrop'];
+    private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape'];
 
     protected $signature = 'episodes:consolidate
-        {--to= : Target monetizing host (doodstream, vidmoly, streamtape, mixdrop)}
+        {--to= : Target monetizing host (doodstream, vidmoly, streamtape)}
         {--from= : Comma-separated source hosts (default: sendvid,sibnet,myvi)}
         {--anime= : Only this anime (name or ID)}
         {--lang= : Only this language}
@@ -286,12 +286,6 @@ class EpisodesConsolidate extends Command
                 'login' => env('TRANSFER_STREAMTAPE_LOGIN', ''),
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
-            ]),
-            'mixdrop' => array_filter([
-                'email' => env('TRANSFER_MIXDROP_EMAIL', ''),
-                'api_key' => env('TRANSFER_MIXDROP_API_KEY', ''),
-                'api_base' => env('TRANSFER_MIXDROP_API_BASE', 'https://api.mixdrop.ag'),
-                'embed_base' => env('TRANSFER_MIXDROP_EMBED_BASE', 'https://mixdrop.ag'),
             ]),
             default => [],
         };

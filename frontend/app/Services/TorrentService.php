@@ -36,7 +36,7 @@ use Throwable;
 class TorrentService
 {
     /** Hosts that support server-to-server remote upload. */
-    private const REMOTE_HOSTS = ['doodstream', 'vidmoly', 'streamtape', 'mixdrop'];
+    private const REMOTE_HOSTS = ['doodstream', 'vidmoly', 'streamtape'];
 
     /** Video extensions kept when selecting files inside a torrent. */
     private const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'webm', 'ts', 'flv', 'mov', 'm4v', 'wmv'];
@@ -1072,7 +1072,7 @@ class TorrentService
                 $target->markQueued($result['job_id'] ?? null);
                 $this->bumpDaily($platform);
             } else {
-                // No remote upload support (e.g. MixDrop): download locally
+                // No remote upload support (e.g. hosts sans remote upload): download locally
                 // then upload. This uses disk/bandwidth but is the only option.
                 $tempDir = storage_path('app/temp-transfers');
                 if (! is_dir($tempDir)) {
@@ -1452,8 +1452,8 @@ class TorrentService
      * id) is kept. Optionally scoped to a single anime.
      *
      * When $keepOnlyManaged is true, ALSO delete every link whose player is
-     * NOT one of the managed remote hosts (doodstream/vidmoly/streamtape/
-     * mixdrop) — i.e. keep only "mes lecteurs" and remove all the rest.
+     * NOT one of the managed remote hosts (doodstream/vidmoly/streamtape)
+     * — i.e. keep only "mes lecteurs" and remove all the rest.
      *
      * @return array{removed:int, episodes:int, pruned:int}
      */
@@ -1739,12 +1739,6 @@ class TorrentService
                 'login' => env('TRANSFER_STREAMTAPE_LOGIN', ''),
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
-            ]),
-            'mixdrop' => array_filter([
-                'email' => env('TRANSFER_MIXDROP_EMAIL', ''),
-                'api_key' => env('TRANSFER_MIXDROP_API_KEY', ''),
-                'api_base' => env('TRANSFER_MIXDROP_API_BASE', 'https://api.mixdrop.ag'),
-                'embed_base' => env('TRANSFER_MIXDROP_EMBED_BASE', 'https://mixdrop.ag'),
             ]),
             default => [],
         };

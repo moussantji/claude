@@ -2,7 +2,7 @@
 
 Ce guide explique comment déployer la fonctionnalité **Torrents** : l'admin
 soumet un **magnet / lien `.torrent`**, le système le récupère puis met chaque
-épisode en ligne sur un lecteur (Doodstream, Vidmoly, Streamtape, MixDrop) et
+épisode en ligne sur un lecteur (Doodstream, Vidmoly, Streamtape) et
 crée automatiquement les liens d'épisodes.
 
 ## Comment ça marche
@@ -322,7 +322,6 @@ TORRENT_DEFAULT_DAILY_LIMIT=200
 TRANSFER_DOODSTREAM_DAILY_LIMIT=500
 TRANSFER_VIDMOLY_DAILY_LIMIT=200
 TRANSFER_STREAMTAPE_DAILY_LIMIT=200
-TRANSFER_MIXDROP_DAILY_LIMIT=200
 ```
 
 - Le compteur est **partagé** avec `episodes:remote` : même lecteur = même
