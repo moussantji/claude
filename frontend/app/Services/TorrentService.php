@@ -392,6 +392,11 @@ class TorrentService
 
         $job->refreshCounters();
 
+        // Organize downloaded files into folders (Anime/Saison_X/Episode_YY.ext).
+        foreach ($job->files()->get() as $file) {
+            $this->organizeFile($job, $file);
+        }
+
         return $created;
     }
 
@@ -563,6 +568,12 @@ class TorrentService
         }
 
         $job->refreshCounters();
+
+        // Organize slice files into folders (Anime/Saison_X/Episode_YY.ext).
+        $newFiles = $job->files()->orderByDesc('id')->limit(count($slice))->get();
+        foreach ($newFiles as $file) {
+            $this->organizeFile($job, $file);
+        }
     }
 
     /* =====================================================================
@@ -1270,29 +1281,58 @@ class TorrentService
      * EPISODE LINK CREATION
      * =================================================================== */
 
+    /**
+     * Attach the uploaded embed URL to the episode as a playable link.
+     *
+     * Avoids duplicates: if an identical (episode + url + language) link
+     * already exists, it is NOT re-created.
+     */
     private function attachToEpisode(TorrentFile $file, string $embedUrl, string $platform): void
     {
         if (! $file->episode_id) {
+            Log::warning("TorrentFile #{$file->id}: pas d'episode_id — lien non enregistré en base.");
+
             return;
         }
 
         $host = parse_url($embedUrl, PHP_URL_HOST);
         $host = is_string($host) ? preg_replace('/^www\./', '', $host) : $platform;
+        $language = $file->language ?? 'VOSTFR';
+
+        // Avoid duplicates: same episode + same URL = skip.
+        $exists = EpisodeLink::where('episode_id', $file->episode_id)
+            ->where('url', $embedUrl)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        $position = (int) EpisodeLink::where('episode_id', $file->episode_id)
+            ->where('language', $language)
+            ->max('position') + 1;
 
         EpisodeLink::create([
             'episode_id' => $file->episode_id,
-            'language' => $file->language ?? 'VOSTFR',
-            'position' => 0,
+            'language' => $language,
+            'position' => $position,
             'url' => $embedUrl,
             'host' => $host,
         ]);
+
+        Log::info("Lien créé: Episode #{$file->episode_id} → {$host} ({$language})");
     }
 
+    /**
+     * Build the upload title AND the organized folder path for the file.
+     *
+     * Pattern: Anime_Name/Saison_X/Episode_YY.ext
+     */
     private function buildTitle(TorrentDownload $job, TorrentFile $file): string
     {
         $episode = $file->episode;
         $season = $episode?->season;
-        $anime = $season?->anime;
+        $anime = $season?->anime ?? $job->anime;
 
         if ($anime) {
             return sprintf(
@@ -1305,6 +1345,87 @@ class TorrentService
         }
 
         return $job->title ?: pathinfo($file->file_name ?? 'video', PATHINFO_FILENAME);
+    }
+
+    /**
+     * Compute an organized sub-path for a downloaded file:
+     *   Anime_Name/Saison_X/Episode_YY.ext
+     *
+     * Used to rename/move files after aria2 downloads them, keeping the disk
+     * clean and browsable via FTP/SFTP.
+     */
+    private function organizedPath(TorrentDownload $job, TorrentFile $file): ?string
+    {
+        $episode = $file->episode;
+        $season = $episode?->season;
+        $anime = $season?->anime ?? $job->anime;
+
+        if (! $anime) {
+            return null; // can't organize without knowing the anime
+        }
+
+        $animeName = $this->sanitizeDirName($anime->name);
+        $seasonDir = 'Saison_' . (($season->position ?? 0) + 1);
+        $ext = pathinfo($file->file_name ?? 'video.mp4', PATHINFO_EXTENSION) ?: 'mp4';
+        $epNum = str_pad((string) ($episode->index ?? $file->detected_episode ?? 0), 2, '0', STR_PAD_LEFT);
+        $fileName = "Episode_{$epNum}.{$ext}";
+
+        return "{$animeName}/{$seasonDir}/{$fileName}";
+    }
+
+    /**
+     * After aria2 finishes downloading, move/rename the file into an organized
+     * folder structure: TORRENT_DOWNLOAD_DIR/Anime_Name/Saison_X/Episode_YY.ext
+     *
+     * This makes it easy to browse files on the VPS and know what's what.
+     */
+    private function organizeFile(TorrentDownload $job, TorrentFile $file): void
+    {
+        if (! $file->local_path || ! is_file($file->local_path)) {
+            return;
+        }
+
+        $relative = $this->organizedPath($job, $file);
+        if (! $relative) {
+            return; // can't organize — leave in place
+        }
+
+        $baseDir = $this->aria2->downloadDir();
+        $targetPath = $baseDir . '/' . $relative;
+        $targetDir = dirname($targetPath);
+
+        // Create the directory structure.
+        if (! is_dir($targetDir)) {
+            @mkdir($targetDir, 0755, true);
+        }
+
+        // Avoid overwriting: append a suffix if file exists (e.g. multi-lang).
+        if (is_file($targetPath)) {
+            $lang = $file->language ?? 'VOSTFR';
+            $ext = pathinfo($targetPath, PATHINFO_EXTENSION);
+            $base = pathinfo($targetPath, PATHINFO_FILENAME);
+            $targetPath = $targetDir . '/' . $base . "_{$lang}." . $ext;
+        }
+
+        // Move the file.
+        if (@rename($file->local_path, $targetPath)) {
+            $file->update(['local_path' => $targetPath]);
+        }
+    }
+
+    /**
+     * Sanitize a string for use as a directory name (no slashes, special chars).
+     */
+    private function sanitizeDirName(string $name): string
+    {
+        // Remove characters not safe for filesystems.
+        $name = preg_replace('/[\/\\\\:*?"<>|]/', '', $name);
+        // Trim spaces and dots.
+        $name = trim($name, ' .');
+        // Collapse multiple spaces.
+        $name = (string) preg_replace('/\s+/', ' ', $name);
+
+        return $name !== '' ? $name : 'Unknown';
     }
 
     /* =====================================================================

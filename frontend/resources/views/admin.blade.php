@@ -290,6 +290,10 @@
                 </div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
                     <div style="flex:1;min-width:120px">
+                        <label>Anime ID <span class="muted" style="text-transform:none;font-size:11px">(pour lier à la base + organiser en dossiers)</span></label>
+                        <input id="tAnimeId" type="number" placeholder="ex: 5">
+                    </div>
+                    <div style="flex:1;min-width:120px">
                         <label>Saison ID <span class="muted" style="text-transform:none;font-size:11px">(pack: mappe auto par n° d'épisode)</span></label>
                         <input id="tSeasonId" type="number" placeholder="ex: 12">
                     </div>
@@ -387,6 +391,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=19"></script>
+    <script src="/js/admin.js?v=20"></script>
 </body>
 </html>

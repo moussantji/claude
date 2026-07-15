@@ -22,6 +22,7 @@ class TorrentDownload extends Model
     protected $table = 'torrent_downloads';
 
     protected $fillable = [
+        'anime_id',
         'season_id',
         'episode_id',
         'language',
@@ -58,6 +59,11 @@ class TorrentDownload extends Model
     }
 
     /* ---- Relationships ---- */
+
+    public function anime(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Anime::class);
+    }
 
     public function files(): HasMany
     {

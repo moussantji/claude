@@ -785,10 +785,11 @@ class AdminController extends Controller
      * Body (multipart/form-data or JSON):
      *   target_platform  : doodstream|vidmoly|streamtape|mp4upload  (required)
      *   target_platforms : array of the above (multi-select)
+     *   anime_id         : the anime to associate (auto-resolves title)
      *   season_id        : season pack — files auto-matched to episodes
      *   episode_id       : single episode — everything maps to it
      *   language         : default VOSTFR
-     *   title            : optional label
+     *   title            : optional label (auto-filled from anime if anime_id given)
      *   torrent_url      : a magnet: URI or an http(s) .torrent URL
      *   torrent_file     : uploaded .torrent file (binary, multipart)
      *   links            : OR direct download links (string / array).
@@ -800,6 +801,7 @@ class AdminController extends Controller
             'target_platform' => ['nullable', 'string', 'in:doodstream,vidmoly,streamtape,mp4upload'],
             'target_platforms' => ['nullable', 'array'],
             'target_platforms.*' => ['string', 'in:doodstream,vidmoly,streamtape,mp4upload'],
+            'anime_id' => ['nullable', 'integer', 'exists:animes,id'],
             'season_id' => ['nullable', 'integer', 'exists:seasons,id'],
             'episode_id' => ['nullable', 'integer', 'exists:episodes,id'],
             'language' => ['nullable', 'string', 'max:16'],
@@ -828,6 +830,19 @@ class AdminController extends Controller
             ], 422);
         }
 
+        // If anime_id is provided, auto-resolve title from the anime name.
+        $animeId = $validated['anime_id'] ?? null;
+        $anime = $animeId ? Anime::find($animeId) : null;
+        $title = $validated['title'] ?? null;
+        if ($anime && ! $title) {
+            $season = isset($validated['season_id'])
+                ? Season::find($validated['season_id'])
+                : null;
+            $title = $season
+                ? "{$anime->name} — {$season->name}"
+                : $anime->name;
+        }
+
         // Determine torrent source: uploaded file > URL/magnet > direct links
         $torrentUrl = trim((string) ($validated['torrent_url'] ?? ''));
         $torrentFilePath = null;
@@ -847,8 +862,8 @@ class AdminController extends Controller
 
         $isTorrent = $torrentFilePath !== null || $torrentUrl !== '';
 
-        // Provider: always realdebrid by default.
-        $provider = 'realdebrid';
+        // Provider: aria2 by default (VPS downloads directly).
+        $provider = TorrentService::defaultProvider();
 
         // Validate URL format (only when using a URL, not a file upload).
         if ($torrentFilePath === null && $torrentUrl !== '' && ! preg_match('#^(magnet:|https?://)#i', $torrentUrl)) {
@@ -869,10 +884,11 @@ class AdminController extends Controller
         $job = TorrentDownload::create([
             'target_platform' => $platforms[0],        // primary/legacy
             'target_platforms' => $platforms,          // full multi-target list
+            'anime_id' => $animeId,
             'season_id' => $validated['season_id'] ?? null,
             'episode_id' => $validated['episode_id'] ?? null,
             'language' => $validated['language'] ?? 'VOSTFR',
-            'title' => $validated['title'] ?? null,
+            'title' => $title,
             'torrent_url' => $torrentUrl !== '' ? $torrentUrl : null,
             'torrent_file_path' => $torrentFilePath,
             'provider' => $provider,
@@ -882,7 +898,8 @@ class AdminController extends Controller
 
         if ($isTorrent) {
             $source = $torrentFilePath ? 'fichier .torrent uploadé' : 'magnet/URL';
-            $message = "Torrent en file ({$source}) — Real-Debrid va le résoudre puis envoyer les épisodes au lecteur.";
+            $providerLabel = $provider === 'aria2' ? 'Le VPS va le télécharger (aria2)' : 'Real-Debrid va le résoudre';
+            $message = "Torrent en file ({$source}) — {$providerLabel} puis envoyer les épisodes au lecteur.";
         } else {
             $count = $service->createFilesFromLinks($job, $links);
             $message = "Batch créé — {$count} lien(s) en file.";

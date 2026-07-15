@@ -1061,6 +1061,7 @@
         $('#tErr').textContent = '';
         const platforms = selectedPlatforms();
         const lang = $('#tLang').value.trim() || 'VOSTFR';
+        const animeId = $('#tAnimeId').value.trim();
         const seasonId = $('#tSeasonId').value.trim();
         const episodeId = $('#tEpisodeId').value.trim();
         const title = $('#tTitle').value.trim() || null;
@@ -1073,6 +1074,7 @@
 
         // JSON submission (magnet/URL or direct links).
         const body = { target_platforms: platforms, language: lang, title };
+        if (animeId) body.anime_id = +animeId;
         if (seasonId) body.season_id = +seasonId;
         if (episodeId) body.episode_id = +episodeId;
         // A magnet/.torrent takes precedence over pasted links.
