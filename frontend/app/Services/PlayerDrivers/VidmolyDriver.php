@@ -25,7 +25,10 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
 
     protected function xfsBase(array $credentials): string
     {
-        return rtrim($credentials['api_base'] ?? 'https://api.vidmoly.to', '/') . '/api';
+        // File management (folder/create, set_folder, rename, file/info) lives
+        // on vidmoly.me/api — which DIFFERS from the upload API base
+        // (api.vidmoly.to). Using the wrong domain made folders + rename fail.
+        return rtrim($credentials['file_api_base'] ?? env('TRANSFER_VIDMOLY_FILE_API_BASE', 'https://vidmoly.me/api'), '/');
     }
 
     protected function xfsAuth(array $credentials): array
@@ -33,10 +36,10 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
         return ['key' => $credentials['api_key'] ?? ''];
     }
 
-    // Vidmoly (XFileSharing) uses "name" for file rename.
+    // Vidmoly uses "title" for file rename (per official API examples).
     protected function xfsRenameParam(): string
     {
-        return 'name';
+        return 'title';
     }
 
     /** XFileSharing remote upload: /api/upload/url?key=&url= */

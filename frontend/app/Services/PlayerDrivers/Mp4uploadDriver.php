@@ -149,9 +149,9 @@ class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, F
         // CRITICAL: the sess_id comes from the /upload/server RESPONSE, not the
         // API key. Uploading with the wrong sess_id makes the file never arrive.
         $sessId = $serverResp->json('sess_id') ?: $apiKey;
-        $utype = $credentials['utype'] ?? env('TRANSFER_MP4UPLOAD_UTYPE', 'prem');
 
-        // 2. Upload the file. XFileSharing multipart: sess_id + utype + file_0.
+        // 2. Upload the file. Per mp4upload's official sample form, the minimal
+        //    multipart is just: sess_id + file (field literally named "file").
         $handle = fopen($localPath, 'r');
         if (! $handle) {
             throw new RuntimeException("Cannot open file: {$localPath}");
@@ -159,10 +159,9 @@ class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, F
 
         try {
             $response = Http::timeout(1800)
-                ->attach('file_0', $handle, basename($localPath))
+                ->attach('file', $handle, basename($localPath))
                 ->post($uploadUrl, [
                     'sess_id' => $sessId,
-                    'utype' => $utype,
                 ]);
         } finally {
             if (is_resource($handle)) {
