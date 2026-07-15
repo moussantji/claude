@@ -629,9 +629,26 @@ class AdminController extends Controller
     /**
      * List batches (paginated, filterable by status).
      */
-    public function torrentIndex(Request $request): JsonResponse
+    public function torrentIndex(Request $request, TorrentService $service): JsonResponse
     {
         $hasTargets = \Illuminate\Support\Facades\Schema::hasTable('torrent_file_targets');
+
+        // Auto-poll: advance batches stuck in "processing" that have queued
+        // targets. This replaces the need for a cron/process command when
+        // using direct links — the admin just refreshes the page and the
+        // remote upload statuses get checked automatically.
+        if ($hasTargets) {
+            $processingBatches = TorrentDownload::where('status', 'processing')
+                ->limit(5)
+                ->get();
+            foreach ($processingBatches as $batch) {
+                try {
+                    $service->processJob($batch);
+                } catch (\Throwable) {
+                    // Don't break the page listing if processJob fails.
+                }
+            }
+        }
 
         $query = TorrentDownload::query()
             ->withCount('files')
