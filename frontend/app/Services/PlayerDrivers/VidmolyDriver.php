@@ -52,7 +52,7 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
         }
 
         $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/api/upload/url", [
-            'key' => $key, 'url' => $sourceUrl, 'file_title' => $title ?: null,
+            'key' => $key, 'url' => $sourceUrl,
         ]);
 
         if ($resp->failed()) {
@@ -175,13 +175,11 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
             throw new RuntimeException('Vidmoly did not return an upload URL.');
         }
 
-        // 2. Upload file
+        // 2. Upload file — do NOT pass file_title so the player keeps the
+        // original filename and extension as-is.
         $fields = ['key' => $apiKey];
         if ($sessId) {
             $fields['sess_id'] = $sessId;
-        }
-        if ($title) {
-            $fields['file_title'] = $title;
         }
 
         $handle = fopen($localPath, 'r');

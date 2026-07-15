@@ -226,10 +226,16 @@ class TorrentService
             $this->finalizeFiles($job);
 
             $job->refreshCounters();
+            $job->refresh(); // reload in-memory state after counter updates
 
             // Done when no episode file is still awaiting its players.
             $remaining = $job->files()->where('status', 'pending')->count();
-            if ($remaining === 0) {
+            $queued = TorrentFileTarget::query()
+                ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
+                ->whereIn('status', ['pending', 'queued'])
+                ->count();
+
+            if ($remaining === 0 && $queued === 0) {
                 // Slice mode: if more slices remain to download, go back to the
                 // download stage instead of finishing (the uploaded slice's
                 // local files were already deleted, freeing the disk).

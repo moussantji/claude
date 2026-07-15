@@ -89,22 +89,7 @@ trait OrganizesViaXFileSharing
             }
         }
 
-        // Rename to a clean title. Send BOTH param names (name|title) since the
-        // exact one varies per host; unknown params are ignored server-side.
-        if ($title !== null && $title !== '') {
-            try {
-                $resp = Http::timeout(20)->acceptJson()->get("{$base}/file/rename", array_merge($auth, [
-                    'file_code' => $fileCode,
-                    'name' => $title,
-                    'title' => $title,
-                ]));
-                if ($resp->successful()) {
-                    $any = true;
-                }
-            } catch (Throwable) {
-                // rename is best-effort
-            }
-        }
+        // Do NOT rename — keep the original filename and extension as-is.
 
         return $any;
     }

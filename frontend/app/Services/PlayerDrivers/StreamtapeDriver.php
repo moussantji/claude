@@ -134,15 +134,7 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             }
         }
 
-        if ($title !== null && $title !== '') {
-            try {
-                Http::timeout(20)->acceptJson()->get("{$apiBase}/file/rename", [
-                    'login' => $login, 'key' => $key, 'file' => $fileCode, 'name' => $title,
-                ]);
-            } catch (Throwable) {
-                // best-effort
-            }
-        }
+        // Do NOT rename — keep the original filename and extension as-is.
 
         return $ok;
     }
@@ -161,11 +153,12 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             throw new RuntimeException('Streamtape credentials (login/api_key) missing.');
         }
 
+        // Do NOT pass 'name' — let Streamtape use the default filename from
+        // the source URL (keeps original name + extension as-is on the player).
         $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/remotedl/add", [
             'login' => $login,
             'key' => $key,
             'url' => $sourceUrl,
-            'name' => $title !== '' ? $title.'.mp4' : null,
         ]);
 
         if ($resp->failed() || (int) $resp->json('status') !== 200) {
@@ -190,22 +183,51 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             'login' => $login, 'key' => $key, 'id' => $jobId,
         ]);
 
-        $entry = $resp->json("result.{$jobId}");
+        if (! $resp->successful()) {
+            return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
+        }
+
+        // The API can return the entry directly as result.{id} or as the first
+        // (and only) element inside result when queried by a single id.
+        $result = $resp->json('result');
+        $entry = null;
+
+        if (is_array($result)) {
+            // Try by key first: result.{jobId}
+            if (isset($result[$jobId]) && is_array($result[$jobId])) {
+                $entry = $result[$jobId];
+            } else {
+                // Some API versions return result as a single object directly
+                // when queried by id, or the first array element.
+                foreach ($result as $val) {
+                    if (is_array($val) && isset($val['id'])) {
+                        $entry = $val;
+                        break;
+                    }
+                }
+                // If result itself looks like an entry (has 'id' key)
+                if (! $entry && isset($result['id'])) {
+                    $entry = $result;
+                }
+            }
+        }
+
         if (! is_array($entry)) {
             return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
         }
 
-        $status = (string) ($entry['status'] ?? 'new');
+        $status = strtolower(trim((string) ($entry['status'] ?? 'new')));
+
+        // Error states
         if (in_array($status, ['error', 'failed'], true)) {
             return ['state' => 'error', 'embed_url' => null, 'file_code' => null, 'error' => 'remote download failed'];
         }
 
-        // `extid` is set once the file exists on Streamtape (remote download
-        // finished). The embed link is then valid — Streamtape keeps converting
-        // server-side, but we don't block on that (relying on a specific status
-        // string was fragile and left files stuck as "pending"/"converting").
-        $extid = $entry['extid'] ?? false;
-        if (is_string($extid) && $extid !== '') {
+        // `extid` is set once the file is saved on Streamtape. It's `false` or
+        // empty while still downloading. Once it's a non-empty string, the
+        // embed link is valid (the file may still be converting but is playable).
+        $extid = $entry['extid'] ?? null;
+        if (is_string($extid) && $extid !== '' && $extid !== 'false') {
             return [
                 'state' => 'done',
                 'embed_url' => "https://streamtape.com/e/{$extid}",
@@ -214,9 +236,34 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             ];
         }
 
-        // Some responses expose the final URL directly.
-        if (! empty($entry['url']) && is_string($entry['url'])) {
-            return ['state' => 'done', 'embed_url' => $entry['url'], 'file_code' => null, 'error' => null];
+        // If status is "downloaded" or "finished" but extid is not yet
+        // populated, treat it as done by checking if a URL is provided.
+        if (in_array($status, ['downloaded', 'finished'], true)) {
+            if (! empty($entry['url']) && is_string($entry['url'])) {
+                // Extract the file code from the URL if possible.
+                $code = null;
+                if (preg_match('#/(?:v|e)/([a-zA-Z0-9]+)#', $entry['url'], $m)) {
+                    $code = $m[1];
+                }
+
+                return [
+                    'state' => 'done',
+                    'embed_url' => $code ? "https://streamtape.com/e/{$code}" : $entry['url'],
+                    'file_code' => $code,
+                    'error' => null,
+                ];
+            }
+        }
+
+        // Some responses expose the final URL directly even before status changes.
+        if (! empty($entry['url']) && is_string($entry['url']) && $entry['url'] !== 'false') {
+            $code = null;
+            if (preg_match('#/(?:v|e)/([a-zA-Z0-9]+)#', $entry['url'], $m)) {
+                $code = $m[1];
+            }
+            if ($code) {
+                return ['state' => 'done', 'embed_url' => "https://streamtape.com/e/{$code}", 'file_code' => $code, 'error' => null];
+            }
         }
 
         return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
@@ -327,8 +374,9 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
         }
 
         try {
+            // Always use the real filename (keeps original name + extension on the player).
             $response = Http::timeout(900)
-                ->attach('file1', $handle, $title ?: basename($localPath))
+                ->attach('file1', $handle, basename($localPath))
                 ->post($uploadUrl);
         } finally {
             if (is_resource($handle)) {

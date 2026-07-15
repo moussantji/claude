@@ -46,7 +46,7 @@ class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, F
         }
 
         $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/upload/url", [
-            'key' => $key, 'url' => $sourceUrl, 'file_title' => $title ?: null,
+            'key' => $key, 'url' => $sourceUrl,
         ]);
 
         if ($resp->failed()) {
@@ -187,17 +187,6 @@ class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, F
 
         if (! $code) {
             throw new RuntimeException('Mp4upload: aucun file_code retourné. Réponse: ' . mb_substr($response->body(), 0, 200));
-        }
-
-        // Set a clean title (best-effort) via the rename endpoint.
-        if ($title !== '') {
-            try {
-                Http::timeout(20)->acceptJson()->get("{$apiBase}/file/rename", [
-                    'key' => $apiKey, 'file_code' => $code, 'name' => $title,
-                ]);
-            } catch (Throwable) {
-                // non-fatal
-            }
         }
 
         return [

@@ -11,6 +11,7 @@ use App\Models\Season;
 use App\Models\TorrentDownload;
 use App\Models\TorrentFile;
 use App\Models\TorrentFileTarget;
+use App\Models\TorrentFileTarget;
 use App\Models\TransferProgress;
 use App\Models\User;
 use App\Services\TorrentService;
@@ -668,7 +669,9 @@ class AdminController extends Controller
         // Ensure uploads_done is always set. If the targets count is 0 (or the
         // multi-target table doesn't exist), fall back to counting files that
         // stored an embed_url directly (legacy single-target batches).
-        $result->getCollection()->transform(function (TorrentDownload $batch) {
+        // Also self-heal: if all work is finished but the batch is stuck in
+        // "processing", advance it to "done" so the UI reflects reality.
+        $result->getCollection()->transform(function (TorrentDownload $batch) use ($hasTargets) {
             $uploads = (int) ($batch->uploads_done ?? 0);
             if ($uploads === 0) {
                 $uploads = $batch->files()
@@ -677,6 +680,28 @@ class AdminController extends Controller
                     ->count();
             }
             $batch->uploads_done = $uploads;
+
+            // Self-heal stuck batches: if the batch is still "processing" but
+            // there's nothing pending/queued, advance to "done". This covers the
+            // case where the last poll marked everything done but processJob()
+            // didn't run again to call markDone().
+            if ($batch->status === 'processing') {
+                $stillWorking = false;
+                if ($hasTargets) {
+                    $stillWorking = TorrentFileTarget::whereHas('file', fn ($q) => $q->where('torrent_download_id', $batch->id))
+                        ->whereIn('status', ['pending', 'queued'])
+                        ->exists();
+                }
+                if (! $stillWorking) {
+                    $stillWorking = $batch->files()->where('status', 'pending')->exists();
+                }
+                if (! $stillWorking) {
+                    $batch->update(['status' => 'done', 'error' => null]);
+                    $batch->status = 'done';
+                    // Also refresh the file counters so they're accurate.
+                    $batch->refreshCounters();
+                }
+            }
 
             return $batch;
         });
