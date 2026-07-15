@@ -12,7 +12,7 @@ use Throwable;
  * Extract: parse the embed page JS to find the direct .mp4/.m3u8 source.
  * Upload: standard XFileSharing API flow (get upload server → POST file).
  */
-class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface
+class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface, FileStatusInterface
 {
     use OrganizesViaXFileSharing;
 

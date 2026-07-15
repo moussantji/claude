@@ -320,6 +320,7 @@
                 <button class="btn btn--primary" id="tProcessBtn" title="Traiter la file maintenant (résout les torrents + envoie aux lecteurs)">▶ Traiter maintenant</button>
                 <button class="btn" id="tContentBtn" title="Animes ajoutés/modifiés récemment + liens de vérification">📚 Contenu ajouté</button>
                 <button class="btn" id="tRetryAllBtn" title="Réarmer tous les échecs">↻ Réessayer erreurs</button>
+                <button class="btn" id="tCleanupBtn" title="Garder un seul lien par lecteur et par langue pour chaque épisode">🧹 Dédupliquer les liens</button>
                 <button class="btn" id="tRefreshBtn">Actualiser</button>
             </div>
             <div id="torrentList" style="max-height:44vh;overflow-y:auto"></div>
@@ -391,6 +392,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=24"></script>
+    <script src="/js/admin.js?v=25"></script>
 </body>
 </html>

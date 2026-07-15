@@ -8,6 +8,7 @@ use App\Models\TorrentDownload;
 use App\Models\TorrentFile;
 use App\Models\TorrentFileTarget;
 use App\Services\CodecDetector;
+use App\Services\PlayerDrivers\FileStatusInterface;
 use App\Services\PlayerDrivers\FolderOrganizerInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -1336,13 +1337,18 @@ class TorrentService
         $host = is_string($host) ? preg_replace('/^www\./', '', $host) : $platform;
         $language = $file->language ?? 'VOSTFR';
 
-        // Avoid duplicates: same episode + same URL = skip.
-        $exists = EpisodeLink::where('episode_id', $file->episode_id)
-            ->where('url', $embedUrl)
-            ->exists();
-
-        if ($exists) {
-            return false;
+        // Enforce ONE link per player per language: remove any existing link
+        // of the SAME player (resolved from its host domain) for this episode
+        // + language, then insert the new one ("replace" instead of stacking).
+        foreach (EpisodeLink::where('episode_id', $file->episode_id)->where('language', $language)->get() as $link) {
+            $linkPlatform = $this->platformForHost($link->host) ?? $link->host;
+            if ($linkPlatform !== $platform) {
+                continue;
+            }
+            if ($link->url === $embedUrl) {
+                return false; // identical link already present — nothing to do
+            }
+            $link->delete(); // stale link for this player → replace it
         }
 
         $position = (int) EpisodeLink::where('episode_id', $file->episode_id)
@@ -1360,6 +1366,58 @@ class TorrentService
         Log::info("Lien créé: Episode #{$file->episode_id} → {$host} ({$language})");
 
         return true;
+    }
+
+    /** Resolve the player/platform name from a stored link host domain. */
+    private function platformForHost(?string $host): ?string
+    {
+        if (! $host) {
+            return null;
+        }
+
+        return $this->transferService->driverForHost($host)?->name();
+    }
+
+    /**
+     * Deduplicate episode links: keep ONE link per (player, language) per
+     * episode, deleting the extra/similar ones. The most recent link (highest
+     * id) is kept. Optionally scoped to a single anime.
+     *
+     * @return array{removed:int, episodes:int}
+     */
+    public function deduplicateLinks(?int $animeId = null): array
+    {
+        $removed = 0;
+        $episodesAffected = 0;
+
+        $query = Episode::query()->whereHas('links');
+        if ($animeId !== null) {
+            $query->whereHas('season', fn ($q) => $q->where('anime_id', $animeId));
+        }
+
+        $query->with('links')->chunkById(200, function ($episodes) use (&$removed, &$episodesAffected) {
+            foreach ($episodes as $episode) {
+                $seen = [];
+                $toDelete = [];
+                // Newest first so the most recent link of each player is kept.
+                foreach ($episode->links->sortByDesc('id') as $link) {
+                    $platform = $this->platformForHost($link->host) ?? strtolower((string) $link->host);
+                    $key = $platform . '|' . strtolower((string) ($link->language ?? ''));
+                    if (isset($seen[$key])) {
+                        $toDelete[] = $link->id;
+                    } else {
+                        $seen[$key] = true;
+                    }
+                }
+                if (! empty($toDelete)) {
+                    EpisodeLink::whereIn('id', $toDelete)->delete();
+                    $removed += count($toDelete);
+                    $episodesAffected++;
+                }
+            }
+        });
+
+        return ['removed' => $removed, 'episodes' => $episodesAffected];
     }
 
     /**
@@ -1423,6 +1481,21 @@ class TorrentService
                 if (! $file || ! $file->episode_id || ! $target->embed_url) {
                     continue;
                 }
+
+                // Verify the file is really on the host before publishing the
+                // link (if the host exposes a file-info endpoint).
+                if (! empty($target->file_code)) {
+                    $driver = $this->transferService->driverByName($target->platform);
+                    if ($driver instanceof FileStatusInterface) {
+                        $exists = $driver->fileExists((string) $target->file_code, $this->getCredentials($target->platform));
+                        if ($exists === false) {
+                            Log::warning("Sync: fichier absent sur {$target->platform} (code {$target->file_code}) — lien ignoré.");
+
+                            continue;
+                        }
+                    }
+                }
+
                 if ($this->attachToEpisode($file, $target->embed_url, $target->platform)) {
                     $created++;
                 }

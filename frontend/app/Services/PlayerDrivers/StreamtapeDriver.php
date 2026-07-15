@@ -12,11 +12,47 @@ use Throwable;
  * Extract: Streamtape hides the direct link in obfuscated JS. We reconstruct it.
  * Upload: Uses the Streamtape API.
  */
-class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface
+class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface, FileStatusInterface
 {
     public function name(): string
     {
         return 'streamtape';
+    }
+
+    /** Check file existence via /file/info?file={code} (status 200 = present). */
+    public function fileExists(string $fileCode, array $credentials): ?bool
+    {
+        $login = $credentials['login'] ?? '';
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://api.streamtape.com', '/');
+        if ($login === '' || $key === '') {
+            return null;
+        }
+
+        try {
+            $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/info", [
+                'login' => $login, 'key' => $key, 'file' => $fileCode,
+            ]);
+            if (! $resp->successful()) {
+                return null;
+            }
+            $entry = $resp->json("result.{$fileCode}");
+            if (is_array($entry)) {
+                return (int) ($entry['status'] ?? 0) === 200;
+            }
+            $result = $resp->json('result');
+            if (is_array($result)) {
+                foreach ($result as $e) {
+                    if (is_array($e)) {
+                        return (int) ($e['status'] ?? 0) === 200;
+                    }
+                }
+            }
+
+            return null;
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /* ---- Folder organization (Streamtape file management API) ---- */

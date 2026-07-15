@@ -9,7 +9,7 @@ use Throwable;
 /**
  * Driver for Mp4upload.com (XFileSharing-based).
  */
-class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface
+class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface, FileStatusInterface
 {
     use OrganizesViaXFileSharing;
 

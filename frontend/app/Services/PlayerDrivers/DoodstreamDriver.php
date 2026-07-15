@@ -13,7 +13,7 @@ use Throwable;
  *          parse the embed page and reconstruct the download URL.
  * Upload: Uses the Doodstream API (XFileSharing derivative).
  */
-class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface
+class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface, FileStatusInterface
 {
     use OrganizesViaXFileSharing;
 

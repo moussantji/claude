@@ -1115,6 +1115,22 @@ class AdminController extends Controller
     }
 
     /**
+     * Deduplicate episode links: keep one link per player per language per
+     * episode across the whole catalog (or a single anime with ?anime_id=).
+     */
+    public function torrentCleanupLinks(Request $request, TorrentService $service): JsonResponse
+    {
+        $animeId = $request->input('anime_id');
+        $result = $service->deduplicateLinks($animeId !== null ? (int) $animeId : null);
+
+        return response()->json([
+            'message' => "{$result['removed']} lien(s) en double supprimé(s) sur {$result['episodes']} épisode(s).",
+            'removed' => $result['removed'],
+            'episodes' => $result['episodes'],
+        ]);
+    }
+
+    /**
      * Retry ALL failed batches, files and per-player targets.
      */
     public function torrentRetryAll(): JsonResponse

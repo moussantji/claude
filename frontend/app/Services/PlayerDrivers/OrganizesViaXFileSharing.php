@@ -149,4 +149,43 @@ trait OrganizesViaXFileSharing
 
         return trim((string) preg_replace('/\s+/', ' ', $name));
     }
+
+    /**
+     * Check a file's existence via {base}/file/info?...&file_code=CODE.
+     * Standard XFileSharing: result is a list of entries, status 200 = present.
+     *
+     * @return bool|null true = present, false = absent, null = unknown.
+     */
+    public function fileExists(string $fileCode, array $credentials): ?bool
+    {
+        $base = rtrim($this->xfsBase($credentials), '/');
+        $auth = $this->xfsAuth($credentials);
+
+        try {
+            $resp = Http::timeout(20)->acceptJson()->get("{$base}/file/info", array_merge($auth, [
+                'file_code' => $fileCode,
+            ]));
+            if (! $resp->successful()) {
+                return null;
+            }
+            $result = $resp->json('result');
+            if (! is_array($result)) {
+                return null;
+            }
+            $any = false;
+            foreach ($result as $entry) {
+                if (! is_array($entry)) {
+                    continue;
+                }
+                $any = true;
+                if ((int) ($entry['status'] ?? 0) === 200) {
+                    return true;
+                }
+            }
+
+            return $any ? false : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
 }

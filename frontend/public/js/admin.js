@@ -539,6 +539,7 @@
         $('#tSubmitBtn').addEventListener('click', submitTorrent);
         $('#tRefreshBtn').addEventListener('click', reloadTorrents);
         $('#tRetryAllBtn').addEventListener('click', () => torrentAction('/admin/torrents/retry-all', 'Réarmer TOUS les échecs (batches + liens) ?'));
+        $('#tCleanupBtn').addEventListener('click', cleanupLinks);
         $('#tMigrateBtn').addEventListener('click', runMigrate);
         $('#tProcessBtn').addEventListener('click', processTorrentsNow);
         $('#torrentFilesClose').addEventListener('click', () => $('#torrentFilesModal').classList.remove('open'));
@@ -1060,6 +1061,14 @@
             if (!confirm('Supprimer ce batch et ses liens ?')) return;
             torrentDelete(b.dataset.tdel);
         }));
+    }
+
+    async function cleanupLinks() {
+        if (!confirm('Dédupliquer les liens de TOUT le catalogue ?\n\nChaque épisode ne gardera qu\'UN lien par lecteur et par langue (le plus récent). Les doublons sont supprimés. Action irréversible.')) return;
+        try {
+            const res = await api('/admin/torrents/cleanup-links', { method: 'POST' });
+            toast(res.message || 'Liens dédupliqués');
+        } catch (e) { toast(e.message); }
     }
 
     async function torrentSyncLinks(id) {
