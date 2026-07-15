@@ -146,13 +146,12 @@ class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, F
             throw new RuntimeException('Mp4upload did not return an upload URL.');
         }
 
-        // The XFileSharing cgi endpoint expects ?upload_type=file.
-        if (! str_contains($uploadUrl, 'upload_type=')) {
-            $uploadUrl .= (str_contains($uploadUrl, '?') ? '&' : '?') . 'upload_type=file';
-        }
+        // CRITICAL: the sess_id comes from the /upload/server RESPONSE, not the
+        // API key. Uploading with the wrong sess_id makes the file never arrive.
+        $sessId = $serverResp->json('sess_id') ?: $apiKey;
+        $utype = $credentials['utype'] ?? env('TRANSFER_MP4UPLOAD_UTYPE', 'prem');
 
-        // 2. Upload the file. XFileSharing multipart requires:
-        //    sess_id = API key, utype = reg, and the file field named file_0.
+        // 2. Upload the file. XFileSharing multipart: sess_id + utype + file_0.
         $handle = fopen($localPath, 'r');
         if (! $handle) {
             throw new RuntimeException("Cannot open file: {$localPath}");
@@ -162,10 +161,8 @@ class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, F
             $response = Http::timeout(1800)
                 ->attach('file_0', $handle, basename($localPath))
                 ->post($uploadUrl, [
-                    'sess_id' => $apiKey,
-                    'utype' => 'reg',
-                    'file_public' => '1',
-                    'file_descr' => $title,
+                    'sess_id' => $sessId,
+                    'utype' => $utype,
                 ]);
         } finally {
             if (is_resource($handle)) {

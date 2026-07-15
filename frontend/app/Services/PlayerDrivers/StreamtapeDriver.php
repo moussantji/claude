@@ -66,7 +66,7 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             return null;
         }
 
-        $parent = '0';
+        $parent = null; // null = root (Streamtape: omit the param for root)
         foreach ($segments as $segment) {
             $name = trim((string) preg_replace('/[\/\\\\:*?"<>|]/', '', $segment));
             if ($name === '') {
@@ -76,9 +76,11 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             // Look for an existing subfolder with this name.
             $found = null;
             try {
-                $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/listfolder", [
-                    'login' => $login, 'key' => $key, 'folder' => $parent,
-                ]);
+                $listParams = ['login' => $login, 'key' => $key];
+                if ($parent !== null) {
+                    $listParams['folder'] = $parent;
+                }
+                $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/listfolder", $listParams);
                 foreach ($resp->json('result.folders') ?? [] as $f) {
                     if (strcasecmp((string) ($f['name'] ?? ''), $name) === 0) {
                         $found = (string) ($f['id'] ?? '');
@@ -91,9 +93,11 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
 
             if ($found === null || $found === '') {
                 try {
-                    $c = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/createfolder", [
-                        'login' => $login, 'key' => $key, 'name' => $name, 'pid' => $parent,
-                    ]);
+                    $createParams = ['login' => $login, 'key' => $key, 'name' => $name];
+                    if ($parent !== null) {
+                        $createParams['pid'] = $parent; // omit at root
+                    }
+                    $c = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/createfolder", $createParams);
                     $found = $c->json('result.folderid');
                 } catch (Throwable) {
                     return null;
