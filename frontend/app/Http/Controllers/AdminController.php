@@ -633,15 +633,18 @@ class AdminController extends Controller
     {
         $hasTargets = \Illuminate\Support\Facades\Schema::hasTable('torrent_file_targets');
 
-        // Auto-poll: advance batches stuck in "processing" that have queued
-        // targets. This replaces the need for a cron/process command when
-        // using direct links — the admin just refreshes the page and the
-        // remote upload statuses get checked automatically.
+        // Auto-poll: advance batches that are in-flight (processing, pending,
+        // downloading, resolving). This replaces the need for a cron/process
+        // command when using direct links — the admin just refreshes the page
+        // and the remote upload statuses get checked automatically. Each batch
+        // gets one processJob() pass per page load (bounded to 5 batches max
+        // to keep the response time reasonable).
         if ($hasTargets) {
-            $processingBatches = TorrentDownload::where('status', 'processing')
+            $inflightBatches = TorrentDownload::whereIn('status', ['pending', 'processing', 'downloading', 'resolving'])
+                ->orderBy('updated_at')
                 ->limit(5)
                 ->get();
-            foreach ($processingBatches as $batch) {
+            foreach ($inflightBatches as $batch) {
                 try {
                     $service->processJob($batch);
                 } catch (\Throwable) {
@@ -803,7 +806,7 @@ class AdminController extends Controller
     {
         @set_time_limit(120); // best-effort; shared hosting may cap this
 
-        $limit = 3;
+        $limit = 5;
 
         // In-flight first (aria2 download / RD resolution / upload), then new.
         $jobs = TorrentDownload::whereIn('status', ['downloading', 'resolving', 'processing'])
@@ -823,10 +826,21 @@ class AdminController extends Controller
 
         $results = [];
         foreach ($jobs as $job) {
-            try {
-                $service->processJob($job);
-            } catch (\Throwable $e) {
-                // processJob already marks the job failed; keep going.
+            // Run multiple passes per batch so that submit + poll + finalize
+            // can all happen in one "Traiter maintenant" click (important for
+            // multi-player batches with many targets).
+            $passes = $job->isProcessing() ? 3 : 1;
+            for ($i = 0; $i < $passes; $i++) {
+                try {
+                    $service->processJob($job);
+                } catch (\Throwable $e) {
+                    // processJob already marks the job failed; keep going.
+                    break;
+                }
+                $job->refresh();
+                if ($job->isDone() || $job->isFailed()) {
+                    break;
+                }
             }
             $job->refresh();
             $results[] = [
