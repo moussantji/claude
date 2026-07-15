@@ -1063,7 +1063,7 @@
     }
 
     async function torrentSyncLinks(id) {
-        if (!confirm('Créer les liens dans la base pour ce batch ?\n\nÀ faire une fois que vous avez vérifié sur le lecteur que les épisodes sont bien en ligne.')) return;
+        if (!confirm('Créer les liens dans la base ET ranger les fichiers en dossiers sur le lecteur (Anime/Saison/Episode) ?\n\nÀ faire une fois que vous avez vérifié sur le lecteur que les épisodes sont bien en ligne. Les liens ne changent pas.')) return;
         try {
             const res = await api(`/admin/torrents/${id}/sync-links`, { method: 'POST' });
             toast(res.message || 'Base mise à jour');

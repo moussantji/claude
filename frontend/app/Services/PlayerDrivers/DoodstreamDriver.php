@@ -13,11 +13,30 @@ use Throwable;
  *          parse the embed page and reconstruct the download URL.
  * Upload: Uses the Doodstream API (XFileSharing derivative).
  */
-class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
+class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface
 {
+    use OrganizesViaXFileSharing;
+
     public function name(): string
     {
         return 'doodstream';
+    }
+
+    /* ---- Folder organization (Doodstream uses /file/move) ---- */
+
+    protected function xfsBase(array $credentials): string
+    {
+        return rtrim($credentials['api_base'] ?? 'https://doodapi.co/api', '/');
+    }
+
+    protected function xfsAuth(array $credentials): array
+    {
+        return ['key' => $credentials['api_key'] ?? ''];
+    }
+
+    protected function xfsMoveEndpoint(): string
+    {
+        return 'file/move';
     }
 
     /**

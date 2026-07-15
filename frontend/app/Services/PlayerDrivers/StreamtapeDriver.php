@@ -12,11 +12,99 @@ use Throwable;
  * Extract: Streamtape hides the direct link in obfuscated JS. We reconstruct it.
  * Upload: Uses the Streamtape API.
  */
-class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface
+class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface
 {
     public function name(): string
     {
         return 'streamtape';
+    }
+
+    /* ---- Folder organization (Streamtape file management API) ---- */
+
+    public function ensureFolderPath(array $segments, array $credentials): ?string
+    {
+        $login = $credentials['login'] ?? '';
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://api.streamtape.com', '/');
+        if ($login === '' || $key === '') {
+            return null;
+        }
+
+        $parent = '0';
+        foreach ($segments as $segment) {
+            $name = trim((string) preg_replace('/[\/\\\\:*?"<>|]/', '', $segment));
+            if ($name === '') {
+                continue;
+            }
+
+            // Look for an existing subfolder with this name.
+            $found = null;
+            try {
+                $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/listfolder", [
+                    'login' => $login, 'key' => $key, 'folder' => $parent,
+                ]);
+                foreach ($resp->json('result.folders') ?? [] as $f) {
+                    if (strcasecmp((string) ($f['name'] ?? ''), $name) === 0) {
+                        $found = (string) ($f['id'] ?? '');
+                        break;
+                    }
+                }
+            } catch (Throwable) {
+                // ignore
+            }
+
+            if ($found === null || $found === '') {
+                try {
+                    $c = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/createfolder", [
+                        'login' => $login, 'key' => $key, 'name' => $name, 'pid' => $parent,
+                    ]);
+                    $found = $c->json('result.folderid');
+                } catch (Throwable) {
+                    return null;
+                }
+            }
+
+            if (! $found) {
+                return null;
+            }
+            $parent = (string) $found;
+        }
+
+        return $parent;
+    }
+
+    public function organizeFile(string $fileCode, ?string $folderId, ?string $title, array $credentials): bool
+    {
+        $login = $credentials['login'] ?? '';
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://api.streamtape.com', '/');
+        if ($login === '' || $key === '') {
+            return false;
+        }
+
+        $ok = true;
+        if ($folderId !== null && $folderId !== '') {
+            try {
+                $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/move", [
+                    'login' => $login, 'key' => $key, 'file' => $fileCode, 'folder' => $folderId,
+                ]);
+                $ok = $resp->successful();
+            } catch (Throwable) {
+                $ok = false;
+            }
+        }
+
+        if ($title !== null && $title !== '') {
+            try {
+                Http::timeout(20)->acceptJson()->get("{$apiBase}/file/rename", [
+                    'login' => $login, 'key' => $key, 'file' => $fileCode, 'name' => $title,
+                ]);
+            } catch (Throwable) {
+                // best-effort
+            }
+        }
+
+        return $ok;
     }
 
     /**

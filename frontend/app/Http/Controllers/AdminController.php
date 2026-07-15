@@ -1053,14 +1053,23 @@ class AdminController extends Controller
      */
     public function torrentSyncLinks(TorrentDownload $torrent, TorrentService $service): JsonResponse
     {
-        $created = $service->syncLinksToDatabase($torrent);
+        $result = $service->syncLinksToDatabase($torrent);
+        $created = $result['links'];
+        $organized = $result['organized'];
+
+        $parts = [];
+        $parts[] = $created > 0
+            ? "{$created} lien(s) ajouté(s) à la base"
+            : 'aucun nouveau lien (déjà à jour)';
+        if ($organized > 0) {
+            $parts[] = "{$organized} fichier(s) rangé(s) dans des dossiers sur le lecteur";
+        }
 
         return response()->json([
             'data' => $torrent->fresh(),
-            'message' => $created > 0
-                ? "{$created} lien(s) ajouté(s) à la base."
-                : 'Aucun nouveau lien (déjà à jour, ou aucun upload terminé).',
+            'message' => ucfirst(implode(' · ', $parts)) . '.',
             'created' => $created,
+            'organized' => $organized,
         ]);
     }
 

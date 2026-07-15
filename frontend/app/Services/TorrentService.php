@@ -7,6 +7,7 @@ use App\Models\EpisodeLink;
 use App\Models\TorrentDownload;
 use App\Models\TorrentFile;
 use App\Models\TorrentFileTarget;
+use App\Services\PlayerDrivers\FolderOrganizerInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -1355,9 +1356,9 @@ class TorrentService
      * it to its episode. Idempotent: existing links are skipped. Called only
      * on demand (admin button), never automatically.
      *
-     * @return int number of links created
+     * @return array{links:int, organized:int} links created + files organized on player
      */
-    public function syncLinksToDatabase(TorrentDownload $job): int
+    public function syncLinksToDatabase(TorrentDownload $job): array
     {
         $created = 0;
         $hasTargets = \Illuminate\Support\Facades\Schema::hasTable('torrent_file_targets');
@@ -1414,7 +1415,102 @@ class TorrentService
             $job->markDone();
         }
 
-        return $created;
+        // Also organize the already-uploaded files into folders ON the player
+        // (Anime/Saison X/Episode YY). Best-effort — never blocks the sync.
+        $organized = $this->organizeOnPlayer($job);
+
+        return ['links' => $created, 'organized' => $organized];
+    }
+
+    /* =====================================================================
+     * ORGANIZE ON PLAYER (move/rename uploaded files into host folders)
+     *
+     * Reorganizes files that are ALREADY on the player host into a folder
+     * structure Anime/Saison X/ + a clean title (Episode YY). Does NOT change
+     * the file_code, so existing embed links keep working. Best-effort: hosts
+     * without folder support (or a failing API call) are skipped silently.
+     * =================================================================== */
+
+    /**
+     * @return int number of files (re)organized on their player host
+     */
+    public function organizeOnPlayer(TorrentDownload $job): int
+    {
+        if (! filter_var(env('TORRENT_ORGANIZE_ON_PLAYER', true), FILTER_VALIDATE_BOOLEAN)) {
+            return 0;
+        }
+        if (! \Illuminate\Support\Facades\Schema::hasTable('torrent_file_targets')) {
+            return 0;
+        }
+
+        $organized = 0;
+
+        $targets = TorrentFileTarget::query()
+            ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
+            ->where('status', 'done')
+            ->whereNotNull('file_code')
+            ->with('file.episode.season.anime')
+            ->get();
+
+        foreach ($targets as $target) {
+            $driver = $this->transferService->driverByName($target->platform);
+            if (! $driver instanceof FolderOrganizerInterface) {
+                continue; // this host doesn't support folder organization
+            }
+
+            $file = $target->file;
+            if (! $file) {
+                continue;
+            }
+
+            $creds = $this->getCredentials($target->platform);
+            if (empty($creds)) {
+                continue;
+            }
+
+            [$segments, $title] = $this->playerFolderPath($job, $file);
+            if (empty($segments)) {
+                continue; // can't organize without the anime/season context
+            }
+
+            try {
+                $folderId = $driver->ensureFolderPath($segments, $creds);
+                if ($driver->organizeFile((string) $target->file_code, $folderId, $title, $creds)) {
+                    $organized++;
+                }
+            } catch (Throwable $e) {
+                Log::warning("Organisation lecteur echouee ({$target->platform}, file {$target->file_code}): "
+                    . mb_substr($e->getMessage(), 0, 150));
+            }
+        }
+
+        return $organized;
+    }
+
+    /**
+     * Compute the player folder path + title for a file:
+     *   segments = [Anime_Name, "Saison X"]   title = "Episode YY [LANG]"
+     *
+     * @return array{0: list<string>, 1: string|null}
+     */
+    private function playerFolderPath(TorrentDownload $job, TorrentFile $file): array
+    {
+        $episode = $file->episode;
+        $season = $episode?->season;
+        $anime = $season?->anime ?? $job->anime;
+
+        if (! $anime) {
+            return [[], null];
+        }
+
+        $seasonNo = ($season->position ?? 0) + 1;
+        $epNo = str_pad((string) ($episode->index ?? $file->detected_episode ?? 0), 2, '0', STR_PAD_LEFT);
+        $lang = $file->language ?? 'VOSTFR';
+
+        return [
+            [$anime->name, "Saison {$seasonNo}"],
+            "Episode {$epNo} [{$lang}]",
+        ];
     }
 
     /* =====================================================================

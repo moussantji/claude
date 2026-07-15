@@ -9,11 +9,25 @@ use Throwable;
 /**
  * Driver for Mp4upload.com (XFileSharing-based).
  */
-class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface
+class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface
 {
+    use OrganizesViaXFileSharing;
+
     public function name(): string
     {
         return 'mp4upload';
+    }
+
+    /* ---- Folder organization (standard XFileSharing) ---- */
+
+    protected function xfsBase(array $credentials): string
+    {
+        return rtrim($credentials['api_base'] ?? 'https://www.mp4upload.com/api', '/');
+    }
+
+    protected function xfsAuth(array $credentials): array
+    {
+        return ['key' => $credentials['api_key'] ?? ''];
     }
 
     /** XFileSharing remote upload: {api}/upload/url?key=&url= */

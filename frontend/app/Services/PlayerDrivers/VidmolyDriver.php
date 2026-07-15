@@ -12,11 +12,25 @@ use Throwable;
  * Extract: parse the embed page JS to find the direct .mp4/.m3u8 source.
  * Upload: standard XFileSharing API flow (get upload server → POST file).
  */
-class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface
+class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface
 {
+    use OrganizesViaXFileSharing;
+
     public function name(): string
     {
         return 'vidmoly';
+    }
+
+    /* ---- Folder organization (XFileSharing under /api) ---- */
+
+    protected function xfsBase(array $credentials): string
+    {
+        return rtrim($credentials['api_base'] ?? 'https://api.vidmoly.to', '/') . '/api';
+    }
+
+    protected function xfsAuth(array $credentials): array
+    {
+        return ['key' => $credentials['api_key'] ?? ''];
     }
 
     /** XFileSharing remote upload: /api/upload/url?key=&url= */
