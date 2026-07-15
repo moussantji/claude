@@ -11,7 +11,6 @@ use App\Models\Season;
 use App\Models\TorrentDownload;
 use App\Models\TorrentFile;
 use App\Models\TorrentFileTarget;
-use App\Models\TorrentFileTarget;
 use App\Models\TransferProgress;
 use App\Models\User;
 use App\Services\TorrentService;
