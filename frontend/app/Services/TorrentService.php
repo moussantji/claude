@@ -10,8 +10,10 @@ use App\Models\TorrentFileTarget;
 use App\Services\CodecDetector;
 use App\Services\PlayerDrivers\FileStatusInterface;
 use App\Services\PlayerDrivers\FolderOrganizerInterface;
+use App\Services\PlayerDrivers\RemoteUploadInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -1033,25 +1035,85 @@ class TorrentService
             }
 
             // --- RD/direct link: the host fetches the link itself ---
-            $result = $this->transferService->transferRemote(
-                trim((string) $file->source_url),
-                $title,
-                $creds,
-                $platform,
-            );
-            $state = $result['state'] ?? 'queued';
-
-            if ($state === 'done' && ! empty($result['embed_url'])) {
-                $target->markDone($result['embed_url'], $result['file_code'] ?? null);
-                // DB sync is manual (admin button) — not here.
-                $this->bumpDaily($platform);
+            // If the target driver supports remote upload, use it (async).
+            // Otherwise, download the file locally first then upload it.
+            $driver = $this->transferService->driverByName($platform);
+            if (! $driver) {
+                $target->markFailed("Aucun driver pour la plateforme : {$platform}");
 
                 return;
             }
 
-            // Async: host is now fetching the link; poll it later.
-            $target->markQueued($result['job_id'] ?? null);
-            $this->bumpDaily($platform);
+            $sourceUrl = trim((string) $file->source_url);
+            if ($sourceUrl === '') {
+                $target->markFailed('Aucune source URL pour ce fichier.');
+
+                return;
+            }
+
+            if ($driver instanceof RemoteUploadInterface) {
+                // Remote upload: the host fetches the link itself (async).
+                $result = $this->transferService->transferRemote(
+                    $sourceUrl,
+                    $title,
+                    $creds,
+                    $platform,
+                );
+                $state = $result['state'] ?? 'queued';
+
+                if ($state === 'done' && ! empty($result['embed_url'])) {
+                    $target->markDone($result['embed_url'], $result['file_code'] ?? null);
+                    $this->bumpDaily($platform);
+
+                    return;
+                }
+
+                // Async: host is now fetching the link; poll it later.
+                $target->markQueued($result['job_id'] ?? null);
+                $this->bumpDaily($platform);
+            } else {
+                // No remote upload support (e.g. Mp4upload): download locally
+                // then upload. This uses disk/bandwidth but is the only option.
+                $tempDir = storage_path('app/temp-transfers');
+                if (! is_dir($tempDir)) {
+                    @mkdir($tempDir, 0755, true);
+                }
+                $tempFile = $tempDir . '/target_' . uniqid() . '_' . time() . '.mp4';
+
+                try {
+                    // Download the source file (try yt-dlp first, fallback to HTTP).
+                    $downloaded = $this->transferService->downloadWithYtDlp($sourceUrl, $tempFile);
+                    if (! $downloaded) {
+                        // Direct HTTP download as fallback.
+                        $dlResp = Http::timeout(600)
+                            ->withOptions(['sink' => $tempFile, 'stream' => true])
+                            ->withHeaders(['User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'])
+                            ->get($sourceUrl);
+                        $downloaded = $dlResp->successful() && is_file($tempFile) && filesize($tempFile) > self::MIN_VIDEO_SIZE;
+                    }
+
+                    if (! $downloaded || ! is_file($tempFile) || filesize($tempFile) < self::MIN_VIDEO_SIZE) {
+                        $target->markFailed("Téléchargement échoué pour {$platform} (fichier trop petit ou inexistant).");
+
+                        return;
+                    }
+
+                    // Upload to the target player.
+                    $result = $driver->upload($tempFile, $title, $creds);
+                    $embed = $result['embed_url'] ?? null;
+                    if (! $embed) {
+                        $target->markFailed('Upload effectué mais aucune URL embed retournée.');
+
+                        return;
+                    }
+                    $target->markDone($embed, $result['file_code'] ?? null);
+                    $this->bumpDaily($platform);
+                } finally {
+                    if (is_file($tempFile)) {
+                        @unlink($tempFile);
+                    }
+                }
+            }
         } catch (Throwable $e) {
             $target->markFailed(mb_substr($e->getMessage(), 0, 500));
         }
