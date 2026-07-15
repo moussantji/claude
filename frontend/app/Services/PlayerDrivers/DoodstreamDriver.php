@@ -56,7 +56,6 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, 
         $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/upload/url", [
             'key' => $key,
             'url' => $sourceUrl,
-            'title' => $title !== '' ? $title : null,
         ]);
 
         // Short, readable source for error messages
@@ -224,11 +223,11 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, 
         }
 
         try {
+            // Do NOT pass 'title' — keep the original filename on the player.
             $response = Http::timeout(900)
                 ->attach('file', $handle, basename($localPath))
                 ->post($uploadUrl, [
                     'api_key' => $apiKey,
-                    'title' => $title,
                 ]);
         } finally {
             if (is_resource($handle)) {
