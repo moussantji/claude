@@ -18,7 +18,7 @@ use Throwable;
  * The source video is extracted, downloaded, then uploaded to the target
  * monetizing host. The DB link can be updated (or a new link added).
  *
- * Monetizing hosts (pay-per-view): doodstream, vidmoly, streamtape, mp4upload.
+ * Monetizing hosts (pay-per-view): doodstream, vidmoly, streamtape, filemoon.
  *
  * Examples:
  *   # Move all sendvid/sibnet/myvi videos to doodstream (the paying host)
@@ -42,10 +42,10 @@ class EpisodesConsolidate extends Command
     private const DEFAULT_UNRELIABLE = ['sendvid', 'sibnet', 'myvi'];
 
     /** Hosts that monetize (valid targets). */
-    private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape', 'mp4upload'];
+    private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape', 'filemoon'];
 
     protected $signature = 'episodes:consolidate
-        {--to= : Target monetizing host (doodstream, vidmoly, streamtape, mp4upload)}
+        {--to= : Target monetizing host (doodstream, vidmoly, streamtape, filemoon)}
         {--from= : Comma-separated source hosts (default: sendvid,sibnet,myvi)}
         {--anime= : Only this anime (name or ID)}
         {--lang= : Only this language}
@@ -287,9 +287,10 @@ class EpisodesConsolidate extends Command
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
             ]),
-            'mp4upload' => array_filter([
-                'api_key' => env('TRANSFER_MP4UPLOAD_API_KEY', ''),
-                'api_base' => env('TRANSFER_MP4UPLOAD_API_BASE', 'https://www.mp4upload.com/api'),
+            'filemoon' => array_filter([
+                'api_key' => env('TRANSFER_FILEMOON_API_KEY', ''),
+                'api_base' => env('TRANSFER_FILEMOON_API_BASE', 'https://filemoonapi.com/api'),
+                'embed_base' => env('TRANSFER_FILEMOON_EMBED_BASE', 'https://filemoon.sx'),
             ]),
             default => [],
         };

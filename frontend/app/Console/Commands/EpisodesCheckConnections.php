@@ -78,7 +78,7 @@ class EpisodesCheckConnections extends Command
                 'vidmoly' => $this->checkVidmoly(),
                 'doodstream' => $this->checkDoodstream(),
                 'streamtape' => $this->checkStreamtape(),
-                'mp4upload' => $this->checkMp4upload(),
+                'filemoon' => $this->checkFilemoon(),
                 'dailymotion' => $this->checkDailymotion(),
                 'sendvid' => $this->checkGenericKey('TRANSFER_SENDVID_API_KEY', 'API key set (upload API unverified)'),
                 'sibnet' => $this->checkGenericLogin('TRANSFER_SIBNET_LOGIN', 'TRANSFER_SIBNET_PASSWORD', 'credentials set (form upload, unverified)'),
@@ -188,16 +188,16 @@ class EpisodesCheckConnections extends Command
         return strlen($body) > 60 ? substr($body, 0, 60).'…' : $body;
     }
 
-    private function checkMp4upload(): array
+    private function checkFilemoon(): array
     {
-        $key = env('TRANSFER_MP4UPLOAD_API_KEY', '');
+        $key = env('TRANSFER_FILEMOON_API_KEY', '');
         if ($key === '') {
-            return ['no-creds', 'TRANSFER_MP4UPLOAD_API_KEY empty'];
+            return ['no-creds', 'TRANSFER_FILEMOON_API_KEY empty'];
         }
-        $base = rtrim(env('TRANSFER_MP4UPLOAD_API_BASE', 'https://www.mp4upload.com/api'), '/');
-        $resp = Http::timeout(15)->acceptJson()->get("{$base}/upload/server", ['key' => $key]);
-        if ($resp->successful() && $resp->json('result')) {
-            return ['ok', 'upload server reachable'];
+        $base = rtrim(env('TRANSFER_FILEMOON_API_BASE', 'https://filemoonapi.com/api'), '/');
+        $resp = Http::timeout(15)->acceptJson()->get("{$base}/account/info", ['key' => $key]);
+        if ($resp->successful() && (int) $resp->json('status') === 200) {
+            return ['ok', 'account reachable'];
         }
 
         return ['auth-fail', 'HTTP '.$resp->status().' — check API key'];

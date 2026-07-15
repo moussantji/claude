@@ -7,7 +7,7 @@ use Throwable;
 
 /**
  * Shared folder-organization logic for XFileSharing-based hosts
- * (Doodstream, Vidmoly, Mp4upload). Uses the standard endpoints:
+ * (Doodstream, Vidmoly, FileMoon). Uses the standard endpoints:
  *   {base}/folder/create?...&parent_id=&name=      → result.fld_id
  *   {base}/folder/list?...&fld_id=                  → result.folders[]{fld_id,name}
  *   {base}/{moveEndpoint}?...&file_code=&fld_id=    (move into folder)
@@ -32,7 +32,7 @@ trait OrganizesViaXFileSharing
 
     /**
      * Query param name for the new file title on rename.
-     * Doodstream uses "title"; mp4upload/vidmoly use "name".
+     * Doodstream uses "title"; filemoon/vidmoly use "name".
      */
     protected function xfsRenameParam(): string
     {

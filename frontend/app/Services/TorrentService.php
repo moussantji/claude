@@ -36,7 +36,7 @@ use Throwable;
 class TorrentService
 {
     /** Hosts that support server-to-server remote upload. */
-    private const REMOTE_HOSTS = ['doodstream', 'vidmoly', 'streamtape', 'mp4upload'];
+    private const REMOTE_HOSTS = ['doodstream', 'vidmoly', 'streamtape', 'filemoon'];
 
     /** Video extensions kept when selecting files inside a torrent. */
     private const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'webm', 'ts', 'flv', 'mov', 'm4v', 'wmv'];
@@ -1072,7 +1072,7 @@ class TorrentService
                 $target->markQueued($result['job_id'] ?? null);
                 $this->bumpDaily($platform);
             } else {
-                // No remote upload support (e.g. Mp4upload): download locally
+                // No remote upload support (e.g. FileMoon): download locally
                 // then upload. This uses disk/bandwidth but is the only option.
                 $tempDir = storage_path('app/temp-transfers');
                 if (! is_dir($tempDir)) {
@@ -1453,7 +1453,7 @@ class TorrentService
      *
      * When $keepOnlyManaged is true, ALSO delete every link whose player is
      * NOT one of the managed remote hosts (doodstream/vidmoly/streamtape/
-     * mp4upload) — i.e. keep only "mes lecteurs" and remove all the rest.
+     * filemoon) — i.e. keep only "mes lecteurs" and remove all the rest.
      *
      * @return array{removed:int, episodes:int, pruned:int}
      */
@@ -1740,9 +1740,10 @@ class TorrentService
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
             ]),
-            'mp4upload' => array_filter([
-                'api_key' => env('TRANSFER_MP4UPLOAD_API_KEY', ''),
-                'api_base' => env('TRANSFER_MP4UPLOAD_API_BASE', 'https://www.mp4upload.com/api'),
+            'filemoon' => array_filter([
+                'api_key' => env('TRANSFER_FILEMOON_API_KEY', ''),
+                'api_base' => env('TRANSFER_FILEMOON_API_BASE', 'https://filemoonapi.com/api'),
+                'embed_base' => env('TRANSFER_FILEMOON_EMBED_BASE', 'https://filemoon.sx'),
             ]),
             default => [],
         };

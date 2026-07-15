@@ -28,7 +28,7 @@ use Throwable;
 class EpisodesTestDriver extends Command
 {
     protected $signature = 'episodes:test-driver
-        {host : Platform to test (vidmoly, sibnet, sendvid, doodstream, streamtape, mp4upload, myvi, dailymotion)}
+        {host : Platform to test (vidmoly, sibnet, sendvid, doodstream, streamtape, filemoon, myvi, dailymotion)}
         {--url= : Specific source embed URL to test (otherwise picks one from the DB)}
         {--anime= : Pick a test link from this anime}
         {--no-upload : Only test extraction + download, skip the upload step}
@@ -232,9 +232,10 @@ class EpisodesTestDriver extends Command
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
             ]),
-            'mp4upload' => array_filter([
-                'api_key' => env('TRANSFER_MP4UPLOAD_API_KEY', ''),
-                'api_base' => env('TRANSFER_MP4UPLOAD_API_BASE', 'https://www.mp4upload.com/api'),
+            'filemoon' => array_filter([
+                'api_key' => env('TRANSFER_FILEMOON_API_KEY', ''),
+                'api_base' => env('TRANSFER_FILEMOON_API_BASE', 'https://filemoonapi.com/api'),
+                'embed_base' => env('TRANSFER_FILEMOON_EMBED_BASE', 'https://filemoon.sx'),
             ]),
             'myvi' => array_filter([
                 'login' => env('TRANSFER_MYVI_LOGIN', ''),

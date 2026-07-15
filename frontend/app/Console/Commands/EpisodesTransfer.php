@@ -261,9 +261,9 @@ class EpisodesTransfer extends Command
                 'api_key' => $this->option('target-api-key') ?: env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
             ]),
-            'mp4upload' => array_filter([
-                'api_key' => $this->option('target-api-key') ?: env('TRANSFER_MP4UPLOAD_API_KEY', ''),
-                'api_base' => env('TRANSFER_MP4UPLOAD_API_BASE', 'https://www.mp4upload.com/api'),
+            'filemoon' => array_filter([
+                'api_key' => $this->option('target-api-key') ?: env('TRANSFER_FILEMOON_API_KEY', ''),
+                'api_base' => env('TRANSFER_FILEMOON_API_BASE', 'https://filemoonapi.com/api'),
             ]),
             'myvi' => array_filter([
                 'login' => $this->option('target-login') ?: env('TRANSFER_MYVI_LOGIN', ''),
