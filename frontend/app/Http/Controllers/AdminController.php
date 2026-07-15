@@ -646,7 +646,10 @@ class AdminController extends Controller
         // files_done counter was never advanced (e.g. old / stuck batches).
         if ($hasTargets) {
             $query->withCount(['targets as uploads_done' => function ($q) {
-                $q->where('status', 'done')->whereNotNull('embed_url');
+                // Qualify columns: both torrent_files and torrent_file_targets
+                // have `status`, so it would be ambiguous in the join.
+                $q->where('torrent_file_targets.status', 'done')
+                    ->whereNotNull('torrent_file_targets.embed_url');
             }]);
         }
 
