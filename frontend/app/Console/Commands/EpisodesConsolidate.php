@@ -18,7 +18,7 @@ use Throwable;
  * The source video is extracted, downloaded, then uploaded to the target
  * monetizing host. The DB link can be updated (or a new link added).
  *
- * Monetizing hosts (pay-per-view): doodstream, vidmoly, streamtape, filemoon.
+ * Monetizing hosts (pay-per-view): doodstream, vidmoly, streamtape, mixdrop.
  *
  * Examples:
  *   # Move all sendvid/sibnet/myvi videos to doodstream (the paying host)
@@ -42,10 +42,10 @@ class EpisodesConsolidate extends Command
     private const DEFAULT_UNRELIABLE = ['sendvid', 'sibnet', 'myvi'];
 
     /** Hosts that monetize (valid targets). */
-    private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape', 'filemoon'];
+    private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape', 'mixdrop'];
 
     protected $signature = 'episodes:consolidate
-        {--to= : Target monetizing host (doodstream, vidmoly, streamtape, filemoon)}
+        {--to= : Target monetizing host (doodstream, vidmoly, streamtape, mixdrop)}
         {--from= : Comma-separated source hosts (default: sendvid,sibnet,myvi)}
         {--anime= : Only this anime (name or ID)}
         {--lang= : Only this language}
@@ -287,10 +287,11 @@ class EpisodesConsolidate extends Command
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
             ]),
-            'filemoon' => array_filter([
-                'api_key' => env('TRANSFER_FILEMOON_API_KEY', ''),
-                'api_base' => env('TRANSFER_FILEMOON_API_BASE', 'https://filemoonapi.com/api'),
-                'embed_base' => env('TRANSFER_FILEMOON_EMBED_BASE', 'https://filemoon.sx'),
+            'mixdrop' => array_filter([
+                'email' => env('TRANSFER_MIXDROP_EMAIL', ''),
+                'api_key' => env('TRANSFER_MIXDROP_API_KEY', ''),
+                'api_base' => env('TRANSFER_MIXDROP_API_BASE', 'https://api.mixdrop.ag'),
+                'embed_base' => env('TRANSFER_MIXDROP_EMBED_BASE', 'https://mixdrop.ag'),
             ]),
             default => [],
         };

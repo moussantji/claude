@@ -333,9 +333,10 @@ class EpisodesQuota extends Command
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
             ]),
-            'filemoon' => array_filter([
-                'api_key' => env('TRANSFER_FILEMOON_API_KEY', ''),
-                'api_base' => env('TRANSFER_FILEMOON_API_BASE', 'https://filemoonapi.com/api'),
+            'mixdrop' => array_filter([
+                'email' => env('TRANSFER_MIXDROP_EMAIL', ''),
+                'api_key' => env('TRANSFER_MIXDROP_API_KEY', ''),
+                'api_base' => env('TRANSFER_MIXDROP_API_BASE', 'https://api.mixdrop.ag'),
             ]),
             'myvi' => array_filter([
                 'login' => env('TRANSFER_MYVI_LOGIN', ''),

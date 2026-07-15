@@ -33,7 +33,7 @@ return new class extends Migration
                 $table->id();
 
                 $table->unsignedBigInteger('torrent_file_id')->index();
-                $table->string('platform', 50); // doodstream, vidmoly, streamtape, filemoon
+                $table->string('platform', 50); // doodstream, vidmoly, streamtape, mixdrop
 
                 // pending → queued (host fetching, remote upload) → done / failed
                 $table->string('status', 20)->default('pending')->index();

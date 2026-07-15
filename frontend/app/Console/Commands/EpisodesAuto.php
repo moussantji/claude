@@ -15,7 +15,7 @@ use Throwable;
  * ALL-IN-ONE automation: combines daily-transfer + consolidate.
  *
  * For each anime (starting from an ID, auto-advancing, resuming daily):
- *   • Reliable hosts (vidmoly, doodstream, streamtape, filemoon)
+ *   • Reliable hosts (vidmoly, doodstream, streamtape, mixdrop)
  *       → same-host transfer to your target account (backup / migrate)
  *   • Unreliable hosts (sendvid, sibnet, myvi)
  *       → consolidated (cross-host) onto a monetizing host (--consolidate-to)
@@ -45,7 +45,7 @@ class EpisodesAuto extends Command
 
     /** One copy per episode+language (set from --dedupe). */
     private bool $dedupe = false;
-    private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape', 'filemoon'];
+    private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape', 'mixdrop'];
     private const CACHE_KEY = 'episodes_auto_current_id';
 
     protected $signature = 'episodes:auto
@@ -622,10 +622,11 @@ class EpisodesAuto extends Command
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
             ]),
-            'filemoon' => array_filter([
-                'api_key' => env('TRANSFER_FILEMOON_API_KEY', ''),
-                'api_base' => env('TRANSFER_FILEMOON_API_BASE', 'https://filemoonapi.com/api'),
-                'embed_base' => env('TRANSFER_FILEMOON_EMBED_BASE', 'https://filemoon.sx'),
+            'mixdrop' => array_filter([
+                'email' => env('TRANSFER_MIXDROP_EMAIL', ''),
+                'api_key' => env('TRANSFER_MIXDROP_API_KEY', ''),
+                'api_base' => env('TRANSFER_MIXDROP_API_BASE', 'https://api.mixdrop.ag'),
+                'embed_base' => env('TRANSFER_MIXDROP_EMBED_BASE', 'https://mixdrop.ag'),
             ]),
             'myvi' => array_filter([
                 'login' => env('TRANSFER_MYVI_LOGIN', ''),
