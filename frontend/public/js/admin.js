@@ -1029,9 +1029,11 @@
             const target = t.season ? `${escapeHtml(t.season.anime ? t.season.anime.name : '?')} · ${escapeHtml(t.season.name)}`
                 : (t.episode ? `Épisode #${t.episode.index}` : '—');
             const canDelete = t.status !== 'done';
-            // "Mettre à jour la base" appears once uploads are done and links
-            // haven't been synced yet. The admin verifies on the player first.
-            const canSync = (t.files_done > 0) && !t.links_synced;
+            // "Mettre à jour la base" appears once at least one upload is done
+            // (a player target has an embed URL) and links haven't been synced.
+            // Uses uploads_done (robust) + falls back to files_done for safety.
+            const uploadsDone = (t.uploads_done ?? 0) || (t.files_done ?? 0);
+            const canSync = uploadsDone > 0 && !t.links_synced;
             const syncedBadge = t.links_synced
                 ? '<span class="muted" style="font-size:11px">✓ base à jour</span>' : '';
             return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">

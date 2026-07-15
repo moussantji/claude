@@ -630,6 +630,8 @@ class AdminController extends Controller
      */
     public function torrentIndex(Request $request): JsonResponse
     {
+        $hasTargets = \Illuminate\Support\Facades\Schema::hasTable('torrent_file_targets');
+
         $query = TorrentDownload::query()
             ->withCount('files')
             ->with([
@@ -638,6 +640,15 @@ class AdminController extends Controller
                 'episode:id,index,name,season_id',
                 'submitter:id,name',
             ]);
+
+        // Count completed uploads (per-player targets with an embed URL) so the
+        // UI can show the "Mettre à jour la base" button even for batches whose
+        // files_done counter was never advanced (e.g. old / stuck batches).
+        if ($hasTargets) {
+            $query->withCount(['targets as uploads_done' => function ($q) {
+                $q->where('status', 'done')->whereNotNull('embed_url');
+            }]);
+        }
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);
@@ -649,9 +660,25 @@ class AdminController extends Controller
 
         $perPage = min(100, max(1, (int) $request->query('per_page', 30)));
 
-        return response()->json(
-            $query->orderByDesc('created_at')->paginate($perPage)
-        );
+        $result = $query->orderByDesc('created_at')->paginate($perPage);
+
+        // Ensure uploads_done is always set. If the targets count is 0 (or the
+        // multi-target table doesn't exist), fall back to counting files that
+        // stored an embed_url directly (legacy single-target batches).
+        $result->getCollection()->transform(function (TorrentDownload $batch) {
+            $uploads = (int) ($batch->uploads_done ?? 0);
+            if ($uploads === 0) {
+                $uploads = $batch->files()
+                    ->where('status', 'done')
+                    ->whereNotNull('embed_url')
+                    ->count();
+            }
+            $batch->uploads_done = $uploads;
+
+            return $batch;
+        });
+
+        return response()->json($result);
     }
 
     /**

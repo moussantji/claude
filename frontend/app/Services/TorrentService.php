@@ -1360,22 +1360,25 @@ class TorrentService
     public function syncLinksToDatabase(TorrentDownload $job): int
     {
         $created = 0;
+        $hasTargets = \Illuminate\Support\Facades\Schema::hasTable('torrent_file_targets');
 
         // Multi-target: one embed URL per (episode file × player).
-        $targets = TorrentFileTarget::query()
-            ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
-            ->where('status', 'done')
-            ->whereNotNull('embed_url')
-            ->with('file')
-            ->get();
+        if ($hasTargets) {
+            $targets = TorrentFileTarget::query()
+                ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
+                ->where('status', 'done')
+                ->whereNotNull('embed_url')
+                ->with('file')
+                ->get();
 
-        foreach ($targets as $target) {
-            $file = $target->file;
-            if (! $file || ! $file->episode_id || ! $target->embed_url) {
-                continue;
-            }
-            if ($this->attachToEpisode($file, $target->embed_url, $target->platform)) {
-                $created++;
+            foreach ($targets as $target) {
+                $file = $target->file;
+                if (! $file || ! $file->episode_id || ! $target->embed_url) {
+                    continue;
+                }
+                if ($this->attachToEpisode($file, $target->embed_url, $target->platform)) {
+                    $created++;
+                }
             }
         }
 
@@ -1394,6 +1397,22 @@ class TorrentService
         }
 
         $job->update(['links_synced' => true]);
+
+        // Leave the "processing" state if nothing is still uploading, so the
+        // batch shows a clean "done" status after the manual sync.
+        $stillWorking = false;
+        if ($hasTargets) {
+            $stillWorking = TorrentFileTarget::query()
+                ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
+                ->whereIn('status', ['pending', 'queued'])
+                ->exists();
+        }
+        if (! $stillWorking) {
+            $stillWorking = $job->files()->where('status', 'pending')->exists();
+        }
+        if (! $stillWorking && ! $job->isDone() && ! $job->isFailed()) {
+            $job->markDone();
+        }
 
         return $created;
     }

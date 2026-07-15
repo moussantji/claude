@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 /**
  * A "torrent" remote-upload batch submitted by an admin.
@@ -70,6 +71,19 @@ class TorrentDownload extends Model
     public function files(): HasMany
     {
         return $this->hasMany(TorrentFile::class);
+    }
+
+    /** Per-player upload rows across all this batch's files (multi-target). */
+    public function targets(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            TorrentFileTarget::class,
+            TorrentFile::class,
+            'torrent_download_id', // FK on torrent_files → torrent_downloads
+            'torrent_file_id',     // FK on torrent_file_targets → torrent_files
+            'id',                  // local key on torrent_downloads
+            'id',                  // local key on torrent_files
+        );
     }
 
     public function season(): BelongsTo
