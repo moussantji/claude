@@ -391,6 +391,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=23"></script>
+    <script src="/js/admin.js?v=24"></script>
 </body>
 </html>

@@ -7,6 +7,7 @@ use App\Models\EpisodeLink;
 use App\Models\TorrentDownload;
 use App\Models\TorrentFile;
 use App\Models\TorrentFileTarget;
+use App\Services\CodecDetector;
 use App\Services\PlayerDrivers\FolderOrganizerInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -52,20 +53,37 @@ class TorrentService
     private PlayerTransferService $transferService;
     private RealDebridClient $debrid;
     private Aria2Client $aria2;
+    private CodecDetector $codecDetector;
 
     public function __construct(
         PlayerTransferService $transferService,
         RealDebridClient $debrid,
         Aria2Client $aria2,
+        CodecDetector $codecDetector,
     ) {
         $this->transferService = $transferService;
         $this->debrid = $debrid;
         $this->aria2 = $aria2;
+        $this->codecDetector = $codecDetector;
         $this->filesPerRun = max(1, (int) env('TORRENT_FILES_PER_RUN', 10));
         $this->defaultDailyLimit = max(1, (int) env('TORRENT_DEFAULT_DAILY_LIMIT', 200));
         // 0 = download the whole torrent at once (default). >0 = "slice" mode:
         // download N files at a time (for small-disk VPS). Only applies to aria2.
         $this->aria2Slice = max(0, (int) env('TORRENT_ARIA2_SLICE', 0));
+    }
+
+    /**
+     * Hosts that convert HEVC/x265 poorly and should be skipped for such files.
+     * Configurable via TORRENT_HEVC_SKIP_HOSTS (comma-separated). Default:
+     * streamtape (known to get stuck "converting" on HEVC). Empty = never skip.
+     *
+     * @return list<string>
+     */
+    private function hevcSkipHosts(): array
+    {
+        $raw = strtolower((string) env('TORRENT_HEVC_SKIP_HOSTS', 'streamtape'));
+
+        return array_values(array_filter(array_map('trim', explode(',', $raw))));
     }
 
     /* =====================================================================
@@ -873,6 +891,7 @@ class TorrentService
     private function ensureTargets(TorrentDownload $job): void
     {
         $platforms = $job->platforms();
+        $hevcSkip = $this->hevcSkipHosts();
 
         foreach ($job->files()->where('status', 'pending')->get() as $file) {
             if ($file->episode_id === null) {
@@ -880,8 +899,27 @@ class TorrentService
 
                 continue;
             }
+
+            // Detect the codec once (filename heuristic + optional ffprobe).
+            // No local file needed — the release name usually says x265/x264.
+            if ($file->video_codec === null) {
+                $codec = $this->codecDetector->detect($file->file_name, $file->local_path, $file->source_url);
+                if ($codec !== null) {
+                    $file->update(['video_codec' => $codec]);
+                }
+            }
+
+            $isHevc = $this->codecDetector->isHevc($file->video_codec);
             $existing = $file->targets()->pluck('platform')->all();
+            $eligible = 0;
+
             foreach ($platforms as $platform) {
+                // Skip hosts that convert HEVC poorly (e.g. Streamtape) — this
+                // avoids the "stuck converting" problem for x265 anime files.
+                if ($isHevc && in_array($platform, $hevcSkip, true)) {
+                    continue;
+                }
+                $eligible++;
                 if (! in_array($platform, $existing, true)) {
                     TorrentFileTarget::create([
                         'torrent_file_id' => $file->id,
@@ -889,6 +927,14 @@ class TorrentService
                         'status' => 'pending',
                     ]);
                 }
+            }
+
+            // Every chosen player was skipped for codec reasons → flag it.
+            if ($eligible === 0 && empty($existing)) {
+                $file->markSkipped(
+                    'Codec ' . strtoupper((string) $file->video_codec) . ' non supporté par le(s) lecteur(s) choisi(s) '
+                    . '(ex: Streamtape gère mal le HEVC/x265). Choisissez un autre lecteur (doodstream, vidmoly).'
+                );
             }
         }
     }

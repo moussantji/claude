@@ -23,6 +23,7 @@ class TorrentFile extends Model
         'source_url',
         'local_path',
         'file_name',
+        'video_codec',
         'detected_episode',
         'episode_id',
         'language',

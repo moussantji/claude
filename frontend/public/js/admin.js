@@ -1156,6 +1156,12 @@
             const ep = f.episode ? `#${f.episode.index}${f.episode.name ? ' — ' + escapeHtml(f.episode.name) : ''}`
                 : (f.detected_episode ? `E${String(f.detected_episode).padStart(2, '0')} (détecté)` : '<span style="color:#f0ad4e">non mappé</span>');
             const needsMap = f.status === 'skipped' || !f.episode;
+            // Codec badge (HEVC highlighted — problematic for Streamtape).
+            const codec = f.video_codec ? (() => {
+                const isHevc = ['hevc', 'h265', 'x265'].includes(String(f.video_codec).toLowerCase());
+                const bg = isHevc ? '#f0ad4e' : '#3a3a4a';
+                return `<span title="Codec vidéo" style="font-size:10px;padding:2px 7px;border-radius:999px;background:${bg};color:#000;font-weight:700">${escapeHtml(String(f.video_codec).toUpperCase())}</span>`;
+            })() : '';
             // Per-player results (status pill + clickable embed link to verify).
             const targets = (f.targets || []).map(t => {
                 const tc = FILE_STATUS[t.status] || ['#666', t.status];
@@ -1169,6 +1175,7 @@
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                     <span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${color};color:#000;font-weight:700">${label}</span>
                     <span style="flex:1;min-width:120px">${ep}</span>
+                    ${codec}
                 </div>
                 ${targets ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${targets}</div>` : ''}
                 <div class="muted" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px">${escapeHtml(f.file_name || f.source_url || '')}</div>
