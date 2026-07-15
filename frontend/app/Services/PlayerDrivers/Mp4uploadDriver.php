@@ -30,6 +30,12 @@ class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, F
         return ['key' => $credentials['api_key'] ?? ''];
     }
 
+    // Mp4upload rename param is "name" (per official API docs).
+    protected function xfsRenameParam(): string
+    {
+        return 'name';
+    }
+
     /** XFileSharing remote upload: {api}/upload/url?key=&url= */
     public function remoteUpload(string $sourceUrl, string $title, array $credentials): array
     {

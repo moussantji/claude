@@ -155,16 +155,28 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
         }
 
-        $status = $entry['status'] ?? 'new';
-        // Streamtape statuses: new, downloading, ... , finished
-        if (in_array($status, ['finished', 'completed'], true) || ! empty($entry['url'])) {
-            $fileId = $entry['extid'] ?: null;
-            $url = $entry['url'] ?: ($fileId ? "https://streamtape.com/e/{$fileId}" : null);
-
-            return ['state' => 'done', 'embed_url' => $url, 'file_code' => $fileId, 'error' => null];
-        }
+        $status = (string) ($entry['status'] ?? 'new');
         if (in_array($status, ['error', 'failed'], true)) {
             return ['state' => 'error', 'embed_url' => null, 'file_code' => null, 'error' => 'remote download failed'];
+        }
+
+        // `extid` is set once the file exists on Streamtape (remote download
+        // finished). The embed link is then valid — Streamtape keeps converting
+        // server-side, but we don't block on that (relying on a specific status
+        // string was fragile and left files stuck as "pending"/"converting").
+        $extid = $entry['extid'] ?? false;
+        if (is_string($extid) && $extid !== '') {
+            return [
+                'state' => 'done',
+                'embed_url' => "https://streamtape.com/e/{$extid}",
+                'file_code' => $extid,
+                'error' => null,
+            ];
+        }
+
+        // Some responses expose the final URL directly.
+        if (! empty($entry['url']) && is_string($entry['url'])) {
+            return ['state' => 'done', 'embed_url' => $entry['url'], 'file_code' => null, 'error' => null];
         }
 
         return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];

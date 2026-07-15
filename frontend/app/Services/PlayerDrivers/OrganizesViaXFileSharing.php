@@ -30,6 +30,15 @@ trait OrganizesViaXFileSharing
         return 'file/set_folder';
     }
 
+    /**
+     * Query param name for the new file title on rename.
+     * Doodstream uses "title"; mp4upload/vidmoly use "name".
+     */
+    protected function xfsRenameParam(): string
+    {
+        return 'title';
+    }
+
     public function ensureFolderPath(array $segments, array $credentials): ?string
     {
         $base = rtrim($this->xfsBase($credentials), '/');
@@ -63,32 +72,39 @@ trait OrganizesViaXFileSharing
     {
         $base = rtrim($this->xfsBase($credentials), '/');
         $auth = $this->xfsAuth($credentials);
-        $ok = true;
+        $any = false;
 
+        // Move into the folder (best-effort — some hosts have no folder API).
         if ($folderId !== null && $folderId !== '') {
             try {
                 $resp = Http::timeout(20)->acceptJson()->get("{$base}/{$this->xfsMoveEndpoint()}", array_merge($auth, [
                     'file_code' => $fileCode,
                     'fld_id' => $folderId,
                 ]));
-                $ok = $resp->successful();
+                if ($resp->successful()) {
+                    $any = true;
+                }
             } catch (Throwable) {
-                $ok = false;
+                // ignore
             }
         }
 
+        // Rename to a clean title (param name differs per host: title|name).
         if ($title !== null && $title !== '') {
             try {
-                Http::timeout(20)->acceptJson()->get("{$base}/file/rename", array_merge($auth, [
+                $resp = Http::timeout(20)->acceptJson()->get("{$base}/file/rename", array_merge($auth, [
                     'file_code' => $fileCode,
-                    'title' => $title,
+                    $this->xfsRenameParam() => $title,
                 ]));
+                if ($resp->successful()) {
+                    $any = true;
+                }
             } catch (Throwable) {
                 // rename is best-effort
             }
         }
 
-        return $ok;
+        return $any;
     }
 
     protected function xfsFindFolder(string $base, array $auth, string $parent, string $name): ?string

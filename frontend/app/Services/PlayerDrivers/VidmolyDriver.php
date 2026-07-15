@@ -33,6 +33,12 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
         return ['key' => $credentials['api_key'] ?? ''];
     }
 
+    // Vidmoly (XFileSharing) uses "name" for file rename.
+    protected function xfsRenameParam(): string
+    {
+        return 'name';
+    }
+
     /** XFileSharing remote upload: /api/upload/url?key=&url= */
     public function remoteUpload(string $sourceUrl, string $title, array $credentials): array
     {
