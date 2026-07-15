@@ -392,11 +392,6 @@ class TorrentService
 
         $job->refreshCounters();
 
-        // Organize downloaded files into folders (Anime/Saison_X/Episode_YY.ext).
-        foreach ($job->files()->get() as $file) {
-            $this->organizeFile($job, $file);
-        }
-
         return $created;
     }
 
@@ -568,12 +563,6 @@ class TorrentService
         }
 
         $job->refreshCounters();
-
-        // Organize slice files into folders (Anime/Saison_X/Episode_YY.ext).
-        $newFiles = $job->files()->orderByDesc('id')->limit(count($slice))->get();
-        foreach ($newFiles as $file) {
-            $this->organizeFile($job, $file);
-        }
     }
 
     /* =====================================================================
@@ -982,7 +971,8 @@ class TorrentService
                     return;
                 }
                 $target->markDone($embed, $result['file_code'] ?? null);
-                $this->attachToEpisode($file, $embed, $platform);
+                // NB: the DB (episode_links) is NOT updated here — the admin
+                // syncs it manually via the "Mettre à jour la base" button.
                 $this->bumpDaily($platform);
 
                 return;
@@ -999,7 +989,7 @@ class TorrentService
 
             if ($state === 'done' && ! empty($result['embed_url'])) {
                 $target->markDone($result['embed_url'], $result['file_code'] ?? null);
-                $this->attachToEpisode($file, $result['embed_url'], $platform);
+                // DB sync is manual (admin button) — not here.
                 $this->bumpDaily($platform);
 
                 return;
@@ -1043,9 +1033,7 @@ class TorrentService
                         $embed = $status['embed_url'] ?? null;
                         if ($embed) {
                             $target->markDone($embed, $status['file_code'] ?? null);
-                            if ($target->file) {
-                                $this->attachToEpisode($target->file, $embed, $target->platform);
-                            }
+                            // DB sync is manual (admin button) — not here.
                         } else {
                             $target->markFailed('Le lecteur signale « terminé » sans URL embed.');
                         }
@@ -1284,15 +1272,17 @@ class TorrentService
     /**
      * Attach the uploaded embed URL to the episode as a playable link.
      *
-     * Avoids duplicates: if an identical (episode + url + language) link
-     * already exists, it is NOT re-created.
+     * Avoids duplicates: if an identical (episode + url) link already exists,
+     * it is NOT re-created.
+     *
+     * @return bool true if a new link was created, false if skipped/duplicate
      */
-    private function attachToEpisode(TorrentFile $file, string $embedUrl, string $platform): void
+    private function attachToEpisode(TorrentFile $file, string $embedUrl, string $platform): bool
     {
         if (! $file->episode_id) {
             Log::warning("TorrentFile #{$file->id}: pas d'episode_id — lien non enregistré en base.");
 
-            return;
+            return false;
         }
 
         $host = parse_url($embedUrl, PHP_URL_HOST);
@@ -1305,7 +1295,7 @@ class TorrentService
             ->exists();
 
         if ($exists) {
-            return;
+            return false;
         }
 
         $position = (int) EpisodeLink::where('episode_id', $file->episode_id)
@@ -1321,12 +1311,15 @@ class TorrentService
         ]);
 
         Log::info("Lien créé: Episode #{$file->episode_id} → {$host} ({$language})");
+
+        return true;
     }
 
     /**
-     * Build the upload title AND the organized folder path for the file.
-     *
-     * Pattern: Anime_Name/Saison_X/Episode_YY.ext
+     * Build the upload title sent to the PLAYER (this is the "organization on
+     * the player side"): the file appears named as
+     *   Anime_Name/Saison X/EYY [LANG]
+     * so it's cleanly organized in your player account, not on your disk.
      */
     private function buildTitle(TorrentDownload $job, TorrentFile $file): string
     {
@@ -1335,97 +1328,74 @@ class TorrentService
         $anime = $season?->anime ?? $job->anime;
 
         if ($anime) {
-            return sprintf(
-                '%s - S%02dE%02d [%s]',
-                $anime->name,
-                ($season->position ?? 0) + 1,
-                $episode->index ?? ($file->detected_episode ?? 0),
-                $file->language ?? 'VOSTFR'
-            );
+            $seasonNo = ($season->position ?? 0) + 1;
+            $epNo = str_pad((string) ($episode->index ?? $file->detected_episode ?? 0), 2, '0', STR_PAD_LEFT);
+            $lang = $file->language ?? 'VOSTFR';
+
+            // "Anime/Saison 1/E05 [VOSTFR]" — the "/" gives a folder-like
+            // organization on hosts that support it, and a clean title elsewhere.
+            return sprintf('%s/Saison %d/E%s [%s]', $anime->name, $seasonNo, $epNo, $lang);
         }
 
         return $job->title ?: pathinfo($file->file_name ?? 'video', PATHINFO_FILENAME);
     }
 
-    /**
-     * Compute an organized sub-path for a downloaded file:
-     *   Anime_Name/Saison_X/Episode_YY.ext
+    /* =====================================================================
+     * MANUAL DATABASE SYNC
      *
-     * Used to rename/move files after aria2 downloads them, keeping the disk
-     * clean and browsable via FTP/SFTP.
-     */
-    private function organizedPath(TorrentDownload $job, TorrentFile $file): ?string
-    {
-        $episode = $file->episode;
-        $season = $episode?->season;
-        $anime = $season?->anime ?? $job->anime;
-
-        if (! $anime) {
-            return null; // can't organize without knowing the anime
-        }
-
-        $animeName = $this->sanitizeDirName($anime->name);
-        $seasonDir = 'Saison_' . (($season->position ?? 0) + 1);
-        $ext = pathinfo($file->file_name ?? 'video.mp4', PATHINFO_EXTENSION) ?: 'mp4';
-        $epNum = str_pad((string) ($episode->index ?? $file->detected_episode ?? 0), 2, '0', STR_PAD_LEFT);
-        $fileName = "Episode_{$epNum}.{$ext}";
-
-        return "{$animeName}/{$seasonDir}/{$fileName}";
-    }
+     * The DB (episode_links) is NOT updated automatically after upload. The
+     * admin verifies on the player that everything is live, then clicks the
+     * "Mettre à jour la base" button which calls syncLinksToDatabase().
+     * =================================================================== */
 
     /**
-     * After aria2 finishes downloading, move/rename the file into an organized
-     * folder structure: TORRENT_DOWNLOAD_DIR/Anime_Name/Saison_X/Episode_YY.ext
+     * Create episode_links in the DB from the batch's completed uploads.
      *
-     * This makes it easy to browse files on the VPS and know what's what.
+     * Iterates every done per-player target that has an embed URL and attaches
+     * it to its episode. Idempotent: existing links are skipped. Called only
+     * on demand (admin button), never automatically.
+     *
+     * @return int number of links created
      */
-    private function organizeFile(TorrentDownload $job, TorrentFile $file): void
+    public function syncLinksToDatabase(TorrentDownload $job): int
     {
-        if (! $file->local_path || ! is_file($file->local_path)) {
-            return;
+        $created = 0;
+
+        // Multi-target: one embed URL per (episode file × player).
+        $targets = TorrentFileTarget::query()
+            ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
+            ->where('status', 'done')
+            ->whereNotNull('embed_url')
+            ->with('file')
+            ->get();
+
+        foreach ($targets as $target) {
+            $file = $target->file;
+            if (! $file || ! $file->episode_id || ! $target->embed_url) {
+                continue;
+            }
+            if ($this->attachToEpisode($file, $target->embed_url, $target->platform)) {
+                $created++;
+            }
         }
 
-        $relative = $this->organizedPath($job, $file);
-        if (! $relative) {
-            return; // can't organize — leave in place
+        // Legacy single-target fallback: files that stored embed_url directly.
+        $files = $job->files()
+            ->where('status', 'done')
+            ->whereNotNull('embed_url')
+            ->whereNotNull('episode_id')
+            ->get();
+
+        foreach ($files as $file) {
+            $host = parse_url($file->embed_url, PHP_URL_HOST) ?: '';
+            if ($this->attachToEpisode($file, $file->embed_url, $host)) {
+                $created++;
+            }
         }
 
-        $baseDir = $this->aria2->downloadDir();
-        $targetPath = $baseDir . '/' . $relative;
-        $targetDir = dirname($targetPath);
+        $job->update(['links_synced' => true]);
 
-        // Create the directory structure.
-        if (! is_dir($targetDir)) {
-            @mkdir($targetDir, 0755, true);
-        }
-
-        // Avoid overwriting: append a suffix if file exists (e.g. multi-lang).
-        if (is_file($targetPath)) {
-            $lang = $file->language ?? 'VOSTFR';
-            $ext = pathinfo($targetPath, PATHINFO_EXTENSION);
-            $base = pathinfo($targetPath, PATHINFO_FILENAME);
-            $targetPath = $targetDir . '/' . $base . "_{$lang}." . $ext;
-        }
-
-        // Move the file.
-        if (@rename($file->local_path, $targetPath)) {
-            $file->update(['local_path' => $targetPath]);
-        }
-    }
-
-    /**
-     * Sanitize a string for use as a directory name (no slashes, special chars).
-     */
-    private function sanitizeDirName(string $name): string
-    {
-        // Remove characters not safe for filesystems.
-        $name = preg_replace('/[\/\\\\:*?"<>|]/', '', $name);
-        // Trim spaces and dots.
-        $name = trim($name, ' .');
-        // Collapse multiple spaces.
-        $name = (string) preg_replace('/\s+/', ' ', $name);
-
-        return $name !== '' ? $name : 'Unknown';
+        return $created;
     }
 
     /* =====================================================================

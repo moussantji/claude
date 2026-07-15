@@ -1029,16 +1029,22 @@
             const target = t.season ? `${escapeHtml(t.season.anime ? t.season.anime.name : '?')} · ${escapeHtml(t.season.name)}`
                 : (t.episode ? `Épisode #${t.episode.index}` : '—');
             const canDelete = t.status !== 'done';
+            // "Mettre à jour la base" appears once uploads are done and links
+            // haven't been synced yet. The admin verifies on the player first.
+            const canSync = (t.files_done > 0) && !t.links_synced;
+            const syncedBadge = t.links_synced
+                ? '<span class="muted" style="font-size:11px">✓ base à jour</span>' : '';
             return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
                 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
                     <span style="font-weight:700;flex:1;min-width:140px">${escapeHtml(t.title || 'Batch #' + t.id)}</span>
                     <span style="font-size:11px;padding:2px 10px;border-radius:999px;background:${color};color:#000;font-weight:700">${TORRENT_STATUS_LABELS[t.status] || t.status}</span>
                     <span class="muted" style="font-size:12px">→ ${escapeHtml((Array.isArray(t.target_platforms) && t.target_platforms.length ? t.target_platforms : [t.target_platform]).join(', '))}</span>
                 </div>
-                <div class="muted" style="font-size:12px;margin:4px 0">${target} · ${(t.status === 'resolving' || t.status === 'downloading') ? (t.status === 'downloading' ? 'aria2 ' : 'Real-Debrid ') + (t.debrid_progress || 0) + '%' : t.files_done + '/' + t.files_total + ' en ligne' + (t.files_failed ? ' · <span style="color:var(--danger)">' + t.files_failed + ' KO</span>' : '')}</div>
+                <div class="muted" style="font-size:12px;margin:4px 0">${target} · ${(t.status === 'resolving' || t.status === 'downloading') ? (t.status === 'downloading' ? 'aria2 ' : 'Real-Debrid ') + (t.debrid_progress || 0) + '%' : t.files_done + '/' + t.files_total + ' en ligne' + (t.files_failed ? ' · <span style="color:var(--danger)">' + t.files_failed + ' KO</span>' : '')} ${syncedBadge}</div>
                 ${t.error ? `<div class="err" style="font-size:12px">${escapeHtml(t.error)}</div>` : ''}
-                <div style="display:flex;gap:6px;margin-top:6px">
+                <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
                     <button class="btn" data-tfiles="${t.id}" data-title="${escapeHtml(t.title || 'Batch #' + t.id)}">Épisodes</button>
+                    ${canSync ? `<button class="btn btn--primary" data-tsync="${t.id}" title="Créez les liens dans la base après avoir vérifié sur le lecteur">🔄 Mettre à jour la base</button>` : ''}
                     <button class="btn" data-tretry="${t.id}">↻ Réessayer</button>
                     ${canDelete ? `<button class="btn btn--danger" data-tdel="${t.id}">Suppr.</button>` : ''}
                 </div>
@@ -1046,11 +1052,21 @@
         }).join('');
 
         $('#torrentList').querySelectorAll('[data-tfiles]').forEach(b => b.addEventListener('click', () => openTorrentFiles(b.dataset.tfiles, b.dataset.title)));
+        $('#torrentList').querySelectorAll('[data-tsync]').forEach(b => b.addEventListener('click', () => torrentSyncLinks(b.dataset.tsync)));
         $('#torrentList').querySelectorAll('[data-tretry]').forEach(b => b.addEventListener('click', () => torrentAction(`/admin/torrents/${b.dataset.tretry}/retry`, null)));
         $('#torrentList').querySelectorAll('[data-tdel]').forEach(b => b.addEventListener('click', () => {
             if (!confirm('Supprimer ce batch et ses liens ?')) return;
             torrentDelete(b.dataset.tdel);
         }));
+    }
+
+    async function torrentSyncLinks(id) {
+        if (!confirm('Créer les liens dans la base pour ce batch ?\n\nÀ faire une fois que vous avez vérifié sur le lecteur que les épisodes sont bien en ligne.')) return;
+        try {
+            const res = await api(`/admin/torrents/${id}/sync-links`, { method: 'POST' });
+            toast(res.message || 'Base mise à jour');
+            reloadTorrents();
+        } catch (e) { toast(e.message); }
     }
 
     function statusColor(status) {

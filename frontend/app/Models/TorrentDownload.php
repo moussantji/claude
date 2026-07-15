@@ -36,6 +36,7 @@ class TorrentDownload extends Model
         'debrid_id',
         'debrid_progress',
         'status',
+        'links_synced',
         'files_total',
         'files_done',
         'files_failed',
@@ -55,6 +56,7 @@ class TorrentDownload extends Model
             'attempts' => 'integer',
             'aria2_files' => 'array',
             'target_platforms' => 'array',
+            'links_synced' => 'boolean',
         ];
     }
 

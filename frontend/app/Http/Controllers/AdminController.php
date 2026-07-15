@@ -1018,6 +1018,26 @@ class AdminController extends Controller
     }
 
     /**
+     * Manually push the batch's uploaded links into the database.
+     *
+     * Called from the admin panel button. The admin first verifies on the
+     * player(s) that everything is live, THEN clicks to create the
+     * episode_links. Idempotent (existing links are skipped).
+     */
+    public function torrentSyncLinks(TorrentDownload $torrent, TorrentService $service): JsonResponse
+    {
+        $created = $service->syncLinksToDatabase($torrent);
+
+        return response()->json([
+            'data' => $torrent->fresh(),
+            'message' => $created > 0
+                ? "{$created} lien(s) ajouté(s) à la base."
+                : 'Aucun nouveau lien (déjà à jour, ou aucun upload terminé).',
+            'created' => $created,
+        ]);
+    }
+
+    /**
      * Retry a failed batch, or re-arm its failed per-player targets.
      */
     public function torrentRetry(TorrentDownload $torrent): JsonResponse
