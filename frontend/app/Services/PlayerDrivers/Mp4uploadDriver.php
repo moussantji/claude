@@ -133,12 +133,12 @@ class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, F
             throw new RuntimeException('Mp4upload target API key is missing.');
         }
 
-        // 1. Get upload server
+        // 1. Get an upload server URL.
         $serverResp = Http::timeout(60)->acceptJson()
             ->get("{$apiBase}/upload/server", ['key' => $apiKey]);
 
         if ($serverResp->failed()) {
-            throw new RuntimeException('Could not get Mp4upload server.');
+            throw new RuntimeException('Could not get Mp4upload upload server (HTTP ' . $serverResp->status() . ').');
         }
 
         $uploadUrl = $serverResp->json('result');
@@ -146,18 +146,26 @@ class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, F
             throw new RuntimeException('Mp4upload did not return an upload URL.');
         }
 
-        // 2. Upload file
+        // The XFileSharing cgi endpoint expects ?upload_type=file.
+        if (! str_contains($uploadUrl, 'upload_type=')) {
+            $uploadUrl .= (str_contains($uploadUrl, '?') ? '&' : '?') . 'upload_type=file';
+        }
+
+        // 2. Upload the file. XFileSharing multipart requires:
+        //    sess_id = API key, utype = reg, and the file field named file_0.
         $handle = fopen($localPath, 'r');
         if (! $handle) {
             throw new RuntimeException("Cannot open file: {$localPath}");
         }
 
         try {
-            $response = Http::timeout(900)
-                ->attach('file', $handle, basename($localPath))
+            $response = Http::timeout(1800)
+                ->attach('file_0', $handle, basename($localPath))
                 ->post($uploadUrl, [
-                    'key' => $apiKey,
-                    'file_title' => $title,
+                    'sess_id' => $apiKey,
+                    'utype' => 'reg',
+                    'file_public' => '1',
+                    'file_descr' => $title,
                 ]);
         } finally {
             if (is_resource($handle)) {
@@ -166,15 +174,34 @@ class Mp4uploadDriver implements PlayerDriverInterface, RemoteUploadInterface, F
         }
 
         if ($response->failed()) {
-            throw new RuntimeException('Mp4upload upload failed.');
+            throw new RuntimeException('Mp4upload upload failed (HTTP ' . $response->status() . ').');
         }
 
+        // Response: JSON array [{"file_code":"...","file_status":"OK"}].
+        // Fall back to scraping a code from the body if it isn't clean JSON.
+        $code = null;
         $data = $response->json();
-        $entry = is_array($data) && isset($data[0]) ? $data[0] : $data;
-        $code = $entry['file_code'] ?? $entry['filecode'] ?? null;
+        if (is_array($data)) {
+            $entry = isset($data[0]) && is_array($data[0]) ? $data[0] : $data;
+            $code = $entry['file_code'] ?? $entry['filecode'] ?? null;
+        }
+        if (! $code && preg_match('/"file_code"\s*:\s*"([A-Za-z0-9]+)"|embed-([A-Za-z0-9]+)/', $response->body(), $m)) {
+            $code = ($m[1] ?? '') !== '' ? $m[1] : ($m[2] ?? null);
+        }
 
         if (! $code) {
-            throw new RuntimeException('Mp4upload did not return a file code.');
+            throw new RuntimeException('Mp4upload: aucun file_code retourné. Réponse: ' . mb_substr($response->body(), 0, 200));
+        }
+
+        // Set a clean title (best-effort) via the rename endpoint.
+        if ($title !== '') {
+            try {
+                Http::timeout(20)->acceptJson()->get("{$apiBase}/file/rename", [
+                    'key' => $apiKey, 'file_code' => $code, 'name' => $title,
+                ]);
+            } catch (Throwable) {
+                // non-fatal
+            }
         }
 
         return [

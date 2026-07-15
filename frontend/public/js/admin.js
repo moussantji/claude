@@ -540,6 +540,7 @@
         $('#tRefreshBtn').addEventListener('click', reloadTorrents);
         $('#tRetryAllBtn').addEventListener('click', () => torrentAction('/admin/torrents/retry-all', 'Réarmer TOUS les échecs (batches + liens) ?'));
         $('#tCleanupBtn').addEventListener('click', cleanupLinks);
+        $('#tKeepManagedBtn').addEventListener('click', keepOnlyManagedLinks);
         $('#tMigrateBtn').addEventListener('click', runMigrate);
         $('#tProcessBtn').addEventListener('click', processTorrentsNow);
         $('#torrentFilesClose').addEventListener('click', () => $('#torrentFilesModal').classList.remove('open'));
@@ -1068,6 +1069,15 @@
         try {
             const res = await api('/admin/torrents/cleanup-links', { method: 'POST' });
             toast(res.message || 'Liens dédupliqués');
+        } catch (e) { toast(e.message); }
+    }
+
+    async function keepOnlyManagedLinks() {
+        if (!confirm('⚠️ SUPPRIMER tous les liens SAUF doodstream / vidmoly / streamtape / mp4upload ?\n\nTous les autres lecteurs (sibnet, sendvid, myvi, dailymotion, etc.) seront retirés de TOUT le catalogue, et il ne restera qu\'un lien par lecteur/langue. Action IRRÉVERSIBLE.')) return;
+        if (!confirm('Confirmez une seconde fois : cette action supprime définitivement les liens des autres lecteurs.')) return;
+        try {
+            const res = await api('/admin/torrents/cleanup-links', { method: 'POST', body: { keep_only_managed: true } });
+            toast(res.message || 'Nettoyage effectué');
         } catch (e) { toast(e.message); }
     }
 

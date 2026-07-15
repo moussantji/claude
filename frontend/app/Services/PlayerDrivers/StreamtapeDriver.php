@@ -220,7 +220,7 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
 
     public function matchesHost(string $host): bool
     {
-        return str_contains($host, 'streamtape') || str_contains($host, 'strtape') || str_contains($host, 'strcloud');
+        return (bool) preg_match('/(streamtape|strtape|strcloud|tapecontent|streamadblocker|stape)/i', $host);
     }
 
     public function extractDirectUrl(string $embedUrl): ?string

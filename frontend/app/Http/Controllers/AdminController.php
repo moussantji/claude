@@ -1121,12 +1121,23 @@ class AdminController extends Controller
     public function torrentCleanupLinks(Request $request, TorrentService $service): JsonResponse
     {
         $animeId = $request->input('anime_id');
-        $result = $service->deduplicateLinks($animeId !== null ? (int) $animeId : null);
+        $keepOnlyManaged = filter_var($request->input('keep_only_managed', false), FILTER_VALIDATE_BOOLEAN);
+
+        $result = $service->deduplicateLinks(
+            $animeId !== null ? (int) $animeId : null,
+            $keepOnlyManaged,
+        );
+
+        $msg = "{$result['removed']} lien(s) supprimé(s) sur {$result['episodes']} épisode(s).";
+        if ($keepOnlyManaged && $result['pruned'] > 0) {
+            $msg .= " Dont {$result['pruned']} lien(s) de lecteurs non gérés retirés.";
+        }
 
         return response()->json([
-            'message' => "{$result['removed']} lien(s) en double supprimé(s) sur {$result['episodes']} épisode(s).",
+            'message' => $msg,
             'removed' => $result['removed'],
             'episodes' => $result['episodes'],
+            'pruned' => $result['pruned'],
         ]);
     }
 

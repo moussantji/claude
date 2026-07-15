@@ -1383,25 +1383,40 @@ class TorrentService
      * episode, deleting the extra/similar ones. The most recent link (highest
      * id) is kept. Optionally scoped to a single anime.
      *
-     * @return array{removed:int, episodes:int}
+     * When $keepOnlyManaged is true, ALSO delete every link whose player is
+     * NOT one of the managed remote hosts (doodstream/vidmoly/streamtape/
+     * mp4upload) — i.e. keep only "mes lecteurs" and remove all the rest.
+     *
+     * @return array{removed:int, episodes:int, pruned:int}
      */
-    public function deduplicateLinks(?int $animeId = null): array
+    public function deduplicateLinks(?int $animeId = null, bool $keepOnlyManaged = false): array
     {
         $removed = 0;
         $episodesAffected = 0;
+        $pruned = 0;
+        $managed = self::REMOTE_HOSTS;
 
         $query = Episode::query()->whereHas('links');
         if ($animeId !== null) {
             $query->whereHas('season', fn ($q) => $q->where('anime_id', $animeId));
         }
 
-        $query->with('links')->chunkById(200, function ($episodes) use (&$removed, &$episodesAffected) {
+        $query->with('links')->chunkById(200, function ($episodes) use (&$removed, &$episodesAffected, &$pruned, $keepOnlyManaged, $managed) {
             foreach ($episodes as $episode) {
                 $seen = [];
                 $toDelete = [];
                 // Newest first so the most recent link of each player is kept.
                 foreach ($episode->links->sortByDesc('id') as $link) {
                     $platform = $this->platformForHost($link->host) ?? strtolower((string) $link->host);
+
+                    // Aggressive prune: drop links from unmanaged players.
+                    if ($keepOnlyManaged && ! in_array($platform, $managed, true)) {
+                        $toDelete[] = $link->id;
+                        $pruned++;
+
+                        continue;
+                    }
+
                     $key = $platform . '|' . strtolower((string) ($link->language ?? ''));
                     if (isset($seen[$key])) {
                         $toDelete[] = $link->id;
@@ -1417,7 +1432,7 @@ class TorrentService
             }
         });
 
-        return ['removed' => $removed, 'episodes' => $episodesAffected];
+        return ['removed' => $removed, 'episodes' => $episodesAffected, 'pruned' => $pruned];
     }
 
     /**

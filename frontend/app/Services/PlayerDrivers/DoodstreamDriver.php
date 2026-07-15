@@ -119,7 +119,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, 
 
     public function matchesHost(string $host): bool
     {
-        return str_contains($host, 'dood') || str_contains($host, 'doodstream') || str_contains($host, 'ds2play');
+        return (bool) preg_match('/(dood|doodstream|ds2play|ds2video|d0o0d|do0od|dooood|vide0|doply|dooodster)/i', $host);
     }
 
     public function extractDirectUrl(string $embedUrl): ?string
