@@ -658,6 +658,8 @@ class AdminController extends Controller
                 'season:id,name,anime_id',
                 'season.anime:id,name',
                 'episode:id,index,name,season_id',
+                'episode.season:id,name,position,anime_id',
+                'episode.season.anime:id,name',
                 'submitter:id,name',
             ]);
 

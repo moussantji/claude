@@ -1053,12 +1053,11 @@ class TorrentService
 
             if ($driver instanceof RemoteUploadInterface) {
                 // Remote upload: the host fetches the link itself (async).
-                $result = $this->transferService->transferRemote(
-                    $sourceUrl,
-                    $title,
-                    $creds,
-                    $platform,
-                );
+                // Pass the source URL directly — do NOT try to extract a direct
+                // URL first (that would make an extra HTTP request to the source,
+                // which some hosts interpret as a download attempt).
+                $result = $driver->remoteUpload($sourceUrl, $title, $creds);
+                $result['platform'] = $platform;
                 $state = $result['state'] ?? 'queued';
 
                 if ($state === 'done' && ! empty($result['embed_url'])) {

@@ -1028,8 +1028,11 @@
         if (!rows.length) { $('#torrentList').innerHTML = '<span class="muted">Aucun batch pour le moment.</span>'; return; }
         $('#torrentList').innerHTML = rows.map(t => {
             const [color] = statusColor(t.status);
-            const target = t.season ? `${escapeHtml(t.season.anime ? t.season.anime.name : '?')} · ${escapeHtml(t.season.name)}`
-                : (t.episode ? `Épisode #${t.episode.index}` : '—');
+            const target = t.season
+                ? `${escapeHtml(t.season.anime ? t.season.anime.name : '?')} · ${escapeHtml(t.season.name)}`
+                : (t.episode
+                    ? `${t.episode.season ? escapeHtml(t.episode.season.anime ? t.episode.season.anime.name + ' · ' : '') + escapeHtml(t.episode.season.name) + ' · ' : ''}Episode ${t.episode.index}${t.episode.name ? ' — ' + escapeHtml(t.episode.name) : ''}`
+                    : '—');
             const canDelete = t.status !== 'done';
             // "Mettre à jour la base" appears once at least one upload is done
             // (a player target has an embed URL) and links haven't been synced.
