@@ -89,6 +89,59 @@ class TorrentService
         return array_values(array_filter(array_map('trim', explode(',', $raw))));
     }
 
+    /**
+     * Hosts whose REMOTE upload only accepts a whitelist of source sites
+     * (Streamtape is on it) — NOT arbitrary direct links. When the batch also
+     * targets Streamtape, these players pull from the resulting Streamtape URL
+     * instead of the original (unsupported) source link.
+     *
+     * @return list<string>
+     */
+    private function streamtapeSourceHosts(): array
+    {
+        $raw = strtolower((string) env('TORRENT_STREAMTAPE_SOURCE_HOSTS', 'streamwish,vidhide'));
+
+        return array_values(array_filter(array_map('trim', explode(',', $raw))));
+    }
+
+    /**
+     * Decide what source URL a restricted host should pull from.
+     *
+     * @return array{action:string, url:?string}
+     *   action: 'ready'    → use ['url'] (a Streamtape URL)
+     *           'defer'    → Streamtape sibling still working, wait
+     *           'original' → not restricted / no Streamtape sibling / it failed
+     */
+    private function resolveChainedSource(TorrentFile $file, string $platform): array
+    {
+        if (! in_array($platform, $this->streamtapeSourceHosts(), true)) {
+            return ['action' => 'original', 'url' => null];
+        }
+
+        $streamtape = $file->relationLoaded('targets')
+            ? $file->targets->firstWhere('platform', 'streamtape')
+            : $file->targets()->where('platform', 'streamtape')->first();
+
+        if (! $streamtape) {
+            return ['action' => 'original', 'url' => null]; // no Streamtape in batch → best effort
+        }
+
+        if ($streamtape->status === 'done' && $streamtape->file_code) {
+            $url = ! empty($streamtape->embed_url)
+                ? $streamtape->embed_url
+                : "https://streamtape.com/v/{$streamtape->file_code}";
+
+            return ['action' => 'ready', 'url' => $url];
+        }
+
+        if (in_array($streamtape->status, ['pending', 'queued', 'uploading'], true)) {
+            return ['action' => 'defer', 'url' => null]; // wait for Streamtape to finish
+        }
+
+        // Streamtape failed → fall back to the original link (best effort).
+        return ['action' => 'original', 'url' => null];
+    }
+
     /* =====================================================================
      * PER-HOST DAILY UPLOAD QUOTA
      *
@@ -979,13 +1032,24 @@ class TorrentService
         $targets = TorrentFileTarget::query()
             ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
             ->where('status', 'pending')
-            ->with('file')
+            ->with('file.targets')
             ->orderBy('id')
             ->limit($this->filesPerRun)
             ->get();
 
         foreach ($targets as $target) {
             $platform = $target->platform;
+            $file = $target->file;
+
+            // Restricted-source hosts (streamwish/vidhide): their remote upload
+            // only accepts whitelisted source sites (Streamtape is one). If this
+            // batch also uploads to Streamtape, wait for Streamtape to finish,
+            // then pull from its URL. Only when there's no local file / override.
+            if ($file && trim((string) $target->source_url) === '' && ! $file->local_path) {
+                if ($this->resolveChainedSource($file, $platform)['action'] === 'defer') {
+                    continue; // Streamtape not ready yet → retry next pass
+                }
+            }
 
             // Per-player daily quota (shared with episodes:remote).
             if ($this->dailyRemaining($platform) <= 0) {
@@ -1081,9 +1145,27 @@ class TorrentService
             }
 
             // --- Direct link / retry override: the host fetches the link itself ---
-            // Prefer the target's own source URL (retry with a new link),
-            // otherwise fall back to the file's source URL.
-            $sourceUrl = $overrideUrl !== '' ? $overrideUrl : trim((string) $file->source_url);
+            // Priority for the source URL:
+            //   1. Manual retry override (per-target source_url).
+            //   2. Chained Streamtape URL for restricted hosts (streamwish/vidhide)
+            //      — their remote upload only accepts whitelisted sites.
+            //   3. The file's original source URL.
+            if ($overrideUrl !== '') {
+                $sourceUrl = $overrideUrl;
+            } else {
+                $chain = $this->resolveChainedSource($file, $platform);
+                if ($chain['action'] === 'ready') {
+                    $sourceUrl = (string) $chain['url'];
+                } elseif ($chain['action'] === 'defer') {
+                    // Streamtape sibling not ready yet — release back to pending.
+                    $target->update(['status' => 'pending']);
+
+                    return;
+                } else {
+                    $sourceUrl = trim((string) $file->source_url);
+                }
+            }
+
             if ($sourceUrl === '') {
                 $target->markFailed('Aucune source URL pour ce fichier (fichier local supprimé et pas de lien de remplacement).');
 
