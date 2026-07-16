@@ -1192,6 +1192,30 @@ class AdminController extends Controller
             ], 422);
         }
 
+        $file = $target->file;
+
+        // Remove the OLD episode_link of this player (if it was already synced
+        // to the DB) so the stale/dead link is gone before the new upload.
+        if ($file && $file->episode_id) {
+            $oldEmbed = $target->embed_url;
+            $language = $file->language ?? 'VOSTFR';
+            $platform = $target->platform;
+
+            EpisodeLink::where('episode_id', $file->episode_id)
+                ->where('language', $language)
+                ->get()
+                ->each(function (EpisodeLink $link) use ($oldEmbed, $platform) {
+                    $host = preg_replace('/^www\./', '', (string) parse_url((string) $link->url, PHP_URL_HOST));
+                    // Match by exact old embed URL, or by the player host domain.
+                    $isSamePlayer = ($oldEmbed && $link->url === $oldEmbed)
+                        || ($host !== '' && str_contains($host, $platform))
+                        || ($host !== '' && str_contains(strtolower((string) $link->host), $platform));
+                    if ($isSamePlayer) {
+                        $link->delete();
+                    }
+                });
+        }
+
         // Re-arm this target only. A new URL (if provided) is stored on the
         // target so it overrides the file's source_url for this player alone.
         $target->update([
@@ -1204,7 +1228,6 @@ class AdminController extends Controller
         ]);
 
         // Put the parent file + batch back into processing so it re-submits.
-        $file = $target->file;
         if ($file) {
             // Always reset the file to pending so submitPendingTargets picks it up.
             if (in_array($file->status, ['done', 'failed', 'skipped'], true)) {

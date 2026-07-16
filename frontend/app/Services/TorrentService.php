@@ -989,6 +989,13 @@ class TorrentService
 
             // Per-player daily quota (shared with episodes:remote).
             if ($this->dailyRemaining($platform) <= 0) {
+                // Explain WHY it's still pending (quota reached) so the admin
+                // isn't left wondering. Status stays pending → resumes tomorrow.
+                $limit = $this->hostDailyLimit($platform);
+                $target->update([
+                    'error' => "Quota journalier {$platform} atteint ({$limit}/jour). Reprend demain — ou augmentez TRANSFER_" . strtoupper($platform) . '_DAILY_LIMIT.',
+                ]);
+
                 continue; // this player is capped today — try again tomorrow
             }
             $creds = $this->getCredentials($platform);
@@ -1032,8 +1039,21 @@ class TorrentService
             $title = $this->buildTitle($job, $file);
             $platform = $target->platform;
 
+            $driver = $this->transferService->driverByName($platform);
+            if (! $driver) {
+                $target->markFailed("Aucun driver pour la plateforme : {$platform}");
+
+                return;
+            }
+
+            // A per-target source URL override (set when retrying ONE player
+            // with a new link) ALWAYS wins — even on an aria2 batch whose local
+            // file was already deleted after the first upload.
+            $overrideUrl = trim((string) $target->source_url);
+
             // --- aria2: upload the locally-downloaded file ---
-            if ($file->local_path) {
+            // Only when there's no per-target override and the local file still exists.
+            if ($overrideUrl === '' && $file->local_path) {
                 $path = $file->local_path;
                 if (! $path || ! is_file($path)) {
                     $target->markFailed("Fichier introuvable sur le disque : {$path}");
@@ -1042,12 +1062,6 @@ class TorrentService
                 }
                 if (filesize($path) < self::MIN_VIDEO_SIZE) {
                     $target->markFailed('Fichier trop petit (probablement corrompu).');
-
-                    return;
-                }
-                $driver = $this->transferService->driverByName($platform);
-                if (! $driver) {
-                    $target->markFailed("Aucun driver pour la plateforme : {$platform}");
 
                     return;
                 }
@@ -1066,21 +1080,12 @@ class TorrentService
                 return;
             }
 
-            // --- RD/direct link: the host fetches the link itself ---
-            // If the target driver supports remote upload, use it (async).
-            // Otherwise, download the file locally first then upload it.
-            $driver = $this->transferService->driverByName($platform);
-            if (! $driver) {
-                $target->markFailed("Aucun driver pour la plateforme : {$platform}");
-
-                return;
-            }
-
-            // Prefer the target's own source URL (set when retrying a single
-            // player with a new link) — otherwise fall back to the file's.
-            $sourceUrl = trim((string) ($target->source_url ?: $file->source_url));
+            // --- Direct link / retry override: the host fetches the link itself ---
+            // Prefer the target's own source URL (retry with a new link),
+            // otherwise fall back to the file's source URL.
+            $sourceUrl = $overrideUrl !== '' ? $overrideUrl : trim((string) $file->source_url);
             if ($sourceUrl === '') {
-                $target->markFailed('Aucune source URL pour ce fichier.');
+                $target->markFailed('Aucune source URL pour ce fichier (fichier local supprimé et pas de lien de remplacement).');
 
                 return;
             }
@@ -1760,8 +1765,10 @@ class TorrentService
         return match ($platform) {
             'vidmoly' => array_filter([
                 'api_key' => env('TRANSFER_VIDMOLY_API_KEY', ''),
-                'api_base' => env('TRANSFER_VIDMOLY_API_BASE', 'https://api.vidmoly.to'),
-                'embed_base' => env('TRANSFER_VIDMOLY_EMBED_BASE', 'https://vidmoly.to'),
+                // API + file management live on vidmoly.me (api.vidmoly.to just
+                // redirects → returns HTML, breaking the JSON parsing).
+                'api_base' => env('TRANSFER_VIDMOLY_API_BASE', 'https://vidmoly.me'),
+                'embed_base' => env('TRANSFER_VIDMOLY_EMBED_BASE', 'https://vidmoly.me'),
                 'timeout' => (int) env('TRANSFER_VIDMOLY_TIMEOUT', 900),
             ]),
             'doodstream' => array_filter([
