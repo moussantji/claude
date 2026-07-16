@@ -518,6 +518,12 @@ class EpisodesDailyTransfer extends Command
                 'embed_base' => env('TRANSFER_STREAMWISH_EMBED_BASE', 'https://streamwish.to'),
                 'timeout' => (int) env('TRANSFER_STREAMWISH_TIMEOUT', 900),
             ]),
+            'vidhide' => array_filter([
+                'api_key' => env('TRANSFER_VIDHIDE_API_KEY', ''),
+                'api_base' => env('TRANSFER_VIDHIDE_API_BASE', 'https://api.filelions.com/api'),
+                'embed_base' => env('TRANSFER_VIDHIDE_EMBED_BASE', 'https://vidhide.com'),
+                'timeout' => (int) env('TRANSFER_VIDHIDE_TIMEOUT', 900),
+            ]),
             'sibnet' => array_filter([
                 'login' => env('TRANSFER_SIBNET_LOGIN', ''),
                 'password' => env('TRANSFER_SIBNET_PASSWORD', ''),

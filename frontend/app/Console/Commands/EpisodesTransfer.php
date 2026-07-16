@@ -244,6 +244,12 @@ class EpisodesTransfer extends Command
                 'embed_base' => env('TRANSFER_STREAMWISH_EMBED_BASE', 'https://streamwish.to'),
                 'timeout' => (int) env('TRANSFER_STREAMWISH_TIMEOUT', 900),
             ]),
+            'vidhide' => array_filter([
+                'api_key' => $this->option('target-api-key') ?: env('TRANSFER_VIDHIDE_API_KEY', ''),
+                'api_base' => env('TRANSFER_VIDHIDE_API_BASE', 'https://api.filelions.com/api'),
+                'embed_base' => env('TRANSFER_VIDHIDE_EMBED_BASE', 'https://vidhide.com'),
+                'timeout' => (int) env('TRANSFER_VIDHIDE_TIMEOUT', 900),
+            ]),
             'sibnet' => array_filter([
                 'login' => $this->option('target-login') ?: env('TRANSFER_SIBNET_LOGIN', ''),
                 'password' => $this->option('target-password') ?: env('TRANSFER_SIBNET_PASSWORD', ''),

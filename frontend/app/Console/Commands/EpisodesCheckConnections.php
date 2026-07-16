@@ -76,6 +76,7 @@ class EpisodesCheckConnections extends Command
         try {
             return match ($platform) {
                 'streamwish' => $this->checkStreamwish(),
+                'vidhide' => $this->checkVidhide(),
                 'doodstream' => $this->checkDoodstream(),
                 'streamtape' => $this->checkStreamtape(),
                 'dailymotion' => $this->checkDailymotion(),
@@ -112,6 +113,31 @@ class EpisodesCheckConnections extends Command
         $msg = $resp->json('msg') ?: ('HTTP '.$resp->status());
 
         return ['auth-fail', $msg.' — check TRANSFER_STREAMWISH_API_KEY'];
+    }
+
+    private function checkVidhide(): array
+    {
+        $key = env('TRANSFER_VIDHIDE_API_KEY', '');
+        if ($key === '') {
+            return ['no-creds', 'TRANSFER_VIDHIDE_API_KEY empty'];
+        }
+        $base = rtrim(env('TRANSFER_VIDHIDE_API_BASE', 'https://api.filelions.com/api'), '/');
+        try {
+            $resp = Http::timeout(12)->acceptJson()->get("{$base}/account/info", ['key' => $key]);
+        } catch (Throwable $e) {
+            return ['auth-fail', 'HTTP error — '.mb_substr($e->getMessage(), 0, 60)];
+        }
+
+        $result = $resp->json('result');
+        if ($resp->successful() && (int) ($resp->json('status') ?? 0) === 200 && is_array($result)) {
+            $email = $result['email'] ?? '';
+
+            return ['ok', $email ? "account: {$email}" : 'API reachable'];
+        }
+
+        $msg = $resp->json('msg') ?: ('HTTP '.$resp->status());
+
+        return ['auth-fail', $msg.' — check TRANSFER_VIDHIDE_API_KEY'];
     }
 
     private function checkDoodstream(): array

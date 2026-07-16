@@ -36,7 +36,7 @@ use Throwable;
 class TorrentService
 {
     /** Hosts that support server-to-server remote upload. */
-    private const REMOTE_HOSTS = ['doodstream', 'streamwish', 'streamtape'];
+    private const REMOTE_HOSTS = ['doodstream', 'streamwish', 'streamtape', 'vidhide'];
 
     /** Video extensions kept when selecting files inside a torrent. */
     private const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'webm', 'ts', 'flv', 'mov', 'm4v', 'wmv'];
@@ -1768,6 +1768,12 @@ class TorrentService
                 'api_base' => env('TRANSFER_STREAMWISH_API_BASE', 'https://api.streamwish.com/api'),
                 'embed_base' => env('TRANSFER_STREAMWISH_EMBED_BASE', 'https://streamwish.to'),
                 'timeout' => (int) env('TRANSFER_STREAMWISH_TIMEOUT', 900),
+            ]),
+            'vidhide' => array_filter([
+                'api_key' => env('TRANSFER_VIDHIDE_API_KEY', ''),
+                'api_base' => env('TRANSFER_VIDHIDE_API_BASE', 'https://api.filelions.com/api'),
+                'embed_base' => env('TRANSFER_VIDHIDE_EMBED_BASE', 'https://vidhide.com'),
+                'timeout' => (int) env('TRANSFER_VIDHIDE_TIMEOUT', 900),
             ]),
             'doodstream' => array_filter([
                 'api_key' => env('TRANSFER_DOODSTREAM_API_KEY', ''),

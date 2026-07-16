@@ -374,7 +374,7 @@ class AdminController extends Controller
 
         // Per-host remote-upload usage today (from the cache counters set by episodes:remote)
         $perHost = [];
-        foreach (['doodstream', 'streamtape', 'streamwish'] as $p) {
+        foreach (['doodstream', 'streamtape', 'streamwish', 'vidhide'] as $p) {
             $used = (int) \Illuminate\Support\Facades\Cache::get("remote_daily:{$p}:{$today}", 0);
             $limitEnv = env('TRANSFER_'.strtoupper($p).'_DAILY_LIMIT');
             $perHost[] = [
@@ -870,7 +870,7 @@ class AdminController extends Controller
      * OR direct download links.
      *
      * Body (multipart/form-data or JSON):
-     *   target_platform  : doodstream|streamwish|streamtape  (required)
+     *   target_platform  : doodstream|streamwish|streamtape|vidhide  (required)
      *   target_platforms : array of the above (multi-select)
      *   anime_id         : the anime to associate (auto-resolves title)
      *   season_id        : season pack — files auto-matched to episodes
@@ -885,9 +885,9 @@ class AdminController extends Controller
     public function torrentStore(Request $request, TorrentService $service): JsonResponse
     {
         $validated = $request->validate([
-            'target_platform' => ['nullable', 'string', 'in:doodstream,streamwish,streamtape'],
+            'target_platform' => ['nullable', 'string', 'in:doodstream,streamwish,streamtape,vidhide'],
             'target_platforms' => ['nullable', 'array'],
-            'target_platforms.*' => ['string', 'in:doodstream,streamwish,streamtape'],
+            'target_platforms.*' => ['string', 'in:doodstream,streamwish,streamtape,vidhide'],
             'anime_id' => ['nullable', 'integer', 'exists:animes,id'],
             'season_id' => ['nullable', 'integer', 'exists:seasons,id'],
             'episode_id' => ['nullable', 'integer', 'exists:episodes,id'],

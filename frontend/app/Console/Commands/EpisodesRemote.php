@@ -241,7 +241,7 @@ class EpisodesRemote extends Command
         $this->info("Queued: {$queued} | Finalized: {$finalized['done']} | Failed: {$failed}");
 
         // Show per-host usage today
-        foreach (['doodstream', 'streamtape', 'streamwish'] as $p) {
+        foreach (['doodstream', 'streamtape', 'streamwish', 'vidhide'] as $p) {
             $used = $this->dailyUsed($p, $today);
             if ($used > 0) {
                 $this->line("  {$p}: {$used}/{$this->hostDailyLimit($p, $defaultLimit)} today");
@@ -463,6 +463,11 @@ class EpisodesRemote extends Command
                 'api_key' => env('TRANSFER_STREAMWISH_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMWISH_API_BASE', 'https://api.streamwish.com/api'),
                 'embed_base' => env('TRANSFER_STREAMWISH_EMBED_BASE', 'https://streamwish.to'),
+            ]),
+            'vidhide' => array_filter([
+                'api_key' => env('TRANSFER_VIDHIDE_API_KEY', ''),
+                'api_base' => env('TRANSFER_VIDHIDE_API_BASE', 'https://api.filelions.com/api'),
+                'embed_base' => env('TRANSFER_VIDHIDE_EMBED_BASE', 'https://vidhide.com'),
             ]),
             'doodstream' => array_filter([
                 'api_key' => env('TRANSFER_DOODSTREAM_API_KEY', ''),

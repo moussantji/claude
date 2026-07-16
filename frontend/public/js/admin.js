@@ -861,7 +861,7 @@
     }
 
     /* ---- Torrents (magnet → aria2/Real-Debrid → player host) ---- */
-    const torrentState = { platforms: ['doodstream', 'streamwish', 'streamtape'], provider: 'aria2' };
+    const torrentState = { platforms: ['doodstream', 'streamwish', 'streamtape', 'vidhide'], provider: 'aria2' };
 
     const TORRENT_STATUS_LABELS = { pending: 'En attente', downloading: 'Téléchargement', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminé', failed: 'Échec' };
     const FILE_STATUS = {
@@ -1078,7 +1078,7 @@
     }
 
     async function keepOnlyManagedLinks() {
-        if (!confirm('⚠️ SUPPRIMER tous les liens SAUF doodstream / streamwish / streamtape ?\n\nTous les autres lecteurs (sibnet, sendvid, myvi, dailymotion, etc.) seront retirés de TOUT le catalogue, et il ne restera qu\'un lien par lecteur/langue. Action IRRÉVERSIBLE.')) return;
+        if (!confirm('⚠️ SUPPRIMER tous les liens SAUF doodstream / streamwish / streamtape / vidhide ?\n\nTous les autres lecteurs (sibnet, sendvid, myvi, dailymotion, etc.) seront retirés de TOUT le catalogue, et il ne restera qu\'un lien par lecteur/langue. Action IRRÉVERSIBLE.')) return;
         if (!confirm('Confirmez une seconde fois : cette action supprime définitivement les liens des autres lecteurs.')) return;
         try {
             const res = await api('/admin/torrents/cleanup-links', { method: 'POST', body: { keep_only_managed: true } });
