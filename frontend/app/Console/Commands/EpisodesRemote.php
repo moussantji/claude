@@ -241,7 +241,7 @@ class EpisodesRemote extends Command
         $this->info("Queued: {$queued} | Finalized: {$finalized['done']} | Failed: {$failed}");
 
         // Show per-host usage today
-        foreach (['doodstream', 'streamtape', 'vidmoly', 'mp4upload'] as $p) {
+        foreach (['doodstream', 'streamtape', 'streamwish', 'vidhide'] as $p) {
             $used = $this->dailyUsed($p, $today);
             if ($used > 0) {
                 $this->line("  {$p}: {$used}/{$this->hostDailyLimit($p, $defaultLimit)} today");
@@ -459,23 +459,24 @@ class EpisodesRemote extends Command
     private function getTargetCredentials(string $platform): array
     {
         return match ($platform) {
-            'vidmoly' => array_filter([
-                'api_key' => env('TRANSFER_VIDMOLY_API_KEY', ''),
-                'api_base' => env('TRANSFER_VIDMOLY_API_BASE', 'https://vidmoly.me'),
-                'embed_base' => env('TRANSFER_VIDMOLY_EMBED_BASE', 'https://vidmoly.me'),
+            'streamwish' => array_filter([
+                'api_key' => env('TRANSFER_STREAMWISH_API_KEY', ''),
+                'api_base' => env('TRANSFER_STREAMWISH_API_BASE', 'https://api.streamwish.com/api'),
+                'embed_base' => env('TRANSFER_STREAMWISH_EMBED_BASE', 'https://streamwish.to'),
+            ]),
+            'vidhide' => array_filter([
+                'api_key' => env('TRANSFER_VIDHIDE_API_KEY', ''),
+                'api_base' => env('TRANSFER_VIDHIDE_API_BASE', 'https://api.filelions.com/api'),
+                'embed_base' => env('TRANSFER_VIDHIDE_EMBED_BASE', 'https://vidhide.com'),
             ]),
             'doodstream' => array_filter([
                 'api_key' => env('TRANSFER_DOODSTREAM_API_KEY', ''),
-                'api_base' => env('TRANSFER_DOODSTREAM_API_BASE', 'https://doodapi.com/api'),
+                'api_base' => env('TRANSFER_DOODSTREAM_API_BASE', 'https://doodapi.co/api'),
             ]),
             'streamtape' => array_filter([
                 'login' => env('TRANSFER_STREAMTAPE_LOGIN', ''),
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
-            ]),
-            'mp4upload' => array_filter([
-                'api_key' => env('TRANSFER_MP4UPLOAD_API_KEY', ''),
-                'api_base' => env('TRANSFER_MP4UPLOAD_API_BASE', 'https://www.mp4upload.com/api'),
             ]),
             default => [],
         };

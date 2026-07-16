@@ -13,11 +13,30 @@ use Throwable;
  *          parse the embed page and reconstruct the download URL.
  * Upload: Uses the Doodstream API (XFileSharing derivative).
  */
-class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
+class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface, FileStatusInterface
 {
+    use OrganizesViaXFileSharing;
+
     public function name(): string
     {
         return 'doodstream';
+    }
+
+    /* ---- Folder organization (Doodstream uses /file/move) ---- */
+
+    protected function xfsBase(array $credentials): string
+    {
+        return rtrim($credentials['api_base'] ?? 'https://doodapi.co/api', '/');
+    }
+
+    protected function xfsAuth(array $credentials): array
+    {
+        return ['key' => $credentials['api_key'] ?? ''];
+    }
+
+    protected function xfsMoveEndpoint(): string
+    {
+        return 'file/move';
     }
 
     /**
@@ -28,16 +47,21 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
     public function remoteUpload(string $sourceUrl, string $title, array $credentials): array
     {
         $key = $credentials['api_key'] ?? '';
-        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.com/api', '/');
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.co/api', '/');
 
         if ($key === '') {
             throw new RuntimeException('Doodstream API key missing.');
         }
 
+        // Force a .mp4 filename: .mkv (and others) can stay stuck "en attente"
+        // on the host. Keeping the original name but with a .mp4 extension makes
+        // it process correctly.
+        $name = $this->mp4NameFromUrl($sourceUrl);
+
         $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/upload/url", [
             'key' => $key,
             'url' => $sourceUrl,
-            'title' => $title !== '' ? $title : null,
+            'file_title' => $name,
         ]);
 
         // Short, readable source for error messages
@@ -62,7 +86,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
         if ($code) {
             return [
                 'job_id' => $code,
-                'embed_url' => "https://dood.to/e/{$code}",
+                'embed_url' => $this->embedBase($credentials)."/e/{$code}",
                 'file_code' => $code,
                 'state' => 'done',
             ];
@@ -79,7 +103,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
     public function remoteStatus(string $jobId, array $credentials): array
     {
         $key = $credentials['api_key'] ?? '';
-        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.com/api', '/');
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.co/api', '/');
 
         // If jobId already looks like a file code, confirm it exists.
         $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/info", [
@@ -92,7 +116,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
         if (is_array($entry) && ! empty($entry['filecode'] ?? $entry['file_code'] ?? null)) {
             $code = $entry['filecode'] ?? $entry['file_code'];
 
-            return ['state' => 'done', 'embed_url' => "https://dood.to/e/{$code}", 'file_code' => $code, 'error' => null];
+            return ['state' => 'done', 'embed_url' => $this->embedBase($credentials)."/e/{$code}", 'file_code' => $code, 'error' => null];
         }
 
         return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
@@ -100,7 +124,24 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
 
     public function matchesHost(string $host): bool
     {
-        return str_contains($host, 'dood') || str_contains($host, 'doodstream') || str_contains($host, 'ds2play');
+        return (bool) preg_match('/(dood|doodstream|ds2play|ds2video|d0o0d|do0od|dooood|vide0|doply|dooodster)/i', $host);
+    }
+
+    /**
+     * Derive a filename from the source URL and force a .mp4 extension.
+     * Keeps the original base name (e.g. "07-Ghost_01_Vostfr.mkv" → "07-Ghost_01_Vostfr.mp4").
+     */
+    private function mp4NameFromUrl(string $sourceUrl): string
+    {
+        $path = parse_url($sourceUrl, PHP_URL_PATH) ?: $sourceUrl;
+        $base = urldecode(basename($path));
+        $base = preg_replace('/\.[a-z0-9]{2,4}$/i', '', $base);
+        $base = trim((string) $base);
+        if ($base === '') {
+            $base = 'video';
+        }
+
+        return $base . '.mp4';
     }
 
     public function extractDirectUrl(string $embedUrl): ?string
@@ -174,7 +215,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
     public function upload(string $localPath, string $title, array $credentials): array
     {
         $apiKey = $credentials['api_key'] ?? '';
-        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.com/api', '/');
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://doodapi.co/api', '/');
 
         if ($apiKey === '') {
             throw new RuntimeException('Doodstream target API key is missing.');
@@ -205,11 +246,12 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
         }
 
         try {
+            // Attach with a .mp4 filename (keeps the base name, forces .mp4) so
+            // the host processes it instead of leaving it stuck.
             $response = Http::timeout(900)
-                ->attach('file', $handle, basename($localPath))
+                ->attach('file', $handle, $this->mp4NameFromUrl($localPath))
                 ->post($uploadUrl, [
                     'api_key' => $apiKey,
-                    'title' => $title,
                 ]);
         } finally {
             if (is_resource($handle)) {
@@ -231,7 +273,7 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
 
         return [
             'file_code' => $fileCode,
-            'embed_url' => "https://dood.to/e/{$fileCode}",
+            'embed_url' => $this->embedBase($credentials)."/e/{$fileCode}",
         ];
     }
 
@@ -240,5 +282,16 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface
         $parsed = parse_url($url);
 
         return ($parsed['scheme'] ?? 'https').'://'.($parsed['host'] ?? 'dood.to');
+    }
+
+    /**
+     * Playback/embed domain. Doodstream rotates domains, so it's overridable
+     * via credentials['embed_base'] or TRANSFER_DOODSTREAM_EMBED_BASE.
+     */
+    private function embedBase(array $credentials): string
+    {
+        $base = $credentials['embed_base'] ?? env('TRANSFER_DOODSTREAM_EMBED_BASE', 'https://dood.to');
+
+        return rtrim($base, '/');
     }
 }

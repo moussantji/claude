@@ -17,7 +17,18 @@
         const res = await fetch(API + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
         let json = {};
         try { json = await res.json(); } catch (_) { /* noop */ }
-        if (!res.ok) throw Object.assign(new Error(json.message || `Erreur ${res.status}`), { status: res.status });
+        if (!res.ok) throw Object.assign(new Error(json.message || `Erreur ${res.status}`), { status: res.status, errors: json.errors });
+        return json;
+    }
+
+    /** Like api() but sends FormData (multipart/form-data) — used for file uploads. */
+    async function apiFormData(path, formData) {
+        const headers = { Accept: 'application/json' };
+        if (token) headers.Authorization = 'Bearer ' + token;
+        const res = await fetch(API + path, { method: 'POST', headers, body: formData });
+        let json = {};
+        try { json = await res.json(); } catch (_) { /* noop */ }
+        if (!res.ok) throw Object.assign(new Error(json.message || `Erreur ${res.status}`), { status: res.status, errors: json.errors });
         return json;
     }
 
@@ -30,6 +41,11 @@
 
     const escapeHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    function debounce(fn, ms) {
+        let t;
+        return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+    }
 
     function show(view) {
         $('#login').classList.toggle('hide', view !== 'login');
@@ -516,6 +532,29 @@
         $('#retryAllBtn').addEventListener('click', () => transferAction('/admin/transfers/retry', 'Réessayer TOUS les échecs ?'));
         $('#redoAllBtn').addEventListener('click', () => transferAction('/admin/transfers/redo', 'Remettre TOUS les terminés en file (re-upload) ?'));
 
+        // Torrents (remote upload)
+        $('#torrentsBtn').addEventListener('click', openTorrents);
+        $('#torrentsClose').addEventListener('click', () => $('#torrentsModal').classList.remove('open'));
+        $('#torrentsModal').addEventListener('click', (e) => { if (e.target === $('#torrentsModal')) $('#torrentsModal').classList.remove('open'); });
+        $('#tSubmitBtn').addEventListener('click', submitTorrent);
+        $('#tRefreshBtn').addEventListener('click', reloadTorrents);
+        $('#tRetryAllBtn').addEventListener('click', () => torrentAction('/admin/torrents/retry-all', 'Réarmer TOUS les échecs (batches + liens) ?'));
+        $('#tCleanupBtn').addEventListener('click', cleanupLinks);
+        $('#tKeepManagedBtn').addEventListener('click', keepOnlyManagedLinks);
+        $('#tMigrateBtn').addEventListener('click', runMigrate);
+        $('#tProcessBtn').addEventListener('click', processTorrentsNow);
+        $('#torrentFilesClose').addEventListener('click', () => $('#torrentFilesModal').classList.remove('open'));
+        $('#torrentFilesModal').addEventListener('click', (e) => { if (e.target === $('#torrentFilesModal')) $('#torrentFilesModal').classList.remove('open'); });
+
+        // Recently added/modified content (verify player links)
+        $('#tContentBtn').addEventListener('click', openRecentContent);
+        $('#rcRefreshBtn').addEventListener('click', reloadRecentContent);
+        $('#rcSearch').addEventListener('input', debounce(reloadRecentContent, 300));
+        $('#recentContentClose').addEventListener('click', () => $('#recentContentModal').classList.remove('open'));
+        $('#recentContentModal').addEventListener('click', (e) => { if (e.target === $('#recentContentModal')) $('#recentContentModal').classList.remove('open'); });
+        $('#recentLinksClose').addEventListener('click', () => $('#recentLinksModal').classList.remove('open'));
+        $('#recentLinksModal').addEventListener('click', (e) => { if (e.target === $('#recentLinksModal')) $('#recentLinksModal').classList.remove('open'); });
+
         // Team manual tracking
         $('#teamBtn').addEventListener('click', openTeam);
         $('#teamClose').addEventListener('click', () => $('#teamModal').classList.remove('open'));
@@ -819,6 +858,489 @@
             toast(e.message);
             cb.checked = !cb.checked; // revert on error
         }
+    }
+
+    /* ---- Torrents (magnet → aria2/Real-Debrid → player host) ---- */
+    const torrentState = { platforms: ['doodstream', 'streamwish', 'streamtape', 'vidhide'], provider: 'aria2' };
+
+    const TORRENT_STATUS_LABELS = { pending: 'En attente', downloading: 'Téléchargement', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminé', failed: 'Échec' };
+    const FILE_STATUS = {
+        pending: ['#9a9ab0', '· en attente'],
+        uploading: ['#4fb0ff', '⤴ envoi en cours'],
+        queued: ['#4fb0ff', '↻ chez le lecteur'],
+        done: ['#4fe0a0', '✓ en ligne'],
+        failed: ['#ff4d6d', '✗ échec'],
+        skipped: ['#f0ad4e', '⊘ non mappé'],
+    };
+
+    async function openTorrents() {
+        $('#torrentsModal').classList.add('open');
+        $('#tErr').textContent = '';
+        $('#torrentStats').innerHTML = '<span class="muted">Chargement…</span>';
+        $('#torrentList').innerHTML = '';
+        // Render the player checkboxes immediately (with defaults) so the admin
+        // can always pick players even if the stats endpoint fails.
+        renderPlatformSelect();
+        await reloadTorrents();
+    }
+
+    async function reloadTorrents() {
+        try {
+            const { data } = await api('/admin/torrents/stats');
+            if (Array.isArray(data.platforms) && data.platforms.length) {
+                torrentState.platforms = data.platforms;
+            }
+            renderPlatformSelect();
+            torrentState.provider = data.provider || 'aria2';
+            renderProviderInfo(data);
+            renderDailyUsage(data.daily_usage || []);
+            // Show the migrate helper if the multi-target table is missing.
+            $('#tMigrateWarn').classList.toggle('hide', data.migrated !== false);
+            const labels = { total: 'Total', pending: 'En attente', downloading: 'Téléchargement', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminés', failed: 'Échecs', links_unmatched: 'Non mappés', links_failed: 'Liens KO' };
+            $('#torrentStats').innerHTML = Object.entries(labels).map(([k, label]) => {
+                const val = data[k] ?? 0;
+                const color = (k === 'failed' || k === 'links_failed') && val > 0 ? 'color:var(--danger)'
+                    : (k === 'done' ? 'color:#4fe0a0' : ((k === 'processing' || k === 'resolving' || k === 'downloading') && val > 0 ? 'color:#4fb0ff' : (k === 'links_unmatched' && val > 0 ? 'color:#f0ad4e' : '')));
+                return `<div class="stat"><b style="${color}">${val}</b><span>${label}</span></div>`;
+            }).join('');
+        } catch (e) {
+            $('#torrentStats').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+        loadTorrentList();
+    }
+
+    async function processTorrentsNow() {
+        const btn = $('#tProcessBtn');
+        btn.disabled = true;
+        const prev = btn.textContent;
+        btn.textContent = '⏳ Traitement…';
+        try {
+            const { data } = await api('/admin/torrents/process', { method: 'POST' });
+            toast(data.message || 'File avancée.');
+            await reloadTorrents();
+        } catch (e) {
+            toast(e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = prev;
+        }
+    }
+
+    async function runMigrate() {
+        const btn = $('#tMigrateBtn');
+        const out = $('#tMigrateOut');
+        if (!confirm('Lancer les migrations de base de données maintenant ?')) return;
+        btn.disabled = true;
+        const prev = btn.textContent;
+        btn.textContent = 'Migration en cours…';
+        out.classList.add('hide');
+        try {
+            const { data } = await api('/admin/system/migrate', { method: 'POST' });
+            out.textContent = data.output || 'Terminé.';
+            out.classList.remove('hide');
+            toast(data.migrated ? 'Base migrée ✓' : 'Migrations exécutées.');
+            if (data.migrated) $('#tMigrateWarn').classList.add('hide');
+            await reloadTorrents();
+        } catch (e) {
+            out.textContent = e.message;
+            out.classList.remove('hide');
+            toast(e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = prev;
+        }
+    }
+
+    function renderPlatformSelect() {
+        const box = $('#tPlatforms');
+        if (!box) return;
+        // Preserve current selection across refreshes.
+        const checked = new Set(Array.from(box.querySelectorAll('input:checked')).map(i => i.value));
+        // Default: first platform checked on first render.
+        const first = torrentState.platforms[0];
+        box.innerHTML = torrentState.platforms.map(p => {
+            const isOn = checked.size ? checked.has(p) : (p === first);
+            return `<label class="genre-tag ${isOn ? 'active' : ''}" style="cursor:pointer">
+                <input type="checkbox" value="${escapeHtml(p)}" ${isOn ? 'checked' : ''} style="width:auto;margin-right:5px"> ${escapeHtml(p)}
+            </label>`;
+        }).join('');
+        // Toggle the visual "active" class on change.
+        box.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', () => {
+            cb.closest('label').classList.toggle('active', cb.checked);
+        }));
+    }
+
+    function selectedPlatforms() {
+        return Array.from(document.querySelectorAll('#tPlatforms input:checked')).map(i => i.value);
+    }
+
+    /** Per-host daily upload quota usage (used / limit). */
+    function renderDailyUsage(usage) {
+        const box = $('#torrentDailyUsage');
+        if (!box) return;
+        if (!usage.length) { box.innerHTML = '<span class="muted" style="font-size:12px">—</span>'; return; }
+        box.innerHTML = usage.map(u => {
+            const color = u.capped ? 'color:var(--danger)' : (u.remaining <= Math.max(1, u.limit * 0.1) ? 'color:#f0ad4e' : '');
+            return `<div class="stat" style="${u.capped ? 'border-color:var(--danger)' : ''}">
+                <b style="${color}">${u.used}/${u.limit}</b>
+                <span>${escapeHtml(u.host)}${u.capped ? ' · plein' : ''}</span>
+            </div>`;
+        }).join('');
+    }
+
+    /** Show which provider handles magnets and whether it's ready. */
+    function renderProviderInfo(data) {
+        const provider = data.provider || 'aria2';
+        const isAria2 = provider === 'aria2';
+        const tag = $('#tProviderTag');
+        const info = $('#tProviderInfo');
+        const warn = $('#tProviderWarn');
+
+        if (tag) {
+            tag.textContent = isAria2 ? '(téléchargé par le VPS — aria2)' : '(résolu par Real-Debrid)';
+        }
+        if (info) {
+            info.innerHTML = isAria2
+                ? 'Fournisseur : <b>aria2 (VPS)</b> — le VPS télécharge le torrent directement, puis met chaque épisode en ligne.'
+                : 'Fournisseur : <b>Real-Debrid</b> — le magnet/.torrent est résolu puis récupéré par le lecteur cible.';
+        }
+        if (warn) {
+            let msg = '';
+            if (isAria2 && data.aria2_ready === false) {
+                msg = 'ℹ aria2c n\'est pas détecté sur CE serveur. Sur ton VPS, installe aria2 (apt install aria2) et configure ARIA2_* dans .env, puis lance « php artisan torrents:process » (ou un cron). Tu peux déjà soumettre : les jobs attendent en file.';
+            } else if (!isAria2 && data.debrid_ready === false) {
+                msg = 'ℹ Real-Debrid non configuré sur CE serveur (REALDEBRID_API_TOKEN dans .env).';
+            }
+            warn.textContent = msg;
+            warn.classList.toggle('hide', msg === '');
+        }
+    }
+
+    async function loadTorrentList() {
+        try {
+            const res = await api('/admin/torrents?per_page=50');
+            renderTorrentList(res.data || []);
+        } catch (e) {
+            $('#torrentList').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    function renderTorrentList(rows) {
+        if (!rows.length) { $('#torrentList').innerHTML = '<span class="muted">Aucun batch pour le moment.</span>'; return; }
+        $('#torrentList').innerHTML = rows.map(t => {
+            const [color] = statusColor(t.status);
+            const target = t.season
+                ? `${escapeHtml(t.season.anime ? t.season.anime.name : '?')} · ${escapeHtml(t.season.name)}`
+                : (t.episode
+                    ? `${t.episode.season ? escapeHtml(t.episode.season.anime ? t.episode.season.anime.name + ' · ' : '') + escapeHtml(t.episode.season.name) + ' · ' : ''}Episode ${t.episode.index}${t.episode.name ? ' — ' + escapeHtml(t.episode.name) : ''}`
+                    : '—');
+            const canDelete = t.status !== 'done';
+            // "Mettre à jour la base" appears once at least one upload is done
+            // (a player target has an embed URL) and links haven't been synced.
+            // Uses uploads_done (robust) + falls back to files_done for safety.
+            // Also show for "done" batches that haven't been synced yet.
+            const uploadsDone = (t.uploads_done ?? 0) || (t.files_done ?? 0);
+            const canSync = (uploadsDone > 0 || t.status === 'done') && !t.links_synced;
+            const syncedBadge = t.links_synced
+                ? '<span class="muted" style="font-size:11px">✓ base à jour</span>' : '';
+            return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                    <span style="font-weight:700;flex:1;min-width:140px">${escapeHtml(t.title || 'Batch #' + t.id)}</span>
+                    <span style="font-size:11px;padding:2px 10px;border-radius:999px;background:${color};color:#000;font-weight:700">${TORRENT_STATUS_LABELS[t.status] || t.status}</span>
+                    <span class="muted" style="font-size:12px">→ ${escapeHtml((Array.isArray(t.target_platforms) && t.target_platforms.length ? t.target_platforms : [t.target_platform]).join(', '))}</span>
+                </div>
+                <div class="muted" style="font-size:12px;margin:4px 0">${target} · ${(t.status === 'resolving' || t.status === 'downloading') ? (t.status === 'downloading' ? 'aria2 ' : 'Real-Debrid ') + (t.debrid_progress || 0) + '%' : t.files_done + '/' + t.files_total + ' en ligne' + (t.files_failed ? ' · <span style="color:var(--danger)">' + t.files_failed + ' KO</span>' : '')} ${syncedBadge}</div>
+                ${t.error ? `<div class="err" style="font-size:12px">${escapeHtml(t.error)}</div>` : ''}
+                <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+                    <button class="btn" data-tfiles="${t.id}" data-title="${escapeHtml(t.title || 'Batch #' + t.id)}">Épisodes</button>
+                    ${canSync ? `<button class="btn btn--primary" data-tsync="${t.id}" title="Créez les liens dans la base après avoir vérifié sur le lecteur">🔄 Mettre à jour la base</button>` : ''}
+                    <button class="btn" data-tretry="${t.id}">↻ Réessayer</button>
+                    ${canDelete ? `<button class="btn btn--danger" data-tdel="${t.id}">Suppr.</button>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+
+        $('#torrentList').querySelectorAll('[data-tfiles]').forEach(b => b.addEventListener('click', () => openTorrentFiles(b.dataset.tfiles, b.dataset.title)));
+        $('#torrentList').querySelectorAll('[data-tsync]').forEach(b => b.addEventListener('click', () => torrentSyncLinks(b.dataset.tsync)));
+        $('#torrentList').querySelectorAll('[data-tretry]').forEach(b => b.addEventListener('click', () => torrentAction(`/admin/torrents/${b.dataset.tretry}/retry`, null)));
+        $('#torrentList').querySelectorAll('[data-tdel]').forEach(b => b.addEventListener('click', () => {
+            if (!confirm('Supprimer ce batch et ses liens ?')) return;
+            torrentDelete(b.dataset.tdel);
+        }));
+    }
+
+    async function cleanupLinks() {
+        if (!confirm('Dédupliquer les liens de TOUT le catalogue ?\n\nChaque épisode ne gardera qu\'UN lien par lecteur et par langue (le plus récent). Les doublons sont supprimés. Action irréversible.')) return;
+        try {
+            const res = await api('/admin/torrents/cleanup-links', { method: 'POST' });
+            toast(res.message || 'Liens dédupliqués');
+        } catch (e) { toast(e.message); }
+    }
+
+    async function keepOnlyManagedLinks() {
+        if (!confirm('⚠️ SUPPRIMER tous les liens SAUF doodstream / streamwish / streamtape / vidhide ?\n\nTous les autres lecteurs (sibnet, sendvid, myvi, dailymotion, etc.) seront retirés de TOUT le catalogue, et il ne restera qu\'un lien par lecteur/langue. Action IRRÉVERSIBLE.')) return;
+        if (!confirm('Confirmez une seconde fois : cette action supprime définitivement les liens des autres lecteurs.')) return;
+        try {
+            const res = await api('/admin/torrents/cleanup-links', { method: 'POST', body: { keep_only_managed: true } });
+            toast(res.message || 'Nettoyage effectué');
+        } catch (e) { toast(e.message); }
+    }
+
+    async function torrentSyncLinks(id) {
+        if (!confirm('Créer les liens dans la base ET ranger les fichiers en dossiers sur le lecteur (Anime/Saison/Episode) ?\n\nÀ faire une fois que vous avez vérifié sur le lecteur que les épisodes sont bien en ligne. Les liens ne changent pas.')) return;
+        try {
+            const res = await api(`/admin/torrents/${id}/sync-links`, { method: 'POST' });
+            toast(res.message || 'Base mise à jour');
+            reloadTorrents();
+        } catch (e) { toast(e.message); }
+    }
+
+    function statusColor(status) {
+        return { pending: ['#9a9ab0'], downloading: ['#4fb0ff'], resolving: ['#4fb0ff'], processing: ['#4fb0ff'], done: ['#4fe0a0'], failed: ['#ff4d6d'] }[status] || ['#666'];
+    }
+
+    async function submitTorrent() {
+        $('#tErr').textContent = '';
+        const platforms = selectedPlatforms();
+        const lang = $('#tLang').value.trim() || 'VOSTFR';
+        const animeId = $('#tAnimeId').value.trim();
+        const seasonId = $('#tSeasonId').value.trim();
+        const episodeId = $('#tEpisodeId').value.trim();
+        const title = $('#tTitle').value.trim() || null;
+        const torrentUrl = $('#tTorrentUrl').value.trim();
+        const links = $('#tLinks').value.trim();
+
+        if (!platforms.length) { $('#tErr').textContent = 'Cochez au moins un lecteur cible.'; return; }
+        if (!torrentUrl && !links) { $('#tErr').textContent = 'Collez un lien magnet/.torrent OU des liens HTTP directs.'; return; }
+        if (!seasonId && !episodeId) { $('#tErr').textContent = 'Indiquez une Saison ID (pack) ou un Épisode ID (unique).'; return; }
+
+        // JSON submission (magnet/URL or direct links).
+        const body = { target_platforms: platforms, language: lang, title };
+        if (animeId) body.anime_id = +animeId;
+        if (seasonId) body.season_id = +seasonId;
+        if (episodeId) body.episode_id = +episodeId;
+        // A magnet/.torrent takes precedence over pasted links.
+        if (torrentUrl) body.torrent_url = torrentUrl;
+        else body.links = links;
+
+        try {
+            const res = await api('/admin/torrents', { method: 'POST', body });
+            toast(res.message || 'Batch créé');
+            $('#tLinks').value = '';
+            $('#tTorrentUrl').value = '';
+            $('#tTitle').value = '';
+            reloadTorrents();
+        } catch (e) {
+            $('#tErr').textContent = e.message + (e.errors ? ' — ' + Object.values(e.errors).flat().join(' ') : '');
+        }
+    }
+
+    async function torrentAction(path, confirmMsg) {
+        if (confirmMsg && !confirm(confirmMsg)) return;
+        try {
+            const res = await api(path, { method: 'POST' });
+            toast(res.message || 'OK');
+            reloadTorrents();
+        } catch (e) { toast(e.message); }
+    }
+
+    async function torrentDelete(id) {
+        try {
+            const res = await api(`/admin/torrents/${id}`, { method: 'DELETE' });
+            toast(res.message || 'Supprimé');
+            reloadTorrents();
+        } catch (e) { toast(e.message); }
+    }
+
+    /* ---- Torrent files (per-episode) ---- */
+    let currentTorrentId = null;
+
+    async function openTorrentFiles(id, title) {
+        currentTorrentId = id;
+        $('#tfTitle').textContent = 'Épisodes — ' + (title || '');
+        $('#torrentFilesList').innerHTML = '<span class="muted">Chargement…</span>';
+        $('#torrentFilesModal').classList.add('open');
+        reloadTorrentFiles();
+    }
+
+    async function reloadTorrentFiles() {
+        if (!currentTorrentId) return;
+        try {
+            const { data } = await api(`/admin/torrents/${currentTorrentId}/files`);
+            renderTorrentFiles(data || []);
+        } catch (e) {
+            $('#torrentFilesList').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    function renderTorrentFiles(files) {
+        if (!files.length) { $('#torrentFilesList').innerHTML = '<span class="muted">Aucun lien.</span>'; return; }
+        $('#torrentFilesList').innerHTML = files.map(f => {
+            const [color, label] = FILE_STATUS[f.status] || ['#666', f.status];
+            const ep = f.episode ? `#${f.episode.index}${f.episode.name ? ' — ' + escapeHtml(f.episode.name) : ''}`
+                : (f.detected_episode ? `E${String(f.detected_episode).padStart(2, '0')} (détecté)` : '<span style="color:#f0ad4e">non mappé</span>');
+            const needsMap = f.status === 'skipped' || !f.episode;
+            // Codec badge (HEVC highlighted — problematic for Streamtape).
+            const codec = f.video_codec ? (() => {
+                const isHevc = ['hevc', 'h265', 'x265'].includes(String(f.video_codec).toLowerCase());
+                const bg = isHevc ? '#f0ad4e' : '#3a3a4a';
+                return `<span title="Codec vidéo" style="font-size:10px;padding:2px 7px;border-radius:999px;background:${bg};color:#000;font-weight:700">${escapeHtml(String(f.video_codec).toUpperCase())}</span>`;
+            })() : '';
+            // Per-player results (status pill + clickable embed link to verify).
+            // A failed or stuck player gets a ↻ button to retry it alone with a new link.
+            const targets = (f.targets || []).map(t => {
+                const tc = FILE_STATUS[t.status] || ['#666', t.status];
+                const link = t.embed_url
+                    ? `<a href="${escapeHtml(t.embed_url)}" target="_blank" rel="noopener" title="Vérifier ${escapeHtml(t.platform)}">${escapeHtml(t.platform)} ↗</a>`
+                    : `<span>${escapeHtml(t.platform)}</span>`;
+                const err = t.error ? ` title="${escapeHtml(t.error)}"` : '';
+                // Show retry button on failed AND queued (stuck) targets.
+                const canRetry = t.status === 'failed' || t.status === 'queued';
+                const retryBtn = canRetry
+                    ? `<button class="btn" data-tgtretry="${t.id}" data-tgtname="${escapeHtml(t.platform)}" title="Réessayer ${escapeHtml(t.platform)} avec un nouveau lien" style="padding:1px 6px;font-size:11px;margin-left:4px">↻</button>`
+                    : '';
+                return `<span style="display:inline-flex;align-items:center"><span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${tc[0]};color:#000;font-weight:700"${err}>${link}</span>${retryBtn}</span>`;
+            }).join(' ');
+            return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${color};color:#000;font-weight:700">${label}</span>
+                    <span style="flex:1;min-width:120px">${ep}</span>
+                    ${codec}
+                </div>
+                ${targets ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${targets}</div>` : ''}
+                <div class="muted" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px">${escapeHtml(f.file_name || f.source_url || '')}</div>
+                ${f.error ? `<div class="err" style="font-size:11px">${escapeHtml(f.error)}</div>` : ''}
+                ${needsMap ? `<div style="display:flex;gap:6px;margin-top:6px">
+                    <input data-mapep="${f.id}" type="number" placeholder="Épisode ID" style="width:130px">
+                    <button class="btn" data-mapbtn="${f.id}">Rattacher</button>
+                </div>` : ''}
+            </div>`;
+        }).join('');
+
+        $('#torrentFilesList').querySelectorAll('[data-mapbtn]').forEach(b => b.addEventListener('click', () => {
+            const id = b.dataset.mapbtn;
+            const val = document.querySelector(`[data-mapep="${id}"]`).value.trim();
+            if (!val) { toast('Indiquez un Épisode ID'); return; }
+            mapTorrentFile(id, +val);
+        }));
+
+        // Retry a single failed player, optionally with a new source link.
+        $('#torrentFilesList').querySelectorAll('[data-tgtretry]').forEach(b => b.addEventListener('click', () => {
+            const id = b.dataset.tgtretry;
+            const name = b.dataset.tgtname;
+            const url = prompt(
+                `Réessayer « ${name} » seul.\n\nCollez un NOUVEAU lien de téléchargement (laissez vide pour réutiliser le même lien) :`,
+                ''
+            );
+            if (url === null) return; // cancelled
+            retryTarget(id, url.trim());
+        }));
+    }
+
+    async function retryTarget(targetId, sourceUrl) {
+        try {
+            const body = sourceUrl ? { source_url: sourceUrl } : {};
+            const res = await api(`/admin/torrent-targets/${targetId}/retry`, { method: 'POST', body });
+            toast(res.message || 'Lecteur réarmé.');
+            // Automatically process the batch so the target gets submitted right away
+            // (otherwise it stays "pending" until next refresh).
+            await api('/admin/torrents/process', { method: 'POST' }).catch(() => {});
+            reloadTorrentFiles();
+            reloadTorrents();
+        } catch (e) { toast(e.message); }
+    }
+
+    async function mapTorrentFile(fileId, episodeId) {
+        try {
+            await api(`/admin/torrent-files/${fileId}`, { method: 'PUT', body: { episode_id: episodeId } });
+            toast('Rattaché — sera renvoyé au lecteur.');
+            reloadTorrentFiles();
+        } catch (e) { toast(e.message); }
+    }
+
+    /* ---- Recently added / modified content (verify player links) ---- */
+    let recentRdReady = false;
+
+    function openRecentContent() {
+        $('#recentContentModal').classList.add('open');
+        reloadRecentContent();
+    }
+
+    async function reloadRecentContent() {
+        const q = $('#rcSearch').value.trim();
+        $('#recentContentList').innerHTML = '<span class="muted">Chargement…</span>';
+        try {
+            const res = await api('/admin/recent-content?per_page=30' + (q ? '&q=' + encodeURIComponent(q) : ''));
+            renderRecentContent(res.data || []);
+        } catch (e) {
+            $('#recentContentList').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    function renderRecentContent(items) {
+        if (!items.length) {
+            $('#recentContentList').innerHTML = '<span class="muted">Aucun anime avec des liens.</span>';
+            return;
+        }
+        $('#recentContentList').innerHTML = items.map(a => {
+            const hosts = (a.hosts || []).map(h => `<span class="genre-tag">${escapeHtml(h)}</span>`).join(' ');
+            return `<div style="display:flex;gap:10px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
+                ${a.image_url ? `<img class="thumb" src="${escapeHtml(a.image_url)}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'" style="width:40px;height:56px;object-fit:cover;border-radius:4px">` : ''}
+                <div style="flex:1;min-width:120px">
+                    <div style="font-weight:700">${escapeHtml(a.name)}</div>
+                    <div class="muted" style="font-size:11px">${a.seasons_count} saison(s) · ${a.links_count} lien(s) · maj ${escapeHtml(a.updated_at || '')}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${hosts}</div>
+                </div>
+                <button class="btn" data-rclinks="${a.id}" data-rcname="${escapeHtml(a.name)}">Voir liens</button>
+            </div>`;
+        }).join('');
+
+        $('#recentContentList').querySelectorAll('[data-rclinks]').forEach(b => b.addEventListener('click', () => {
+            openRecentLinks(b.dataset.rclinks, b.dataset.rcname);
+        }));
+    }
+
+    async function openRecentLinks(animeId, name) {
+        $('#rcLinksTitle').textContent = 'Liens — ' + (name || '');
+        $('#recentLinksList').innerHTML = '<span class="muted">Chargement…</span>';
+        $('#recentLinksModal').classList.add('open');
+        try {
+            const { data } = await api(`/admin/recent-content/${animeId}`);
+            recentRdReady = !!(data && data.realdebrid_ready);
+            renderRecentLinks(data);
+        } catch (e) {
+            $('#recentLinksList').innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    function renderRecentLinks(data) {
+        $('#rcLinksHint').textContent = recentRdReady
+            ? 'Cliquez un lien pour vérifier la lecture. Real-Debrid est configuré (vérif possible côté serveur).'
+            : 'Cliquez un lien pour l\u2019ouvrir et vérifier la lecture.';
+
+        const seasons = (data && data.seasons) || [];
+        const withEpisodes = seasons.filter(s => (s.episodes || []).length);
+        if (!withEpisodes.length) {
+            $('#recentLinksList').innerHTML = '<span class="muted">Aucun épisode avec des liens.</span>';
+            return;
+        }
+        $('#recentLinksList').innerHTML = withEpisodes.map(s => {
+            const eps = s.episodes.map(ep => {
+                const links = ep.links.map(l => {
+                    const label = `${escapeHtml(l.host || 'lien')}${l.language ? ' · ' + escapeHtml(l.language) : ''}`;
+                    return `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener" class="genre-tag" style="text-decoration:none">${label} ↗</a>`;
+                }).join(' ');
+                const epTitle = `#${ep.index}${ep.name ? ' — ' + escapeHtml(ep.name) : ''}`;
+                return `<div style="border-top:1px solid var(--border);padding:6px 0">
+                    <div style="font-size:13px;margin-bottom:4px">${epTitle}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:5px">${links}</div>
+                </div>`;
+            }).join('');
+            return `<div style="margin-bottom:12px">
+                <b style="font-size:13px">${escapeHtml(s.name || 'Saison ' + s.position)}</b>
+                ${eps}
+            </div>`;
+        }).join('');
     }
 
     document.addEventListener('DOMContentLoaded', boot);

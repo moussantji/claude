@@ -104,6 +104,7 @@
                 <button class="btn" id="planningBtn">Planning</button>
                 <button class="btn" id="requestsBtn">Demandes</button>
                 <button class="btn" id="transfersBtn">Transferts</button>
+                <button class="btn" id="torrentsBtn">🧲 Torrents</button>
                 <button class="btn btn--primary" id="teamBtn">👥 Équipe</button>
             </div>
             <table>
@@ -249,6 +250,124 @@
         </div>
     </div>
 
+    <!-- Torrents (remote upload) modal -->
+    <div class="modal" id="torrentsModal">
+        <div class="card" style="width:900px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0">🧲 Torrents — envoi des liens aux lecteurs</h2>
+                <button type="button" class="btn" id="torrentsClose">Fermer</button>
+            </div>
+            <p class="muted" style="margin:8px 0 6px">
+                Collez un <b>lien magnet / .torrent</b> (copié depuis uTorrent, qBittorrent, etc.) :
+                le <b>VPS le télécharge directement (aria2)</b>, puis chaque épisode est mis en ligne
+                sur le(s) lecteur(s) cible(s). Ou collez des liens HTTP directs (un par ligne).
+            </p>
+            <p class="muted" id="tProviderInfo" style="margin:0 0 12px;font-size:12px"></p>
+            <p class="muted hide" id="tProviderWarn" style="margin:0 0 12px;color:var(--danger)"></p>
+
+            <div class="hide" id="tMigrateWarn" style="margin:0 0 12px;padding:10px;border:1px solid var(--danger);border-radius:8px;background:rgba(255,77,109,.08)">
+                <div style="color:var(--danger);font-size:13px;margin-bottom:8px">⚠ La table multi-lecteurs n'existe pas encore en base. Lance la migration pour activer l'envoi vers plusieurs lecteurs.</div>
+                <button class="btn btn--primary" id="tMigrateBtn">🛠 Migrer la base maintenant</button>
+                <pre id="tMigrateOut" class="hide" style="margin:10px 0 0;font-size:11px;white-space:pre-wrap;max-height:160px;overflow:auto"></pre>
+            </div>
+
+            <div class="stats" id="torrentStats" style="margin-bottom:12px"></div>
+            <div class="muted" style="font-size:12px;margin-bottom:4px">Quota d'upload par lecteur aujourd'hui (repris demain si atteint)</div>
+            <div class="stats" id="torrentDailyUsage" style="margin-bottom:14px"></div>
+
+            <!-- Submission form -->
+            <div style="border:1px solid var(--accent);border-radius:12px;padding:14px;margin-bottom:16px;background:rgba(124,92,255,0.05)">
+                <b style="font-size:13px;display:block;margin-bottom:10px">Nouveau batch</b>
+                <div style="display:flex;gap:10px;flex-wrap:wrap">
+                    <div style="flex:2;min-width:220px">
+                        <label>Lecteurs cibles <span class="muted" style="text-transform:none;font-size:11px">(coche = envoyé à CE lecteur ; chaque épisode part vers tous les cochés)</span></label>
+                        <div id="tPlatforms" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+                    </div>
+                    <div style="flex:1;min-width:120px">
+                        <label>Langue</label>
+                        <input id="tLang" value="VOSTFR" placeholder="VOSTFR">
+                    </div>
+                </div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+                    <div style="flex:1;min-width:120px">
+                        <label>Anime ID <span class="muted" style="text-transform:none;font-size:11px">(pour lier à la base + organiser en dossiers)</span></label>
+                        <input id="tAnimeId" type="number" placeholder="ex: 5">
+                    </div>
+                    <div style="flex:1;min-width:120px">
+                        <label>Saison ID <span class="muted" style="text-transform:none;font-size:11px">(pack: mappe auto par n° d'épisode)</span></label>
+                        <input id="tSeasonId" type="number" placeholder="ex: 12">
+                    </div>
+                    <div style="flex:1;min-width:120px">
+                        <label>OU Épisode ID <span class="muted" style="text-transform:none;font-size:11px">(épisode unique)</span></label>
+                        <input id="tEpisodeId" type="number" placeholder="ex: 42">
+                    </div>
+                </div>
+                <label>Titre (optionnel)</label>
+                <input id="tTitle" placeholder="ex: One Piece — Saison 1">
+                <label>Lien magnet / .torrent <span class="muted" id="tProviderTag" style="text-transform:none;font-size:11px"></span></label>
+                <input id="tTorrentUrl" placeholder="magnet:?xt=urn:btih:… (copié depuis uTorrent) ou https://…/pack.torrent">
+                <label>OU liens HTTP directs (un par ligne)</label>
+                <textarea id="tLinks" placeholder="https://seedbox.example/One.Piece.S01E01.1080p.mp4&#10;https://seedbox.example/One.Piece.S01E02.1080p.mp4&#10;…"></textarea>
+                <p class="err" id="tErr"></p>
+                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px">
+                    <button class="btn btn--primary" id="tSubmitBtn">Envoyer aux lecteurs</button>
+                </div>
+            </div>
+
+            <!-- Batch list -->
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+                <b style="font-size:14px;flex:1">Batches</b>
+                <button class="btn btn--primary" id="tProcessBtn" title="Traiter la file maintenant (résout les torrents + envoie aux lecteurs)">▶ Traiter maintenant</button>
+                <button class="btn" id="tContentBtn" title="Animes ajoutés/modifiés récemment + liens de vérification">📚 Contenu ajouté</button>
+                <button class="btn" id="tRetryAllBtn" title="Réarmer tous les échecs">↻ Réessayer erreurs</button>
+                <button class="btn" id="tCleanupBtn" title="Garder un seul lien par lecteur et par langue pour chaque épisode">🧹 Dédupliquer les liens</button>
+                <button class="btn btn--danger" id="tKeepManagedBtn" title="Ne garder QUE doodstream/streamwish/streamtape/vidhide et supprimer tous les autres liens">🗑 Garder que mes 4 lecteurs</button>
+                <button class="btn" id="tRefreshBtn">Actualiser</button>
+            </div>
+            <div id="torrentList" style="max-height:44vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <!-- Torrent files (per-episode) modal -->
+    <div class="modal" id="torrentFilesModal">
+        <div class="card" style="width:760px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0" id="tfTitle">Épisodes du batch</h2>
+                <button type="button" class="btn" id="torrentFilesClose">Fermer</button>
+            </div>
+            <p class="muted" style="margin:8px 0 12px">Détail par lien. Un lien non mappé (⊘) peut être rattaché manuellement à un épisode.</p>
+            <div id="torrentFilesList" style="max-height:60vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <!-- Recently added / modified content modal -->
+    <div class="modal" id="recentContentModal">
+        <div class="card" style="width:820px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0">Contenu ajouté / modifié</h2>
+                <button type="button" class="btn" id="recentContentClose">Fermer</button>
+            </div>
+            <p class="muted" style="margin:8px 0 12px">Animes disposant de liens vidéo, triés du plus récemment modifié. Cliquez sur un anime pour voir les épisodes et vérifier chaque lecteur.</p>
+            <div style="display:flex;gap:8px;margin-bottom:10px">
+                <input id="rcSearch" placeholder="Rechercher un anime…" style="flex:1">
+                <button class="btn" id="rcRefreshBtn">Actualiser</button>
+            </div>
+            <div id="recentContentList" style="max-height:56vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <!-- One anime: episodes × player links to verify -->
+    <div class="modal" id="recentLinksModal">
+        <div class="card" style="width:820px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <h2 style="margin:0" id="rcLinksTitle">Liens de l'anime</h2>
+                <button type="button" class="btn" id="recentLinksClose">Fermer</button>
+            </div>
+            <p class="muted" id="rcLinksHint" style="margin:8px 0 12px">Cliquez un lien pour l'ouvrir dans un nouvel onglet et vérifier la lecture.</p>
+            <div id="recentLinksList" style="max-height:60vh;overflow-y:auto"></div>
+        </div>
+    </div>
+
     <div class="toast" id="toast"></div>
 
     <!-- Planning modal -->
@@ -274,6 +393,6 @@
         </div>
     </div>
 
-    <script src="/js/admin.js?v=7"></script>
+    <script src="/js/admin.js?v=26"></script>
 </body>
 </html>

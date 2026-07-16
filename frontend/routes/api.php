@@ -94,4 +94,29 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::get('/tasks', [AdminController::class, 'tasksIndex']);
     Route::get('/tasks/stats', [AdminController::class, 'tasksStats']);
     Route::put('/tasks/{anime}', [AdminController::class, 'updateTask']);
+
+    // Torrent remote-upload (admin submits download links → host fetches them)
+    // A batch may be a season pack: each link becomes a torrent_file mapped to
+    // an episode. Fixed routes are declared before /{torrent}.
+    Route::get('/torrents', [AdminController::class, 'torrentIndex']);
+    Route::get('/torrents/stats', [AdminController::class, 'torrentStats']);
+    Route::post('/torrents', [AdminController::class, 'torrentStore']);
+    Route::post('/torrents/process', [AdminController::class, 'torrentProcessNow']);
+    Route::post('/torrents/retry-all', [AdminController::class, 'torrentRetryAll']);
+    Route::post('/torrents/cleanup-links', [AdminController::class, 'torrentCleanupLinks']);
+    Route::put('/torrent-files/{file}', [AdminController::class, 'torrentFileUpdate']);
+    Route::post('/torrent-targets/{target}/retry', [AdminController::class, 'torrentTargetRetry']);
+    Route::get('/torrents/{torrent}', [AdminController::class, 'torrentShow']);
+    Route::get('/torrents/{torrent}/files', [AdminController::class, 'torrentFiles']);
+    Route::post('/torrents/{torrent}/retry', [AdminController::class, 'torrentRetry']);
+    Route::post('/torrents/{torrent}/sync-links', [AdminController::class, 'torrentSyncLinks']);
+    Route::delete('/torrents/{torrent}', [AdminController::class, 'torrentDestroy']);
+
+    // Recently added / modified content, with clickable player links to verify
+    // playback (+ Real-Debrid check when configured).
+    Route::get('/recent-content', [AdminController::class, 'recentContent']);
+    Route::get('/recent-content/{anime}', [AdminController::class, 'recentContentLinks']);
+
+    // Run pending DB migrations from the panel (shared hosting without CLI).
+    Route::post('/system/migrate', [AdminController::class, 'runMigrations']);
 });

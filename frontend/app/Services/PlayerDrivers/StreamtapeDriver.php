@@ -12,11 +12,131 @@ use Throwable;
  * Extract: Streamtape hides the direct link in obfuscated JS. We reconstruct it.
  * Upload: Uses the Streamtape API.
  */
-class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface
+class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface, FileStatusInterface
 {
     public function name(): string
     {
         return 'streamtape';
+    }
+
+    /** Check file existence via /file/info?file={code} (status 200 = present). */
+    public function fileExists(string $fileCode, array $credentials): ?bool
+    {
+        $login = $credentials['login'] ?? '';
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://api.streamtape.com', '/');
+        if ($login === '' || $key === '') {
+            return null;
+        }
+
+        try {
+            $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/info", [
+                'login' => $login, 'key' => $key, 'file' => $fileCode,
+            ]);
+            if (! $resp->successful()) {
+                return null;
+            }
+            $entry = $resp->json("result.{$fileCode}");
+            if (is_array($entry)) {
+                return (int) ($entry['status'] ?? 0) === 200;
+            }
+            $result = $resp->json('result');
+            if (is_array($result)) {
+                foreach ($result as $e) {
+                    if (is_array($e)) {
+                        return (int) ($e['status'] ?? 0) === 200;
+                    }
+                }
+            }
+
+            return null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /* ---- Folder organization (Streamtape file management API) ---- */
+
+    public function ensureFolderPath(array $segments, array $credentials): ?string
+    {
+        $login = $credentials['login'] ?? '';
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://api.streamtape.com', '/');
+        if ($login === '' || $key === '') {
+            return null;
+        }
+
+        $parent = null; // null = root (Streamtape: omit the param for root)
+        foreach ($segments as $segment) {
+            $name = trim((string) preg_replace('/[\/\\\\:*?"<>|]/', '', $segment));
+            if ($name === '') {
+                continue;
+            }
+
+            // Look for an existing subfolder with this name.
+            $found = null;
+            try {
+                $listParams = ['login' => $login, 'key' => $key];
+                if ($parent !== null) {
+                    $listParams['folder'] = $parent;
+                }
+                $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/listfolder", $listParams);
+                foreach ($resp->json('result.folders') ?? [] as $f) {
+                    if (strcasecmp((string) ($f['name'] ?? ''), $name) === 0) {
+                        $found = (string) ($f['id'] ?? '');
+                        break;
+                    }
+                }
+            } catch (Throwable) {
+                // ignore
+            }
+
+            if ($found === null || $found === '') {
+                try {
+                    $createParams = ['login' => $login, 'key' => $key, 'name' => $name];
+                    if ($parent !== null) {
+                        $createParams['pid'] = $parent; // omit at root
+                    }
+                    $c = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/createfolder", $createParams);
+                    $found = $c->json('result.folderid');
+                } catch (Throwable) {
+                    return null;
+                }
+            }
+
+            if (! $found) {
+                return null;
+            }
+            $parent = (string) $found;
+        }
+
+        return $parent;
+    }
+
+    public function organizeFile(string $fileCode, ?string $folderId, ?string $title, array $credentials): bool
+    {
+        $login = $credentials['login'] ?? '';
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://api.streamtape.com', '/');
+        if ($login === '' || $key === '') {
+            return false;
+        }
+
+        $ok = true;
+        if ($folderId !== null && $folderId !== '') {
+            try {
+                $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/file/move", [
+                    'login' => $login, 'key' => $key, 'file' => $fileCode, 'folder' => $folderId,
+                ]);
+                $ok = $resp->successful();
+            } catch (Throwable) {
+                $ok = false;
+            }
+        }
+
+        // Do NOT rename — keep the original filename and extension as-is.
+
+        return $ok;
     }
 
     /**
@@ -33,11 +153,16 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface
             throw new RuntimeException('Streamtape credentials (login/api_key) missing.');
         }
 
+        // Force a .mp4 filename: .mkv (and others) can stay stuck "converting"
+        // on the host. Keeping the original name but with a .mp4 extension makes
+        // it process correctly.
+        $name = $this->mp4NameFromUrl($sourceUrl);
+
         $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/remotedl/add", [
             'login' => $login,
             'key' => $key,
             'url' => $sourceUrl,
-            'name' => $title !== '' ? $title.'.mp4' : null,
+            'name' => $name,
         ]);
 
         if ($resp->failed() || (int) $resp->json('status') !== 200) {
@@ -62,21 +187,87 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface
             'login' => $login, 'key' => $key, 'id' => $jobId,
         ]);
 
-        $entry = $resp->json("result.{$jobId}");
+        if (! $resp->successful()) {
+            return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
+        }
+
+        // The API can return the entry directly as result.{id} or as the first
+        // (and only) element inside result when queried by a single id.
+        $result = $resp->json('result');
+        $entry = null;
+
+        if (is_array($result)) {
+            // Try by key first: result.{jobId}
+            if (isset($result[$jobId]) && is_array($result[$jobId])) {
+                $entry = $result[$jobId];
+            } else {
+                // Some API versions return result as a single object directly
+                // when queried by id, or the first array element.
+                foreach ($result as $val) {
+                    if (is_array($val) && isset($val['id'])) {
+                        $entry = $val;
+                        break;
+                    }
+                }
+                // If result itself looks like an entry (has 'id' key)
+                if (! $entry && isset($result['id'])) {
+                    $entry = $result;
+                }
+            }
+        }
+
         if (! is_array($entry)) {
             return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
         }
 
-        $status = $entry['status'] ?? 'new';
-        // Streamtape statuses: new, downloading, ... , finished
-        if (in_array($status, ['finished', 'completed'], true) || ! empty($entry['url'])) {
-            $fileId = $entry['extid'] ?: null;
-            $url = $entry['url'] ?: ($fileId ? "https://streamtape.com/e/{$fileId}" : null);
+        $status = strtolower(trim((string) ($entry['status'] ?? 'new')));
 
-            return ['state' => 'done', 'embed_url' => $url, 'file_code' => $fileId, 'error' => null];
-        }
+        // Error states
         if (in_array($status, ['error', 'failed'], true)) {
             return ['state' => 'error', 'embed_url' => null, 'file_code' => null, 'error' => 'remote download failed'];
+        }
+
+        // `extid` is set once the file is saved on Streamtape. It's `false` or
+        // empty while still downloading. Once it's a non-empty string, the
+        // embed link is valid (the file may still be converting but is playable).
+        $extid = $entry['extid'] ?? null;
+        if (is_string($extid) && $extid !== '' && $extid !== 'false') {
+            return [
+                'state' => 'done',
+                'embed_url' => "https://streamtape.com/e/{$extid}",
+                'file_code' => $extid,
+                'error' => null,
+            ];
+        }
+
+        // If status is "downloaded" or "finished" but extid is not yet
+        // populated, treat it as done by checking if a URL is provided.
+        if (in_array($status, ['downloaded', 'finished'], true)) {
+            if (! empty($entry['url']) && is_string($entry['url'])) {
+                // Extract the file code from the URL if possible.
+                $code = null;
+                if (preg_match('#/(?:v|e)/([a-zA-Z0-9]+)#', $entry['url'], $m)) {
+                    $code = $m[1];
+                }
+
+                return [
+                    'state' => 'done',
+                    'embed_url' => $code ? "https://streamtape.com/e/{$code}" : $entry['url'],
+                    'file_code' => $code,
+                    'error' => null,
+                ];
+            }
+        }
+
+        // Some responses expose the final URL directly even before status changes.
+        if (! empty($entry['url']) && is_string($entry['url']) && $entry['url'] !== 'false') {
+            $code = null;
+            if (preg_match('#/(?:v|e)/([a-zA-Z0-9]+)#', $entry['url'], $m)) {
+                $code = $m[1];
+            }
+            if ($code) {
+                return ['state' => 'done', 'embed_url' => "https://streamtape.com/e/{$code}", 'file_code' => $code, 'error' => null];
+            }
         }
 
         return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
@@ -84,7 +275,24 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface
 
     public function matchesHost(string $host): bool
     {
-        return str_contains($host, 'streamtape') || str_contains($host, 'strtape') || str_contains($host, 'strcloud');
+        return (bool) preg_match('/(streamtape|strtape|strcloud|tapecontent|streamadblocker|stape)/i', $host);
+    }
+
+    /**
+     * Derive a filename from the source URL and force a .mp4 extension.
+     * Keeps the original base name (e.g. "07-Ghost_01_Vostfr.mkv" → "07-Ghost_01_Vostfr.mp4").
+     */
+    private function mp4NameFromUrl(string $sourceUrl): string
+    {
+        $path = parse_url($sourceUrl, PHP_URL_PATH) ?: $sourceUrl;
+        $base = urldecode(basename($path));
+        $base = preg_replace('/\.[a-z0-9]{2,4}$/i', '', $base);
+        $base = trim((string) $base);
+        if ($base === '') {
+            $base = 'video';
+        }
+
+        return $base . '.mp4';
     }
 
     public function extractDirectUrl(string $embedUrl): ?string
@@ -187,8 +395,10 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface
         }
 
         try {
+            // Attach with a .mp4 filename (keeps the base name, forces .mp4) so
+            // the host processes it instead of leaving it stuck "converting".
             $response = Http::timeout(900)
-                ->attach('file1', $handle, $title ?: basename($localPath))
+                ->attach('file1', $handle, $this->mp4NameFromUrl($localPath))
                 ->post($uploadUrl);
         } finally {
             if (is_resource($handle)) {

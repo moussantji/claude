@@ -32,3 +32,13 @@ Schedule::command('anime:cache-prune --days=30')
 //   php artisan episodes:auto --from-id=1 --consolidate-to=doodstream --update-db
 // See the admin panel (/admin → "Transferts") to monitor progress & errors.
 // -------------------------------------------------------------------------
+
+// -------------------------------------------------------------------------
+// Torrent remote-upload: advance the admin-submitted queue every 2 minutes.
+// Sends the download links to the target player host (which fetches them) and
+// polls until each episode is live. No local download — lightweight API calls.
+// -------------------------------------------------------------------------
+Schedule::command('torrents:process --limit=5')
+    ->everyTwoMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();

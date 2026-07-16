@@ -18,7 +18,7 @@ use Throwable;
  * The source video is extracted, downloaded, then uploaded to the target
  * monetizing host. The DB link can be updated (or a new link added).
  *
- * Monetizing hosts (pay-per-view): doodstream, vidmoly, streamtape, mp4upload.
+ * Monetizing hosts (pay-per-view): doodstream, vidmoly, streamtape.
  *
  * Examples:
  *   # Move all sendvid/sibnet/myvi videos to doodstream (the paying host)
@@ -42,10 +42,10 @@ class EpisodesConsolidate extends Command
     private const DEFAULT_UNRELIABLE = ['sendvid', 'sibnet', 'myvi'];
 
     /** Hosts that monetize (valid targets). */
-    private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape', 'mp4upload'];
+    private const MONETIZING = ['doodstream', 'streamwish', 'streamtape', 'vidhide'];
 
     protected $signature = 'episodes:consolidate
-        {--to= : Target monetizing host (doodstream, vidmoly, streamtape, mp4upload)}
+        {--to= : Target monetizing host (doodstream, vidmoly, streamtape)}
         {--from= : Comma-separated source hosts (default: sendvid,sibnet,myvi)}
         {--anime= : Only this anime (name or ID)}
         {--lang= : Only this language}
@@ -272,24 +272,26 @@ class EpisodesConsolidate extends Command
     private function getTargetCredentials(string $platform): array
     {
         return match ($platform) {
-            'vidmoly' => array_filter([
-                'api_key' => env('TRANSFER_VIDMOLY_API_KEY', ''),
-                'api_base' => env('TRANSFER_VIDMOLY_API_BASE', 'https://api.vidmoly.to'),
-                'embed_base' => env('TRANSFER_VIDMOLY_EMBED_BASE', 'https://vidmoly.to'),
-                'timeout' => (int) env('TRANSFER_VIDMOLY_TIMEOUT', 900),
+            'streamwish' => array_filter([
+                'api_key' => env('TRANSFER_STREAMWISH_API_KEY', ''),
+                'api_base' => env('TRANSFER_STREAMWISH_API_BASE', 'https://api.streamwish.com/api'),
+                'embed_base' => env('TRANSFER_STREAMWISH_EMBED_BASE', 'https://streamwish.to'),
+                'timeout' => (int) env('TRANSFER_STREAMWISH_TIMEOUT', 900),
+            ]),
+            'vidhide' => array_filter([
+                'api_key' => env('TRANSFER_VIDHIDE_API_KEY', ''),
+                'api_base' => env('TRANSFER_VIDHIDE_API_BASE', 'https://api.filelions.com/api'),
+                'embed_base' => env('TRANSFER_VIDHIDE_EMBED_BASE', 'https://vidhide.com'),
+                'timeout' => (int) env('TRANSFER_VIDHIDE_TIMEOUT', 900),
             ]),
             'doodstream' => array_filter([
                 'api_key' => env('TRANSFER_DOODSTREAM_API_KEY', ''),
-                'api_base' => env('TRANSFER_DOODSTREAM_API_BASE', 'https://doodapi.com/api'),
+                'api_base' => env('TRANSFER_DOODSTREAM_API_BASE', 'https://doodapi.co/api'),
             ]),
             'streamtape' => array_filter([
                 'login' => env('TRANSFER_STREAMTAPE_LOGIN', ''),
                 'api_key' => env('TRANSFER_STREAMTAPE_API_KEY', ''),
                 'api_base' => env('TRANSFER_STREAMTAPE_API_BASE', 'https://api.streamtape.com'),
-            ]),
-            'mp4upload' => array_filter([
-                'api_key' => env('TRANSFER_MP4UPLOAD_API_KEY', ''),
-                'api_base' => env('TRANSFER_MP4UPLOAD_API_BASE', 'https://www.mp4upload.com/api'),
             ]),
             default => [],
         };

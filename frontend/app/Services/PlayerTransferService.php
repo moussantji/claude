@@ -6,11 +6,12 @@ use App\Services\PlayerDrivers\PlayerDriverInterface;
 use App\Services\PlayerDrivers\RemoteUploadInterface;
 use App\Services\PlayerDrivers\DailymotionDriver;
 use App\Services\PlayerDrivers\DoodstreamDriver;
-use App\Services\PlayerDrivers\Mp4uploadDriver;
 use App\Services\PlayerDrivers\MyviDriver;
 use App\Services\PlayerDrivers\SendvidDriver;
 use App\Services\PlayerDrivers\SibnetDriver;
 use App\Services\PlayerDrivers\StreamtapeDriver;
+use App\Services\PlayerDrivers\StreamwishDriver;
+use App\Services\PlayerDrivers\VidhideDriver;
 use App\Services\PlayerDrivers\VidmolyDriver;
 use RuntimeException;
 
@@ -35,7 +36,8 @@ class PlayerTransferService
             new SendvidDriver(),
             new DoodstreamDriver(),
             new StreamtapeDriver(),
-            new Mp4uploadDriver(),
+            new StreamwishDriver(),
+            new VidhideDriver(),
             new MyviDriver(),
             new DailymotionDriver(),
         ];

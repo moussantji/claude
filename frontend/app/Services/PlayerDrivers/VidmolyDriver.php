@@ -12,11 +12,34 @@ use Throwable;
  * Extract: parse the embed page JS to find the direct .mp4/.m3u8 source.
  * Upload: standard XFileSharing API flow (get upload server → POST file).
  */
-class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface
+class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, FolderOrganizerInterface, FileStatusInterface
 {
+    use OrganizesViaXFileSharing;
+
     public function name(): string
     {
         return 'vidmoly';
+    }
+
+    /* ---- Folder organization (XFileSharing under /api) ---- */
+
+    protected function xfsBase(array $credentials): string
+    {
+        // File management (folder/create, set_folder, rename, file/info) lives
+        // on vidmoly.me/api — which DIFFERS from the upload API base
+        // (api.vidmoly.to). Using the wrong domain made folders + rename fail.
+        return rtrim($credentials['file_api_base'] ?? env('TRANSFER_VIDMOLY_FILE_API_BASE', 'https://vidmoly.me/api'), '/');
+    }
+
+    protected function xfsAuth(array $credentials): array
+    {
+        return ['key' => $credentials['api_key'] ?? ''];
+    }
+
+    // Vidmoly uses "title" for file rename (per official API examples).
+    protected function xfsRenameParam(): string
+    {
+        return 'title';
     }
 
     /** XFileSharing remote upload: /api/upload/url?key=&url= */
@@ -28,31 +51,116 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface
             throw new RuntimeException('Vidmoly API key missing.');
         }
 
-        $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/api/upload/url", [
-            'key' => $key, 'url' => $sourceUrl, 'file_title' => $title ?: null,
+        // Force a .mp4 filename: .mkv (and others) stay stuck "en attente" on
+        // Vidmoly. Keeping the original name but with a .mp4 extension makes the
+        // host process/convert it. file_title is safely URL-encoded.
+        $name = $this->mp4NameFromUrl($sourceUrl);
+
+        // Build the URL manually to avoid double-encoding the source URL (it may
+        // already contain %5B, %60, … that http_build_query would re-encode).
+        // BUT the query-breaking characters (& ? # + space) MUST be escaped, or
+        // Vidmoly truncates/misparses the URL and the remote download never
+        // starts (per the XFileSharing API note: escape & and ? in the URL).
+        $escapedUrl = strtr($sourceUrl, [
+            '&' => '%26',
+            '?' => '%3F',
+            '#' => '%23',
+            '+' => '%2B',
+            ' ' => '%20',
         ]);
 
+        $apiUrl = "{$apiBase}/api/upload/url?" . http_build_query(['key' => $key, 'file_title' => $name]) . '&url=' . $escapedUrl;
+
+        $resp = Http::timeout(30)->acceptJson()->get($apiUrl);
+
         if ($resp->failed()) {
-            throw new RuntimeException('Vidmoly remote upload failed (HTTP '.$resp->status().').');
+            throw new RuntimeException('Vidmoly remote upload failed (HTTP '.$resp->status().'). Body: '.mb_substr($resp->body(), 0, 200));
         }
 
-        $code = $this->extractFileCode($resp->json());
-        $embedBase = rtrim($credentials['embed_base'] ?? 'https://vidmoly.me', '/');
+        $json = $resp->json();
 
-        return $code
-            ? ['job_id' => $code, 'embed_url' => "{$embedBase}/embed-{$code}.html", 'file_code' => $code, 'state' => 'done']
-            : ['job_id' => null, 'embed_url' => null, 'file_code' => null, 'state' => 'queued'];
+        // Check for API-level errors (status != 200).
+        $status = (int) ($json['status'] ?? 200);
+        if ($status !== 200) {
+            $msg = $json['msg'] ?? 'unknown error';
+            throw new RuntimeException("Vidmoly refused ({$status}): {$msg}");
+        }
+
+        // Try to extract file code from various response formats:
+        // {"result": {"filecode":"abc"}} or {"result": [{"file_code":"abc"}]}
+        // or top-level {"file_code":"abc"} etc.
+        $code = $this->extractFileCode($json)
+            ?? $this->extractFileCode($json['result'] ?? null);
+
+        if ($code) {
+            // IMPORTANT: /api/upload/url only QUEUES the remote download — the
+            // file_code is assigned immediately but Vidmoly hasn't downloaded
+            // (nor converted) the video yet. Return 'queued' so the batch polls
+            // remoteStatus() until the file actually exists & is playable,
+            // instead of marking it "done" (= a dead link) right away.
+            return ['job_id' => $code, 'embed_url' => null, 'file_code' => $code, 'state' => 'queued'];
+        }
+
+        // No code came back → the upload was rejected. Treat as a failure so the
+        // admin can retry with a different link (instead of staying queued forever).
+        $body = mb_substr($resp->body(), 0, 300);
+        throw new RuntimeException("Vidmoly: pas de file_code retourné. Réponse: {$body}");
     }
 
     public function remoteStatus(string $jobId, array $credentials): array
     {
-        // XFileSharing remote uploads usually return the code immediately; treat
-        // a known jobId (file code) as done.
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://vidmoly.me', '/');
         $embedBase = rtrim($credentials['embed_base'] ?? 'https://vidmoly.me', '/');
 
-        return $jobId
-            ? ['state' => 'done', 'embed_url' => "{$embedBase}/embed-{$jobId}.html", 'file_code' => $jobId, 'error' => null]
-            : ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
+        if ($jobId === '' || $key === '') {
+            return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
+        }
+
+        // Poll the file: it only exists (status 200 + real size) once Vidmoly
+        // has finished the remote download. While it's still downloading in the
+        // remote-upload queue, file/info returns 404 (or size 0) → keep polling.
+        try {
+            $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/api/file/info", [
+                'key' => $key,
+                'file_code' => $jobId,
+            ]);
+
+            if ($resp->successful()) {
+                $result = $resp->json('result');
+                $entry = null;
+                if (is_array($result)) {
+                    $entry = (array_is_list($result) && isset($result[0]) && is_array($result[0]))
+                        ? $result[0]
+                        : $result;
+                }
+
+                if (is_array($entry)) {
+                    $fileStatus = (int) ($entry['status'] ?? 0);
+                    $size = (int) ($entry['size'] ?? 0);
+
+                    // File fully downloaded and available.
+                    if ($fileStatus === 200 && $size > 0) {
+                        return [
+                            'state' => 'done',
+                            'embed_url' => "{$embedBase}/embed-{$jobId}.html",
+                            'file_code' => $jobId,
+                            'error' => null,
+                        ];
+                    }
+
+                    // Explicitly not found AND not in the remote queue anymore
+                    // usually means the source link died before Vidmoly could
+                    // fetch it. Leave the timeout logic (in TorrentService) to
+                    // fail it after a while so the admin can retry.
+                }
+            }
+        } catch (Throwable) {
+            // Network hiccup — keep it pending, retry next poll.
+        }
+
+        // Still downloading / converting on Vidmoly's side.
+        return ['state' => 'pending', 'embed_url' => null, 'file_code' => $jobId, 'error' => null];
     }
 
     public function matchesHost(string $host): bool
@@ -152,13 +260,11 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface
             throw new RuntimeException('Vidmoly did not return an upload URL.');
         }
 
-        // 2. Upload file
+        // 2. Upload file — do NOT pass file_title so the player keeps the
+        // original filename and extension as-is.
         $fields = ['key' => $apiKey];
         if ($sessId) {
             $fields['sess_id'] = $sessId;
-        }
-        if ($title) {
-            $fields['file_title'] = $title;
         }
 
         $handle = fopen($localPath, 'r');
@@ -168,7 +274,7 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface
 
         try {
             $response = Http::timeout($timeout)
-                ->attach('file', $handle, basename($localPath))
+                ->attach('file', $handle, $this->mp4NameFromUrl($localPath))
                 ->post($uploadUrl, $fields);
         } finally {
             if (is_resource($handle)) {
@@ -191,6 +297,23 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface
         ];
     }
 
+    /**
+     * Derive a filename from the source URL and force a .mp4 extension.
+     * Keeps the original base name (e.g. "07-Ghost_01_Vostfr.mkv" → "07-Ghost_01_Vostfr.mp4").
+     */
+    private function mp4NameFromUrl(string $sourceUrl): string
+    {
+        $path = parse_url($sourceUrl, PHP_URL_PATH) ?: $sourceUrl;
+        $base = urldecode(basename($path));
+        $base = preg_replace('/\.[a-z0-9]{2,4}$/i', '', $base); // strip any extension
+        $base = trim((string) $base);
+        if ($base === '') {
+            $base = 'video';
+        }
+
+        return $base . '.mp4';
+    }
+
     private function normalizeEmbedUrl(string $url): string
     {
         // Convert page URL to embed if needed — supports vidmoly.to AND vidmoly.me
@@ -209,11 +332,26 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface
         if (! is_array($data)) {
             return null;
         }
-        $entry = (array_is_list($data) && isset($data[0]) && is_array($data[0])) ? $data[0] : $data;
+
+        // Direct match at top level: {"file_code":"abc"} or {"filecode":"abc"}
         foreach (['file_code', 'filecode', 'code'] as $field) {
-            if (! empty($entry[$field]) && is_string($entry[$field])) {
-                return $entry[$field];
+            if (! empty($data[$field]) && is_string($data[$field])) {
+                return $data[$field];
             }
+        }
+
+        // Array of entries: [{"file_code":"abc"}]
+        if (array_is_list($data) && isset($data[0]) && is_array($data[0])) {
+            foreach (['file_code', 'filecode', 'code'] as $field) {
+                if (! empty($data[0][$field]) && is_string($data[0][$field])) {
+                    return $data[0][$field];
+                }
+            }
+        }
+
+        // Nested result: {"result": {"filecode":"abc"}} or {"result": [{"file_code":"abc"}]}
+        if (isset($data['result'])) {
+            return $this->extractFileCode($data['result']);
         }
 
         return null;
