@@ -234,7 +234,7 @@ class TorrentService
             $remaining = $job->files()->where('status', 'pending')->count();
             $queued = TorrentFileTarget::query()
                 ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
-                ->whereIn('status', ['pending', 'queued'])
+                ->whereIn('status', ['pending', 'queued', 'uploading'])
                 ->count();
 
             if ($remaining === 0 && $queued === 0) {
@@ -955,6 +955,14 @@ class TorrentService
      */
     private function submitPendingTargets(TorrentDownload $job): void
     {
+        // Recover targets stuck in "uploading" (e.g. a PHP timeout killed the
+        // process mid-upload) so they can be retried instead of blocking forever.
+        TorrentFileTarget::query()
+            ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
+            ->where('status', 'uploading')
+            ->where('updated_at', '<', now()->subMinutes(15))
+            ->update(['status' => 'pending']);
+
         $targets = TorrentFileTarget::query()
             ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
             ->where('status', 'pending')
@@ -976,6 +984,17 @@ class TorrentService
 
                 continue;
             }
+
+            // Atomic claim: flip pending → uploading in a single UPDATE so two
+            // concurrent processJob() passes can't submit the SAME episode to
+            // the SAME player twice (which would create a duplicate upload).
+            $claimed = TorrentFileTarget::where('id', $target->id)
+                ->where('status', 'pending')
+                ->update(['status' => 'uploading']);
+            if ($claimed === 0) {
+                continue; // another pass already grabbed this target
+            }
+            $target->status = 'uploading';
 
             $this->submitTarget($job, $target, $creds);
         }
@@ -1044,7 +1063,9 @@ class TorrentService
                 return;
             }
 
-            $sourceUrl = trim((string) $file->source_url);
+            // Prefer the target's own source URL (set when retrying a single
+            // player with a new link) — otherwise fall back to the file's.
+            $sourceUrl = trim((string) ($target->source_url ?: $file->source_url));
             if ($sourceUrl === '') {
                 $target->markFailed('Aucune source URL pour ce fichier.');
 
@@ -1178,7 +1199,7 @@ class TorrentService
             if ($file->targets->isEmpty()) {
                 continue; // targets not created yet
             }
-            $pending = $file->targets->whereIn('status', ['pending', 'queued'])->count();
+            $pending = $file->targets->whereIn('status', ['pending', 'queued', 'uploading'])->count();
             if ($pending > 0) {
                 continue; // some players still working
             }
@@ -1606,7 +1627,7 @@ class TorrentService
         if ($hasTargets) {
             $stillWorking = TorrentFileTarget::query()
                 ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
-                ->whereIn('status', ['pending', 'queued'])
+                ->whereIn('status', ['pending', 'queued', 'uploading'])
                 ->exists();
         }
         if (! $stillWorking) {

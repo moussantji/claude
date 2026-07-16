@@ -21,6 +21,7 @@ class TorrentFileTarget extends Model
     protected $fillable = [
         'torrent_file_id',
         'platform',
+        'source_url',
         'status',
         'remote_job_id',
         'embed_url',

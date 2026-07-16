@@ -105,6 +105,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::post('/torrents/retry-all', [AdminController::class, 'torrentRetryAll']);
     Route::post('/torrents/cleanup-links', [AdminController::class, 'torrentCleanupLinks']);
     Route::put('/torrent-files/{file}', [AdminController::class, 'torrentFileUpdate']);
+    Route::post('/torrent-targets/{target}/retry', [AdminController::class, 'torrentTargetRetry']);
     Route::get('/torrents/{torrent}', [AdminController::class, 'torrentShow']);
     Route::get('/torrents/{torrent}/files', [AdminController::class, 'torrentFiles']);
     Route::post('/torrents/{torrent}/retry', [AdminController::class, 'torrentRetry']);

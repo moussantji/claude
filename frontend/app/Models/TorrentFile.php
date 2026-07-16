@@ -64,7 +64,7 @@ class TorrentFile extends Model
     /** True once every target player has finished (done/failed), none pending. */
     public function allTargetsResolved(): bool
     {
-        return $this->targets()->whereIn('status', ['pending', 'queued'])->doesntExist();
+        return $this->targets()->whereIn('status', ['pending', 'queued', 'uploading'])->doesntExist();
     }
 
     /* ---- Status helpers ---- */

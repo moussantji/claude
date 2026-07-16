@@ -866,6 +866,7 @@
     const TORRENT_STATUS_LABELS = { pending: 'En attente', downloading: 'Téléchargement', resolving: 'Real-Debrid', processing: 'Envoi lecteur', done: 'Terminé', failed: 'Échec' };
     const FILE_STATUS = {
         pending: ['#9a9ab0', '· en attente'],
+        uploading: ['#4fb0ff', '⤴ envoi en cours'],
         queued: ['#4fb0ff', '↻ chez le lecteur'],
         done: ['#4fe0a0', '✓ en ligne'],
         failed: ['#ff4d6d', '✗ échec'],
@@ -1186,13 +1187,17 @@
                 return `<span title="Codec vidéo" style="font-size:10px;padding:2px 7px;border-radius:999px;background:${bg};color:#000;font-weight:700">${escapeHtml(String(f.video_codec).toUpperCase())}</span>`;
             })() : '';
             // Per-player results (status pill + clickable embed link to verify).
+            // A failed player gets a ↻ button to retry it alone with a new link.
             const targets = (f.targets || []).map(t => {
                 const tc = FILE_STATUS[t.status] || ['#666', t.status];
                 const link = t.embed_url
                     ? `<a href="${escapeHtml(t.embed_url)}" target="_blank" rel="noopener" title="Vérifier ${escapeHtml(t.platform)}">${escapeHtml(t.platform)} ↗</a>`
                     : `<span>${escapeHtml(t.platform)}</span>`;
                 const err = t.error ? ` title="${escapeHtml(t.error)}"` : '';
-                return `<span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${tc[0]};color:#000;font-weight:700"${err}>${link}</span>`;
+                const retryBtn = t.status === 'failed'
+                    ? `<button class="btn" data-tgtretry="${t.id}" data-tgtname="${escapeHtml(t.platform)}" title="Réessayer ${escapeHtml(t.platform)} avec un nouveau lien" style="padding:1px 6px;font-size:11px;margin-left:4px">↻</button>`
+                    : '';
+                return `<span style="display:inline-flex;align-items:center"><span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${tc[0]};color:#000;font-weight:700"${err}>${link}</span>${retryBtn}</span>`;
             }).join(' ');
             return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -1216,6 +1221,28 @@
             if (!val) { toast('Indiquez un Épisode ID'); return; }
             mapTorrentFile(id, +val);
         }));
+
+        // Retry a single failed player, optionally with a new source link.
+        $('#torrentFilesList').querySelectorAll('[data-tgtretry]').forEach(b => b.addEventListener('click', () => {
+            const id = b.dataset.tgtretry;
+            const name = b.dataset.tgtname;
+            const url = prompt(
+                `Réessayer « ${name} » seul.\n\nCollez un NOUVEAU lien de téléchargement (laissez vide pour réutiliser le même lien) :`,
+                ''
+            );
+            if (url === null) return; // cancelled
+            retryTarget(id, url.trim());
+        }));
+    }
+
+    async function retryTarget(targetId, sourceUrl) {
+        try {
+            const body = sourceUrl ? { source_url: sourceUrl } : {};
+            const res = await api(`/admin/torrent-targets/${targetId}/retry`, { method: 'POST', body });
+            toast(res.message || 'Lecteur réarmé.');
+            reloadTorrentFiles();
+            reloadTorrents();
+        } catch (e) { toast(e.message); }
     }
 
     async function mapTorrentFile(fileId, episodeId) {

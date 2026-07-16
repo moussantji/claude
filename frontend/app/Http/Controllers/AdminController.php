@@ -710,7 +710,7 @@ class AdminController extends Controller
                 $stillWorking = false;
                 if ($hasTargets) {
                     $stillWorking = TorrentFileTarget::whereHas('file', fn ($q) => $q->where('torrent_download_id', $batch->id))
-                        ->whereIn('status', ['pending', 'queued'])
+                        ->whereIn('status', ['pending', 'queued', 'uploading'])
                         ->exists();
                 }
                 if (! $stillWorking) {
@@ -1169,6 +1169,59 @@ class AdminController extends Controller
         }
 
         return response()->json(['message' => 'Rien à réessayer pour ce batch.'], 422);
+    }
+
+    /**
+     * Retry ONE player target with an OPTIONAL new source link.
+     *
+     * Lets the admin re-send a single episode to a single player (e.g. retry
+     * Vidmoly with a fresh link) WITHOUT touching the players that already
+     * succeeded. If a new URL is given, it's stored on the target only.
+     */
+    public function torrentTargetRetry(Request $request, TorrentFileTarget $target): JsonResponse
+    {
+        $validated = $request->validate([
+            'source_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
+        ]);
+
+        $newUrl = trim((string) ($validated['source_url'] ?? ''));
+        if ($newUrl !== '' && ! preg_match('#^https?://#i', $newUrl)) {
+            return response()->json([
+                'message' => 'Lien invalide.',
+                'errors' => ['source_url' => ['Fournissez une URL http(s) valide.']],
+            ], 422);
+        }
+
+        // Re-arm this target only. A new URL (if provided) is stored on the
+        // target so it overrides the file's source_url for this player alone.
+        $target->update([
+            'status' => 'pending',
+            'error' => null,
+            'remote_job_id' => null,
+            'embed_url' => null,
+            'file_code' => null,
+            'source_url' => $newUrl !== '' ? $newUrl : $target->source_url,
+        ]);
+
+        // Put the parent file + batch back into processing so it re-submits.
+        $file = $target->file;
+        if ($file) {
+            if ($file->status === 'done') {
+                $file->update(['status' => 'pending']);
+            }
+            $torrent = $file->torrent;
+            if ($torrent && in_array($torrent->status, ['done', 'failed'], true)) {
+                $torrent->update(['status' => 'processing', 'error' => null]);
+            }
+            $torrent?->refreshCounters();
+        }
+
+        return response()->json([
+            'data' => $target->fresh(),
+            'message' => $newUrl !== ''
+                ? "Lecteur {$target->platform} réarmé avec le nouveau lien."
+                : "Lecteur {$target->platform} réarmé.",
+        ]);
     }
 
     /**
