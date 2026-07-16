@@ -10,6 +10,7 @@ use App\Services\PlayerDrivers\MyviDriver;
 use App\Services\PlayerDrivers\SendvidDriver;
 use App\Services\PlayerDrivers\SibnetDriver;
 use App\Services\PlayerDrivers\StreamtapeDriver;
+use App\Services\PlayerDrivers\StreamwishDriver;
 use App\Services\PlayerDrivers\VidmolyDriver;
 use RuntimeException;
 
@@ -34,6 +35,7 @@ class PlayerTransferService
             new SendvidDriver(),
             new DoodstreamDriver(),
             new StreamtapeDriver(),
+            new StreamwishDriver(),
             new MyviDriver(),
             new DailymotionDriver(),
         ];

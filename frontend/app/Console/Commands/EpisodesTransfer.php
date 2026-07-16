@@ -27,9 +27,9 @@ use Throwable;
  * Target credentials are configured in .env (see below) or passed via options.
  *
  * ENV variables per platform:
- *   TRANSFER_VIDMOLY_API_KEY=your_target_api_key
- *   TRANSFER_VIDMOLY_API_BASE=https://api.vidmoly.to
- *   TRANSFER_VIDMOLY_EMBED_BASE=https://vidmoly.to
+ *   TRANSFER_STREAMWISH_API_KEY=your_target_api_key
+ *   TRANSFER_STREAMWISH_API_BASE=https://api.streamwish.com/api
+ *   TRANSFER_STREAMWISH_EMBED_BASE=https://streamwish.to
  *
  *   TRANSFER_SIBNET_LOGIN=your_target_login
  *   TRANSFER_SIBNET_PASSWORD=your_target_password
@@ -238,11 +238,11 @@ class EpisodesTransfer extends Command
     private function getTargetCredentials(string $platform): array
     {
         return match ($platform) {
-            'vidmoly' => array_filter([
-                'api_key' => $this->option('target-api-key') ?: env('TRANSFER_VIDMOLY_API_KEY', ''),
-                'api_base' => env('TRANSFER_VIDMOLY_API_BASE', 'https://api.vidmoly.to'),
-                'embed_base' => env('TRANSFER_VIDMOLY_EMBED_BASE', 'https://vidmoly.to'),
-                'timeout' => (int) env('TRANSFER_VIDMOLY_TIMEOUT', 900),
+            'streamwish' => array_filter([
+                'api_key' => $this->option('target-api-key') ?: env('TRANSFER_STREAMWISH_API_KEY', ''),
+                'api_base' => env('TRANSFER_STREAMWISH_API_BASE', 'https://api.streamwish.com/api'),
+                'embed_base' => env('TRANSFER_STREAMWISH_EMBED_BASE', 'https://streamwish.to'),
+                'timeout' => (int) env('TRANSFER_STREAMWISH_TIMEOUT', 900),
             ]),
             'sibnet' => array_filter([
                 'login' => $this->option('target-login') ?: env('TRANSFER_SIBNET_LOGIN', ''),

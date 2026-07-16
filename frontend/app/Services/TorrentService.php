@@ -36,7 +36,7 @@ use Throwable;
 class TorrentService
 {
     /** Hosts that support server-to-server remote upload. */
-    private const REMOTE_HOSTS = ['doodstream', 'vidmoly', 'streamtape'];
+    private const REMOTE_HOSTS = ['doodstream', 'streamwish', 'streamtape'];
 
     /** Video extensions kept when selecting files inside a torrent. */
     private const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'webm', 'ts', 'flv', 'mov', 'm4v', 'wmv'];
@@ -1763,13 +1763,11 @@ class TorrentService
     private function getCredentials(string $platform): array
     {
         return match ($platform) {
-            'vidmoly' => array_filter([
-                'api_key' => env('TRANSFER_VIDMOLY_API_KEY', ''),
-                // API + file management live on vidmoly.me (api.vidmoly.to just
-                // redirects → returns HTML, breaking the JSON parsing).
-                'api_base' => env('TRANSFER_VIDMOLY_API_BASE', 'https://vidmoly.me'),
-                'embed_base' => env('TRANSFER_VIDMOLY_EMBED_BASE', 'https://vidmoly.me'),
-                'timeout' => (int) env('TRANSFER_VIDMOLY_TIMEOUT', 900),
+            'streamwish' => array_filter([
+                'api_key' => env('TRANSFER_STREAMWISH_API_KEY', ''),
+                'api_base' => env('TRANSFER_STREAMWISH_API_BASE', 'https://api.streamwish.com/api'),
+                'embed_base' => env('TRANSFER_STREAMWISH_EMBED_BASE', 'https://streamwish.to'),
+                'timeout' => (int) env('TRANSFER_STREAMWISH_TIMEOUT', 900),
             ]),
             'doodstream' => array_filter([
                 'api_key' => env('TRANSFER_DOODSTREAM_API_KEY', ''),

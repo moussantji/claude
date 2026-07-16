@@ -374,7 +374,7 @@ class AdminController extends Controller
 
         // Per-host remote-upload usage today (from the cache counters set by episodes:remote)
         $perHost = [];
-        foreach (['doodstream', 'streamtape', 'vidmoly'] as $p) {
+        foreach (['doodstream', 'streamtape', 'streamwish'] as $p) {
             $used = (int) \Illuminate\Support\Facades\Cache::get("remote_daily:{$p}:{$today}", 0);
             $limitEnv = env('TRANSFER_'.strtoupper($p).'_DAILY_LIMIT');
             $perHost[] = [
@@ -870,7 +870,7 @@ class AdminController extends Controller
      * OR direct download links.
      *
      * Body (multipart/form-data or JSON):
-     *   target_platform  : doodstream|vidmoly|streamtape  (required)
+     *   target_platform  : doodstream|streamwish|streamtape  (required)
      *   target_platforms : array of the above (multi-select)
      *   anime_id         : the anime to associate (auto-resolves title)
      *   season_id        : season pack — files auto-matched to episodes
@@ -885,9 +885,9 @@ class AdminController extends Controller
     public function torrentStore(Request $request, TorrentService $service): JsonResponse
     {
         $validated = $request->validate([
-            'target_platform' => ['nullable', 'string', 'in:doodstream,vidmoly,streamtape'],
+            'target_platform' => ['nullable', 'string', 'in:doodstream,streamwish,streamtape'],
             'target_platforms' => ['nullable', 'array'],
-            'target_platforms.*' => ['string', 'in:doodstream,vidmoly,streamtape'],
+            'target_platforms.*' => ['string', 'in:doodstream,streamwish,streamtape'],
             'anime_id' => ['nullable', 'integer', 'exists:animes,id'],
             'season_id' => ['nullable', 'integer', 'exists:seasons,id'],
             'episode_id' => ['nullable', 'integer', 'exists:episodes,id'],
@@ -1175,7 +1175,7 @@ class AdminController extends Controller
      * Retry ONE player target with an OPTIONAL new source link.
      *
      * Lets the admin re-send a single episode to a single player (e.g. retry
-     * Vidmoly with a fresh link) WITHOUT touching the players that already
+     * a player with a fresh link) WITHOUT touching the players that already
      * succeeded. If a new URL is given, it's stored on the target only.
      */
     public function torrentTargetRetry(Request $request, TorrentFileTarget $target): JsonResponse

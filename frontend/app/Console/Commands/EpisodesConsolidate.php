@@ -42,7 +42,7 @@ class EpisodesConsolidate extends Command
     private const DEFAULT_UNRELIABLE = ['sendvid', 'sibnet', 'myvi'];
 
     /** Hosts that monetize (valid targets). */
-    private const MONETIZING = ['doodstream', 'vidmoly', 'streamtape'];
+    private const MONETIZING = ['doodstream', 'streamwish', 'streamtape'];
 
     protected $signature = 'episodes:consolidate
         {--to= : Target monetizing host (doodstream, vidmoly, streamtape)}
@@ -272,11 +272,11 @@ class EpisodesConsolidate extends Command
     private function getTargetCredentials(string $platform): array
     {
         return match ($platform) {
-            'vidmoly' => array_filter([
-                'api_key' => env('TRANSFER_VIDMOLY_API_KEY', ''),
-                'api_base' => env('TRANSFER_VIDMOLY_API_BASE', 'https://api.vidmoly.to'),
-                'embed_base' => env('TRANSFER_VIDMOLY_EMBED_BASE', 'https://vidmoly.to'),
-                'timeout' => (int) env('TRANSFER_VIDMOLY_TIMEOUT', 900),
+            'streamwish' => array_filter([
+                'api_key' => env('TRANSFER_STREAMWISH_API_KEY', ''),
+                'api_base' => env('TRANSFER_STREAMWISH_API_BASE', 'https://api.streamwish.com/api'),
+                'embed_base' => env('TRANSFER_STREAMWISH_EMBED_BASE', 'https://streamwish.to'),
+                'timeout' => (int) env('TRANSFER_STREAMWISH_TIMEOUT', 900),
             ]),
             'doodstream' => array_filter([
                 'api_key' => env('TRANSFER_DOODSTREAM_API_KEY', ''),

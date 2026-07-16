@@ -2,7 +2,7 @@
 
 Ce guide explique comment déployer la fonctionnalité **Torrents** : l'admin
 soumet un **magnet / lien `.torrent`**, le système le récupère puis met chaque
-épisode en ligne sur un lecteur (Doodstream, Vidmoly, Streamtape) et
+épisode en ligne sur un lecteur (Doodstream, StreamWish, Streamtape) et
 crée automatiquement les liens d'épisodes.
 
 ## Comment ça marche
@@ -320,7 +320,7 @@ TORRENT_DEFAULT_DAILY_LIMIT=200
 
 # Limite spécifique par lecteur (prioritaire sur le défaut)
 TRANSFER_DOODSTREAM_DAILY_LIMIT=500
-TRANSFER_VIDMOLY_DAILY_LIMIT=200
+TRANSFER_STREAMWISH_DAILY_LIMIT=200
 TRANSFER_STREAMTAPE_DAILY_LIMIT=200
 ```
 
@@ -368,7 +368,7 @@ php artisan torrents:process --retry-failed
    (`php artisan user:make-admin ton@email.com`).
 2. Clique sur **🧲 Torrents**.
 3. Renseigne :
-   - **Lecteur cible** (Doodstream, Vidmoly…)
+   - **Lecteur cible** (Doodstream, StreamWish…)
    - **Saison ID** (pack de saison → mapping auto par n° d'épisode) **ou**
      **Épisode ID** (épisode unique)
    - Le **magnet / lien `.torrent`** (ou colle directement des liens HTTP)

@@ -512,11 +512,11 @@ class EpisodesDailyTransfer extends Command
     private function getTargetCredentials(string $platform): array
     {
         return match ($platform) {
-            'vidmoly' => array_filter([
-                'api_key' => env('TRANSFER_VIDMOLY_API_KEY', ''),
-                'api_base' => env('TRANSFER_VIDMOLY_API_BASE', 'https://api.vidmoly.to'),
-                'embed_base' => env('TRANSFER_VIDMOLY_EMBED_BASE', 'https://vidmoly.to'),
-                'timeout' => (int) env('TRANSFER_VIDMOLY_TIMEOUT', 900),
+            'streamwish' => array_filter([
+                'api_key' => env('TRANSFER_STREAMWISH_API_KEY', ''),
+                'api_base' => env('TRANSFER_STREAMWISH_API_BASE', 'https://api.streamwish.com/api'),
+                'embed_base' => env('TRANSFER_STREAMWISH_EMBED_BASE', 'https://streamwish.to'),
+                'timeout' => (int) env('TRANSFER_STREAMWISH_TIMEOUT', 900),
             ]),
             'sibnet' => array_filter([
                 'login' => env('TRANSFER_SIBNET_LOGIN', ''),

@@ -75,7 +75,7 @@ class EpisodesCheckConnections extends Command
     {
         try {
             return match ($platform) {
-                'vidmoly' => $this->checkVidmoly(),
+                'streamwish' => $this->checkStreamwish(),
                 'doodstream' => $this->checkDoodstream(),
                 'streamtape' => $this->checkStreamtape(),
                 'dailymotion' => $this->checkDailymotion(),
@@ -89,52 +89,29 @@ class EpisodesCheckConnections extends Command
         }
     }
 
-    private function checkVidmoly(): array
+    private function checkStreamwish(): array
     {
-        $key = env('TRANSFER_VIDMOLY_API_KEY', '');
+        $key = env('TRANSFER_STREAMWISH_API_KEY', '');
         if ($key === '') {
-            return ['no-creds', 'TRANSFER_VIDMOLY_API_KEY empty'];
+            return ['no-creds', 'TRANSFER_STREAMWISH_API_KEY empty'];
         }
-        // API is served from vidmoly.me (main domain). Only api.vidmoly.me does
-        // not resolve — everything else is tried as a fallback.
-        $configured = rtrim(env('TRANSFER_VIDMOLY_API_BASE', 'https://vidmoly.me'), '/');
-        $bases = array_values(array_unique(array_filter([
-            $configured,
-            'https://vidmoly.me',
-            'https://api.vidmoly.to',
-        ], fn ($b) => ! str_contains($b, 'api.vidmoly.me')))); // only api.vidmoly.me is dead
-        if (empty($bases)) {
-            $bases = ['https://vidmoly.me'];
+        $base = rtrim(env('TRANSFER_STREAMWISH_API_BASE', 'https://api.streamwish.com/api'), '/');
+        try {
+            $resp = Http::timeout(12)->acceptJson()->get("{$base}/account/info", ['key' => $key]);
+        } catch (Throwable $e) {
+            return ['auth-fail', 'HTTP error — '.mb_substr($e->getMessage(), 0, 60)];
         }
 
-        $lastMsg = 'key rejected';
+        $result = $resp->json('result');
+        if ($resp->successful() && (int) ($resp->json('status') ?? 0) === 200 && is_array($result)) {
+            $email = $result['email'] ?? '';
 
-        foreach ($bases as $base) {
-            foreach (['/api/account/info', '/api/upload/server'] as $path) {
-                try {
-                    $resp = Http::timeout(12)->acceptJson()->get("{$base}{$path}", ['key' => $key]);
-                } catch (Throwable) {
-                    continue;
-                }
-
-                $result = $resp->json('result');
-                $status = $resp->json('status');
-
-                if ($resp->successful() && $result && (int) ($status ?? 200) < 400) {
-                    $email = is_array($result) ? ($result['email'] ?? '') : '';
-                    $hint = $base === $configured ? '' : " (use {$base})";
-
-                    return ['ok', ($email ? "account: {$email}" : 'API reachable').$hint];
-                }
-
-                $msg = $resp->json('msg') ?: $this->bodySnippet($resp->body());
-                if ($msg) {
-                    $lastMsg = $msg;
-                }
-            }
+            return ['ok', $email ? "account: {$email}" : 'API reachable'];
         }
 
-        return ['auth-fail', $lastMsg." — check key (vidmoly.me API access may be uploader-only)"];
+        $msg = $resp->json('msg') ?: ('HTTP '.$resp->status());
+
+        return ['auth-fail', $msg.' — check TRANSFER_STREAMWISH_API_KEY'];
     }
 
     private function checkDoodstream(): array

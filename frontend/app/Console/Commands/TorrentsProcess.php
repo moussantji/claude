@@ -167,7 +167,7 @@ class TorrentsProcess extends Command
                 'skipped' => '<fg=yellow>⊘</>',
                 default => '·',
             };
-            // Per-player result for this episode (✓doodstream ✗vidmoly ...).
+            // Per-player result for this episode (✓doodstream ✗streamwish ...).
             $players = '';
             foreach ($file->targets as $t) {
                 $mark = match ($t->status) {
