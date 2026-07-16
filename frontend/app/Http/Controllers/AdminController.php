@@ -1206,11 +1206,12 @@ class AdminController extends Controller
         // Put the parent file + batch back into processing so it re-submits.
         $file = $target->file;
         if ($file) {
-            if ($file->status === 'done') {
-                $file->update(['status' => 'pending']);
+            // Always reset the file to pending so submitPendingTargets picks it up.
+            if (in_array($file->status, ['done', 'failed', 'skipped'], true)) {
+                $file->update(['status' => 'pending', 'error' => null]);
             }
             $torrent = $file->torrent;
-            if ($torrent && in_array($torrent->status, ['done', 'failed'], true)) {
+            if ($torrent && ! $torrent->isProcessing()) {
                 $torrent->update(['status' => 'processing', 'error' => null]);
             }
             $torrent?->refreshCounters();

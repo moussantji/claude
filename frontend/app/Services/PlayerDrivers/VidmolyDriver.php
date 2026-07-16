@@ -56,10 +56,24 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
         ]);
 
         if ($resp->failed()) {
-            throw new RuntimeException('Vidmoly remote upload failed (HTTP '.$resp->status().').');
+            throw new RuntimeException('Vidmoly remote upload failed (HTTP '.$resp->status().'). Body: '.mb_substr($resp->body(), 0, 200));
         }
 
-        $code = $this->extractFileCode($resp->json());
+        $json = $resp->json();
+
+        // Check for API-level errors (status != 200).
+        $status = (int) ($json['status'] ?? 200);
+        if ($status !== 200) {
+            $msg = $json['msg'] ?? 'unknown error';
+            throw new RuntimeException("Vidmoly refused ({$status}): {$msg}");
+        }
+
+        // Try to extract file code from various response formats:
+        // {"result": {"filecode":"abc"}} or {"result": [{"file_code":"abc"}]}
+        // or top-level {"file_code":"abc"} etc.
+        $code = $this->extractFileCode($json)
+            ?? $this->extractFileCode($json['result'] ?? null);
+
         $embedBase = rtrim($credentials['embed_base'] ?? 'https://vidmoly.me', '/');
 
         if ($code) {
@@ -69,7 +83,8 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
         // Vidmoly returns the file code immediately on success. If no code came
         // back, the upload was rejected silently — treat it as a failure so the
         // admin can retry with a different link (instead of staying queued forever).
-        throw new RuntimeException('Vidmoly: le lecteur n\'a pas retourné de code fichier — lien probablement invalide ou rejeté. Réessayez avec un autre lien.');
+        $body = mb_substr($resp->body(), 0, 300);
+        throw new RuntimeException("Vidmoly: pas de file_code retourné. Réponse: {$body}");
     }
 
     public function remoteStatus(string $jobId, array $credentials): array
@@ -235,11 +250,26 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
         if (! is_array($data)) {
             return null;
         }
-        $entry = (array_is_list($data) && isset($data[0]) && is_array($data[0])) ? $data[0] : $data;
+
+        // Direct match at top level: {"file_code":"abc"} or {"filecode":"abc"}
         foreach (['file_code', 'filecode', 'code'] as $field) {
-            if (! empty($entry[$field]) && is_string($entry[$field])) {
-                return $entry[$field];
+            if (! empty($data[$field]) && is_string($data[$field])) {
+                return $data[$field];
             }
+        }
+
+        // Array of entries: [{"file_code":"abc"}]
+        if (array_is_list($data) && isset($data[0]) && is_array($data[0])) {
+            foreach (['file_code', 'filecode', 'code'] as $field) {
+                if (! empty($data[0][$field]) && is_string($data[0][$field])) {
+                    return $data[0][$field];
+                }
+            }
+        }
+
+        // Nested result: {"result": {"filecode":"abc"}} or {"result": [{"file_code":"abc"}]}
+        if (isset($data['result'])) {
+            return $this->extractFileCode($data['result']);
         }
 
         return null;

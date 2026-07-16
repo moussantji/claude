@@ -1242,6 +1242,9 @@
             const body = sourceUrl ? { source_url: sourceUrl } : {};
             const res = await api(`/admin/torrent-targets/${targetId}/retry`, { method: 'POST', body });
             toast(res.message || 'Lecteur réarmé.');
+            // Automatically process the batch so the target gets submitted right away
+            // (otherwise it stays "pending" until next refresh).
+            await api('/admin/torrents/process', { method: 'POST' }).catch(() => {});
             reloadTorrentFiles();
             reloadTorrents();
         } catch (e) { toast(e.message); }
