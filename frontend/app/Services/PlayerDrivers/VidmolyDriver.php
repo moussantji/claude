@@ -56,10 +56,20 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
         // host process/convert it. file_title is safely URL-encoded.
         $name = $this->mp4NameFromUrl($sourceUrl);
 
-        // Build the URL manually to avoid double-encoding of the source URL.
-        // The source URL may already contain percent-encoded characters (e.g.
-        // %5B, %60) which would get re-encoded by http_build_query.
-        $apiUrl = "{$apiBase}/api/upload/url?" . http_build_query(['key' => $key, 'file_title' => $name]) . '&url=' . $sourceUrl;
+        // Build the URL manually to avoid double-encoding the source URL (it may
+        // already contain %5B, %60, … that http_build_query would re-encode).
+        // BUT the query-breaking characters (& ? # + space) MUST be escaped, or
+        // Vidmoly truncates/misparses the URL and the remote download never
+        // starts (per the XFileSharing API note: escape & and ? in the URL).
+        $escapedUrl = strtr($sourceUrl, [
+            '&' => '%26',
+            '?' => '%3F',
+            '#' => '%23',
+            '+' => '%2B',
+            ' ' => '%20',
+        ]);
+
+        $apiUrl = "{$apiBase}/api/upload/url?" . http_build_query(['key' => $key, 'file_title' => $name]) . '&url=' . $escapedUrl;
 
         $resp = Http::timeout(30)->acceptJson()->get($apiUrl);
 
@@ -82,14 +92,16 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
         $code = $this->extractFileCode($json)
             ?? $this->extractFileCode($json['result'] ?? null);
 
-        $embedBase = rtrim($credentials['embed_base'] ?? 'https://vidmoly.me', '/');
-
         if ($code) {
-            return ['job_id' => $code, 'embed_url' => "{$embedBase}/embed-{$code}.html", 'file_code' => $code, 'state' => 'done'];
+            // IMPORTANT: /api/upload/url only QUEUES the remote download — the
+            // file_code is assigned immediately but Vidmoly hasn't downloaded
+            // (nor converted) the video yet. Return 'queued' so the batch polls
+            // remoteStatus() until the file actually exists & is playable,
+            // instead of marking it "done" (= a dead link) right away.
+            return ['job_id' => $code, 'embed_url' => null, 'file_code' => $code, 'state' => 'queued'];
         }
 
-        // Vidmoly returns the file code immediately on success. If no code came
-        // back, the upload was rejected silently — treat it as a failure so the
+        // No code came back → the upload was rejected. Treat as a failure so the
         // admin can retry with a different link (instead of staying queued forever).
         $body = mb_substr($resp->body(), 0, 300);
         throw new RuntimeException("Vidmoly: pas de file_code retourné. Réponse: {$body}");
@@ -97,13 +109,58 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
 
     public function remoteStatus(string $jobId, array $credentials): array
     {
-        // XFileSharing remote uploads usually return the code immediately; treat
-        // a known jobId (file code) as done.
+        $key = $credentials['api_key'] ?? '';
+        $apiBase = rtrim($credentials['api_base'] ?? 'https://vidmoly.me', '/');
         $embedBase = rtrim($credentials['embed_base'] ?? 'https://vidmoly.me', '/');
 
-        return $jobId
-            ? ['state' => 'done', 'embed_url' => "{$embedBase}/embed-{$jobId}.html", 'file_code' => $jobId, 'error' => null]
-            : ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
+        if ($jobId === '' || $key === '') {
+            return ['state' => 'pending', 'embed_url' => null, 'file_code' => null, 'error' => null];
+        }
+
+        // Poll the file: it only exists (status 200 + real size) once Vidmoly
+        // has finished the remote download. While it's still downloading in the
+        // remote-upload queue, file/info returns 404 (or size 0) → keep polling.
+        try {
+            $resp = Http::timeout(20)->acceptJson()->get("{$apiBase}/api/file/info", [
+                'key' => $key,
+                'file_code' => $jobId,
+            ]);
+
+            if ($resp->successful()) {
+                $result = $resp->json('result');
+                $entry = null;
+                if (is_array($result)) {
+                    $entry = (array_is_list($result) && isset($result[0]) && is_array($result[0]))
+                        ? $result[0]
+                        : $result;
+                }
+
+                if (is_array($entry)) {
+                    $fileStatus = (int) ($entry['status'] ?? 0);
+                    $size = (int) ($entry['size'] ?? 0);
+
+                    // File fully downloaded and available.
+                    if ($fileStatus === 200 && $size > 0) {
+                        return [
+                            'state' => 'done',
+                            'embed_url' => "{$embedBase}/embed-{$jobId}.html",
+                            'file_code' => $jobId,
+                            'error' => null,
+                        ];
+                    }
+
+                    // Explicitly not found AND not in the remote queue anymore
+                    // usually means the source link died before Vidmoly could
+                    // fetch it. Leave the timeout logic (in TorrentService) to
+                    // fail it after a while so the admin can retry.
+                }
+            }
+        } catch (Throwable) {
+            // Network hiccup — keep it pending, retry next poll.
+        }
+
+        // Still downloading / converting on Vidmoly's side.
+        return ['state' => 'pending', 'embed_url' => null, 'file_code' => $jobId, 'error' => null];
     }
 
     public function matchesHost(string $host): bool
