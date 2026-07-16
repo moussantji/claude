@@ -51,9 +51,12 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
             throw new RuntimeException('Vidmoly API key missing.');
         }
 
-        $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/api/upload/url", [
-            'key' => $key, 'url' => $sourceUrl,
-        ]);
+        // Build the URL manually to avoid double-encoding of the source URL.
+        // The source URL may already contain percent-encoded characters (e.g.
+        // %5B, %60) which would get re-encoded by http_build_query.
+        $apiUrl = "{$apiBase}/api/upload/url?" . http_build_query(['key' => $key]) . '&url=' . $sourceUrl;
+
+        $resp = Http::timeout(30)->acceptJson()->get($apiUrl);
 
         if ($resp->failed()) {
             throw new RuntimeException('Vidmoly remote upload failed (HTTP '.$resp->status().'). Body: '.mb_substr($resp->body(), 0, 200));

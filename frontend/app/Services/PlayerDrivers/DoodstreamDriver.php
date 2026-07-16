@@ -53,10 +53,10 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             throw new RuntimeException('Doodstream API key missing.');
         }
 
-        $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/upload/url", [
-            'key' => $key,
-            'url' => $sourceUrl,
-        ]);
+        // Build URL manually to avoid double-encoding of the source URL.
+        $apiUrl = "{$apiBase}/upload/url?" . http_build_query(['key' => $key]) . '&url=' . $sourceUrl;
+
+        $resp = Http::timeout(30)->acceptJson()->get($apiUrl);
 
         // Short, readable source for error messages
         $src = strlen($sourceUrl) > 70 ? substr($sourceUrl, 0, 70).'…' : $sourceUrl;

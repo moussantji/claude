@@ -153,13 +153,10 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             throw new RuntimeException('Streamtape credentials (login/api_key) missing.');
         }
 
-        // Do NOT pass 'name' — let Streamtape use the default filename from
-        // the source URL (keeps original name + extension as-is on the player).
-        $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/remotedl/add", [
-            'login' => $login,
-            'key' => $key,
-            'url' => $sourceUrl,
-        ]);
+        // Build URL manually to avoid double-encoding of the source URL.
+        $apiUrl = "{$apiBase}/remotedl/add?" . http_build_query(['login' => $login, 'key' => $key]) . '&url=' . $sourceUrl;
+
+        $resp = Http::timeout(30)->acceptJson()->get($apiUrl);
 
         if ($resp->failed() || (int) $resp->json('status') !== 200) {
             throw new RuntimeException('Streamtape remote add failed: '.($resp->json('msg') ?? $resp->status()));
