@@ -1,0 +1,96 @@
+name: Déploiement LWS (frontend Laravel)
+
+# Déploie le site Laravel (frontend/) sur l'hébergement mutualisé LWS via FTP.
+#
+# Le backend FastAPI (Python) et le worker torrent NE sont PAS déployés ici :
+# sur mutualisé LWS on ne sert que le site PHP + MySQL (voir frontend/docs/deployment.md,
+# topologie A). Le backend/l'ingestion se lancent depuis ton PC.
+#
+# --- Secrets à définir dans GitHub (Settings → Secrets and variables → Actions) ---
+#   LWS_FTP_SERVER    : hôte FTP LWS (ex: ftp.ton-domaine.fr ou l'IP fournie par LWS)
+#   LWS_FTP_USERNAME  : identifiant FTP (compte cPanel ou compte FTP dédié)
+#   LWS_FTP_PASSWORD  : mot de passe FTP
+#   LWS_FTP_DIR       : dossier cible sur le serveur (ex: /animesama/ — HORS public_html,
+#                       le Document Root du domaine doit pointer sur .../animesama/public)
+#
+# --- Optionnel : lancer les migrations/cache après upload via un cron LWS ---
+#   Ajoute dans cPanel → Cron Jobs (une fois) :
+#     * * * * * cd ~/animesama && /usr/local/bin/php artisan schedule:run >> /dev/null 2>&1
+#   Le scheduler applique migrations et rafraîchissements automatiquement.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-lws.yml'
+  # Permet aussi de lancer le déploiement manuellement depuis l'onglet Actions.
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-lws
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & déploiement FTP
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, bcmath, ctype, fileinfo, json, openssl, pdo, tokenizer, xml, curl
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache des dépendances Composer
+        uses: actions/cache@v4
+        with:
+          path: frontend/vendor
+          key: composer-${{ hashFiles('frontend/composer.lock') }}
+          restore-keys: composer-
+
+      - name: Installer les dépendances (production)
+        working-directory: frontend
+        run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
+      - name: Déployer sur LWS via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.LWS_FTP_SERVER }}
+          username: ${{ secrets.LWS_FTP_USERNAME }}
+          password: ${{ secrets.LWS_FTP_PASSWORD }}
+          local-dir: ./frontend/
+          server-dir: ${{ secrets.LWS_FTP_DIR }}
+          # Nettoie les fichiers supprimés côté serveur, mais protège les
+          # éléments sensibles / spécifiques à la production ci-dessous.
+          dangerous-clean-slate: false
+          exclude:
+            # VCS & CI
+            - '**/.git*'
+            - '**/.git*/**'
+            - '**/.github/**'
+            # Config & secrets de production (ne JAMAIS écraser sur le serveur)
+            - '**/.env'
+            - '**/.env.*'
+            # Dev / tests / build (inutiles en prod)
+            - '**/tests/**'
+            - '**/phpunit.xml'
+            - '**/node_modules/**'
+            - '**/.editorconfig'
+            - '**/README.md'
+            - '**/docs/**'
+            # Données & logs qui vivent sur le serveur (ne pas écraser)
+            - '**/storage/logs/**'
+            - '**/storage/framework/cache/**'
+            - '**/storage/framework/sessions/**'
+            - '**/storage/framework/views/**'
+            - '**/database/*.sqlite'
+            - '**/storage/app/torrents/**'
+            - '**/storage/app/temp-transfers/**'
