@@ -963,6 +963,19 @@ class TorrentService
             ->where('updated_at', '<', now()->subMinutes(15))
             ->update(['status' => 'pending']);
 
+        // Timeout queued targets that have been waiting too long (the player
+        // never confirmed done/error). Mark them failed so the admin can retry
+        // with a different link or the same one.
+        $queuedTimeout = max(10, (int) env('TORRENT_QUEUED_TIMEOUT_MINUTES', 30));
+        TorrentFileTarget::query()
+            ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
+            ->where('status', 'queued')
+            ->where('updated_at', '<', now()->subMinutes($queuedTimeout))
+            ->update([
+                'status' => 'failed',
+                'error' => "Timeout — le lecteur n'a pas confirmé après {$queuedTimeout} min. Réessayez avec un nouveau lien.",
+            ]);
+
         $targets = TorrentFileTarget::query()
             ->whereHas('file', fn ($q) => $q->where('torrent_download_id', $job->id))
             ->where('status', 'pending')

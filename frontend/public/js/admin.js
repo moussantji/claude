@@ -1187,14 +1187,16 @@
                 return `<span title="Codec vidéo" style="font-size:10px;padding:2px 7px;border-radius:999px;background:${bg};color:#000;font-weight:700">${escapeHtml(String(f.video_codec).toUpperCase())}</span>`;
             })() : '';
             // Per-player results (status pill + clickable embed link to verify).
-            // A failed player gets a ↻ button to retry it alone with a new link.
+            // A failed or stuck player gets a ↻ button to retry it alone with a new link.
             const targets = (f.targets || []).map(t => {
                 const tc = FILE_STATUS[t.status] || ['#666', t.status];
                 const link = t.embed_url
                     ? `<a href="${escapeHtml(t.embed_url)}" target="_blank" rel="noopener" title="Vérifier ${escapeHtml(t.platform)}">${escapeHtml(t.platform)} ↗</a>`
                     : `<span>${escapeHtml(t.platform)}</span>`;
                 const err = t.error ? ` title="${escapeHtml(t.error)}"` : '';
-                const retryBtn = t.status === 'failed'
+                // Show retry button on failed AND queued (stuck) targets.
+                const canRetry = t.status === 'failed' || t.status === 'queued';
+                const retryBtn = canRetry
                     ? `<button class="btn" data-tgtretry="${t.id}" data-tgtname="${escapeHtml(t.platform)}" title="Réessayer ${escapeHtml(t.platform)} avec un nouveau lien" style="padding:1px 6px;font-size:11px;margin-left:4px">↻</button>`
                     : '';
                 return `<span style="display:inline-flex;align-items:center"><span style="font-size:11px;padding:2px 8px;border-radius:999px;background:${tc[0]};color:#000;font-weight:700"${err}>${link}</span>${retryBtn}</span>`;
