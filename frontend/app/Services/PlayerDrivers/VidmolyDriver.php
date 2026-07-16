@@ -62,9 +62,14 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
         $code = $this->extractFileCode($resp->json());
         $embedBase = rtrim($credentials['embed_base'] ?? 'https://vidmoly.me', '/');
 
-        return $code
-            ? ['job_id' => $code, 'embed_url' => "{$embedBase}/embed-{$code}.html", 'file_code' => $code, 'state' => 'done']
-            : ['job_id' => null, 'embed_url' => null, 'file_code' => null, 'state' => 'queued'];
+        if ($code) {
+            return ['job_id' => $code, 'embed_url' => "{$embedBase}/embed-{$code}.html", 'file_code' => $code, 'state' => 'done'];
+        }
+
+        // Vidmoly returns the file code immediately on success. If no code came
+        // back, the upload was rejected silently — treat it as a failure so the
+        // admin can retry with a different link (instead of staying queued forever).
+        throw new RuntimeException('Vidmoly: le lecteur n\'a pas retourné de code fichier — lien probablement invalide ou rejeté. Réessayez avec un autre lien.');
     }
 
     public function remoteStatus(string $jobId, array $credentials): array
