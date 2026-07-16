@@ -53,9 +53,15 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             throw new RuntimeException('Doodstream API key missing.');
         }
 
+        // Force a .mp4 filename: .mkv (and others) can stay stuck "en attente"
+        // on the host. Keeping the original name but with a .mp4 extension makes
+        // it process correctly.
+        $name = $this->mp4NameFromUrl($sourceUrl);
+
         $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/upload/url", [
             'key' => $key,
             'url' => $sourceUrl,
+            'file_title' => $name,
         ]);
 
         // Short, readable source for error messages
@@ -119,6 +125,23 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, 
     public function matchesHost(string $host): bool
     {
         return (bool) preg_match('/(dood|doodstream|ds2play|ds2video|d0o0d|do0od|dooood|vide0|doply|dooodster)/i', $host);
+    }
+
+    /**
+     * Derive a filename from the source URL and force a .mp4 extension.
+     * Keeps the original base name (e.g. "07-Ghost_01_Vostfr.mkv" → "07-Ghost_01_Vostfr.mp4").
+     */
+    private function mp4NameFromUrl(string $sourceUrl): string
+    {
+        $path = parse_url($sourceUrl, PHP_URL_PATH) ?: $sourceUrl;
+        $base = urldecode(basename($path));
+        $base = preg_replace('/\.[a-z0-9]{2,4}$/i', '', $base);
+        $base = trim((string) $base);
+        if ($base === '') {
+            $base = 'video';
+        }
+
+        return $base . '.mp4';
     }
 
     public function extractDirectUrl(string $embedUrl): ?string
@@ -223,9 +246,10 @@ class DoodstreamDriver implements PlayerDriverInterface, RemoteUploadInterface, 
         }
 
         try {
-            // Do NOT pass 'title' — keep the original filename on the player.
+            // Attach with a .mp4 filename (keeps the base name, forces .mp4) so
+            // the host processes it instead of leaving it stuck.
             $response = Http::timeout(900)
-                ->attach('file', $handle, basename($localPath))
+                ->attach('file', $handle, $this->mp4NameFromUrl($localPath))
                 ->post($uploadUrl, [
                     'api_key' => $apiKey,
                 ]);

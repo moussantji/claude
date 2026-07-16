@@ -51,10 +51,15 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
             throw new RuntimeException('Vidmoly API key missing.');
         }
 
+        // Force a .mp4 filename: .mkv (and others) stay stuck "en attente" on
+        // Vidmoly. Keeping the original name but with a .mp4 extension makes the
+        // host process/convert it. file_title is safely URL-encoded.
+        $name = $this->mp4NameFromUrl($sourceUrl);
+
         // Build the URL manually to avoid double-encoding of the source URL.
         // The source URL may already contain percent-encoded characters (e.g.
         // %5B, %60) which would get re-encoded by http_build_query.
-        $apiUrl = "{$apiBase}/api/upload/url?" . http_build_query(['key' => $key]) . '&url=' . $sourceUrl;
+        $apiUrl = "{$apiBase}/api/upload/url?" . http_build_query(['key' => $key, 'file_title' => $name]) . '&url=' . $sourceUrl;
 
         $resp = Http::timeout(30)->acceptJson()->get($apiUrl);
 
@@ -212,7 +217,7 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
 
         try {
             $response = Http::timeout($timeout)
-                ->attach('file', $handle, basename($localPath))
+                ->attach('file', $handle, $this->mp4NameFromUrl($localPath))
                 ->post($uploadUrl, $fields);
         } finally {
             if (is_resource($handle)) {
@@ -233,6 +238,23 @@ class VidmolyDriver implements PlayerDriverInterface, RemoteUploadInterface, Fol
             'file_code' => $code,
             'embed_url' => "{$embedBase}/embed-{$code}.html",
         ];
+    }
+
+    /**
+     * Derive a filename from the source URL and force a .mp4 extension.
+     * Keeps the original base name (e.g. "07-Ghost_01_Vostfr.mkv" → "07-Ghost_01_Vostfr.mp4").
+     */
+    private function mp4NameFromUrl(string $sourceUrl): string
+    {
+        $path = parse_url($sourceUrl, PHP_URL_PATH) ?: $sourceUrl;
+        $base = urldecode(basename($path));
+        $base = preg_replace('/\.[a-z0-9]{2,4}$/i', '', $base); // strip any extension
+        $base = trim((string) $base);
+        if ($base === '') {
+            $base = 'video';
+        }
+
+        return $base . '.mp4';
     }
 
     private function normalizeEmbedUrl(string $url): string

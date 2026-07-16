@@ -153,12 +153,16 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
             throw new RuntimeException('Streamtape credentials (login/api_key) missing.');
         }
 
-        // Do NOT pass 'name' — let Streamtape use the default filename from
-        // the source URL (keeps original name + extension as-is on the player).
+        // Force a .mp4 filename: .mkv (and others) can stay stuck "converting"
+        // on the host. Keeping the original name but with a .mp4 extension makes
+        // it process correctly.
+        $name = $this->mp4NameFromUrl($sourceUrl);
+
         $resp = Http::timeout(30)->acceptJson()->get("{$apiBase}/remotedl/add", [
             'login' => $login,
             'key' => $key,
             'url' => $sourceUrl,
+            'name' => $name,
         ]);
 
         if ($resp->failed() || (int) $resp->json('status') !== 200) {
@@ -274,6 +278,23 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
         return (bool) preg_match('/(streamtape|strtape|strcloud|tapecontent|streamadblocker|stape)/i', $host);
     }
 
+    /**
+     * Derive a filename from the source URL and force a .mp4 extension.
+     * Keeps the original base name (e.g. "07-Ghost_01_Vostfr.mkv" → "07-Ghost_01_Vostfr.mp4").
+     */
+    private function mp4NameFromUrl(string $sourceUrl): string
+    {
+        $path = parse_url($sourceUrl, PHP_URL_PATH) ?: $sourceUrl;
+        $base = urldecode(basename($path));
+        $base = preg_replace('/\.[a-z0-9]{2,4}$/i', '', $base);
+        $base = trim((string) $base);
+        if ($base === '') {
+            $base = 'video';
+        }
+
+        return $base . '.mp4';
+    }
+
     public function extractDirectUrl(string $embedUrl): ?string
     {
         try {
@@ -374,9 +395,10 @@ class StreamtapeDriver implements PlayerDriverInterface, RemoteUploadInterface, 
         }
 
         try {
-            // Always use the real filename (keeps original name + extension on the player).
+            // Attach with a .mp4 filename (keeps the base name, forces .mp4) so
+            // the host processes it instead of leaving it stuck "converting".
             $response = Http::timeout(900)
-                ->attach('file1', $handle, basename($localPath))
+                ->attach('file1', $handle, $this->mp4NameFromUrl($localPath))
                 ->post($uploadUrl);
         } finally {
             if (is_resource($handle)) {
