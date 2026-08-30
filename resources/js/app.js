@@ -55,6 +55,8 @@ function route() {
             params.set('subjectType', String(decoded.subjectType));
             params.set('season', parts[1] || '0');
             params.set('episode', parts[2] || '0');
+            const fb = parts[3] ? shortDecode(parts[3]) : null;
+            if (fb) params.set('fallback', fb.subjectId);
             return watchPage(appRoot, params);
         }
         case path === '/library':

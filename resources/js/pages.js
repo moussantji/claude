@@ -2,7 +2,7 @@
 import { api, isAuthed } from './api.js';
 import {
     el, clear, row, grid, card, carousel, skeletonRow, loadingState, errorState, emptyState,
-    navigate, watchHref, detailHref, toast, openAuthModal, displayTitle, blurPlaceholder,
+    navigate, watchHref, detailHref, toast, openAuthModal, displayTitle, blurPlaceholder, dropdown, titleMatches,
 } from './ui.js';
 import { Player, attachHls } from './player.js';
 
@@ -164,6 +164,7 @@ function attachHomeInfiniteScroll(app, homeRes) {
     const loadMore = async () => {
         if (loading || done) return;
         loading = true;
+        clear(sentinel);
         sentinel.appendChild(el('div', { class: 'infinite-loader' }, [el('div', { class: 'spinner' })]));
         try {
             const data = await api.home(page);
@@ -179,10 +180,10 @@ function attachHomeInfiniteScroll(app, homeRes) {
                 if (items.length) app.insertBefore(row(s.title, items), sentinel);
             });
             page += 1;
-        } catch {
-            done = true;
-        } finally {
+        } catch (e) {
             clear(sentinel);
+            sentinel.appendChild(errorState(e.message, () => { loading = false; loadMore(); }));
+        } finally {
             loading = false;
         }
     };
@@ -280,29 +281,42 @@ function onReachBottom(sentinel, cb) {
 // Paginated grid with ADVANCED client-side filters (genre / year / min rating /
 // sort) + INFINITE SCROLL. fetchPage(page) -> { items, pager: { hasMore } }.
 function filterableGrid(container, fetchPage, { emptyMsg = 'Rien à afficher.', preload = null } = {}) {
-    const genreSel = el('select', { class: 'select' }, [el('option', { value: '', text: 'Tous les genres' })]);
-    const yearSel = el('select', { class: 'select' }, [el('option', { value: '', text: 'Toutes les années' })]);
-    const ratingSel = el('select', { class: 'select' }, [
-        el('option', { value: '', text: 'Note : toutes' }),
-        el('option', { value: '5', text: '5+' }),
-        el('option', { value: '6', text: '6+' }),
-        el('option', { value: '7', text: '7+' }),
-        el('option', { value: '8', text: '8+' }),
-    ]);
-    const sortSel = el('select', { class: 'select' }, [
-        el('option', { value: 'relevance', text: 'Par défaut' }),
-        el('option', { value: 'rating', text: 'Mieux notés' }),
-        el('option', { value: 'rating_asc', text: 'Moins bien notés' }),
-        el('option', { value: 'year_desc', text: 'Plus récents' }),
-        el('option', { value: 'year_asc', text: 'Plus anciens' }),
-        el('option', { value: 'title', text: 'Titre (A→Z)' }),
-        el('option', { value: 'title_desc', text: 'Titre (Z→A)' }),
-    ]);
+    const filters = { genre: '', year: '', rating: '', sort: 'relevance' };
+
+    const genreDd = dropdown({ placeholder: 'Tous les genres', options: [{ value: '', label: 'Tous les genres' }], value: filters.genre, onchange: (v) => { filters.genre = v; render(); } });
+    const yearDd = dropdown({ placeholder: 'Toutes les années', options: [{ value: '', label: 'Toutes les années' }], value: filters.year, onchange: (v) => { filters.year = v; render(); } });
+    const ratingDd = dropdown({
+        placeholder: 'Note : toutes',
+        options: [
+            { value: '', label: 'Note : toutes' },
+            { value: '5', label: '5+' },
+            { value: '6', label: '6+' },
+            { value: '7', label: '7+' },
+            { value: '8', label: '8+' },
+        ],
+        value: filters.rating,
+        onchange: (v) => { filters.rating = v; render(); },
+    });
+    const sortDd = dropdown({
+        placeholder: 'Par défaut',
+        options: [
+            { value: 'relevance', label: 'Par défaut' },
+            { value: 'rating', label: 'Mieux notés' },
+            { value: 'rating_asc', label: 'Moins bien notés' },
+            { value: 'year_desc', label: 'Plus récents' },
+            { value: 'year_asc', label: 'Plus anciens' },
+            { value: 'title', label: 'Titre (A→Z)' },
+            { value: 'title_desc', label: 'Titre (Z→A)' },
+        ],
+        value: filters.sort,
+        onchange: (v) => { filters.sort = v; render(); },
+    });
+
     container.appendChild(el('div', { class: 'filter-bar' }, [
-        el('label', { class: 'filter' }, [el('span', { text: 'Genre' }), genreSel]),
-        el('label', { class: 'filter' }, [el('span', { text: 'Année' }), yearSel]),
-        el('label', { class: 'filter' }, [el('span', { text: 'Note min.' }), ratingSel]),
-        el('label', { class: 'filter' }, [el('span', { text: 'Trier' }), sortSel]),
+        el('label', { class: 'filter' }, [el('span', { text: 'Genre' }), genreDd.el]),
+        el('label', { class: 'filter' }, [el('span', { text: 'Année' }), yearDd.el]),
+        el('label', { class: 'filter' }, [el('span', { text: 'Note min.' }), ratingDd.el]),
+        el('label', { class: 'filter' }, [el('span', { text: 'Trier' }), sortDd.el]),
     ]));
 
     const gridWrap = el('div', {}, [skeletonRow()]);
@@ -323,26 +337,24 @@ function filterableGrid(container, fetchPage, { emptyMsg = 'Rien à afficher.', 
         const years = new Set();
         all.forEach((it) => { (it.genres || []).forEach((g) => genres.add(g)); if (it.year) years.add(it.year); });
 
-        const kg = genreSel.value;
-        clear(genreSel);
-        genreSel.appendChild(el('option', { value: '', text: 'Tous les genres' }));
-        [...genres].sort((a, b) => a.localeCompare(b)).forEach((g) => genreSel.appendChild(el('option', { value: g, text: g })));
-        genreSel.value = kg;
+        genreDd.setOptions([
+            { value: '', label: 'Tous les genres' },
+            ...[...genres].sort((a, b) => a.localeCompare(b)).map((g) => ({ value: g, label: g })),
+        ], filters.genre);
 
-        const ky = yearSel.value;
-        clear(yearSel);
-        yearSel.appendChild(el('option', { value: '', text: 'Toutes les années' }));
-        [...years].sort((a, b) => b - a).forEach((y) => yearSel.appendChild(el('option', { value: String(y), text: String(y) })));
-        yearSel.value = ky;
+        yearDd.setOptions([
+            { value: '', label: 'Toutes les années' },
+            ...[...years].sort((a, b) => b - a).map((y) => ({ value: String(y), label: String(y) })),
+        ], filters.year);
     };
 
     const render = () => {
         let items = all.slice();
-        if (genreSel.value) items = items.filter((it) => (it.genres || []).includes(genreSel.value));
-        if (yearSel.value) items = items.filter((it) => String(it.year) === yearSel.value);
-        if (ratingSel.value) items = items.filter((it) => (it.imdbRating || 0) >= parseFloat(ratingSel.value));
+        if (filters.genre) items = items.filter((it) => (it.genres || []).includes(filters.genre));
+        if (filters.year) items = items.filter((it) => String(it.year) === filters.year);
+        if (filters.rating) items = items.filter((it) => (it.imdbRating || 0) >= parseFloat(filters.rating));
 
-        switch (sortSel.value) {
+        switch (filters.sort) {
             case 'rating': items.sort((a, b) => (b.imdbRating || 0) - (a.imdbRating || 0)); break;
             case 'rating_asc': items.sort((a, b) => (a.imdbRating || 0) - (b.imdbRating || 0)); break;
             case 'year_desc': items.sort((a, b) => (b.year || 0) - (a.year || 0)); break;
@@ -356,8 +368,6 @@ function filterableGrid(container, fetchPage, { emptyMsg = 'Rien à afficher.', 
         if (!all.length) gridWrap.appendChild(emptyState(emptyMsg));
         else gridWrap.appendChild(items.length ? grid(items) : emptyState('Aucun résultat avec ces filtres.'));
     };
-
-    [genreSel, yearSel, ratingSel, sortSel].forEach((s) => { s.onchange = render; });
 
     const load = async () => {
         if (loading || done) return;
@@ -647,6 +657,34 @@ export async function detailPage(app, params, slug) {
         return;
     }
 
+    // The upstream detail failed (flaky provider): fall back to the local
+    // catalog row so the page never dies — title, cover, metadata, play all
+    // still work; only seasons/cast are missing. The delayed refetch below
+    // will upgrade the page to the full detail when the upstream recovers.
+    if (!data || !data.item) {
+        try {
+            const row = await api.item(query.subjectId);
+            if (row) {
+                data = {
+                    item: row,
+                    isSeries: row.subjectType === 2,
+                    seasons: [],
+                    cast: [],
+                    recommendations: [],
+                    trailer: null,
+                    dubs: [],
+                    detailAvailable: false,
+                    degraded: true,
+                };
+            }
+        } catch { /* keep the unavailable shell */ }
+    }
+    if (!data || !data.item) {
+        clear(app);
+        app.appendChild(errorState('Détails indisponibles pour le moment.', () => detailPage(app, params, slug)));
+        return;
+    }
+
     // First paint may be the fast local payload (no seasons/cast yet) while the
     // server warms the full build in the background — silently refetch once so
     // the enriched data (seasons, cast, trailer) replaces it when ready.
@@ -690,19 +728,61 @@ async function renderDetail(app, data, params) {
         onclick: () => toggleFavorite(favBtn, item),
     });
 
-    const firstSeason = seasons[0];
-    const playLabel = isSeries ? `Play S${firstSeason?.season ?? 1} E1` : 'Play';
-
     // Audio versions (dubs). Each dub is a separate subjectId, so switching
-    // language means playing a different subject. Default to French if present.
+    // language means playing a different subject. Default to French if present
+    // — unless the local catalog knows that French entry has no streams (the
+    // provider advertises broken dubs), in which case the original plays.
     const dubs = data.dubs || [];
     const frenchDub = dubs.find((d) => (d.code || '').startsWith('fr') || /fran/i.test(d.label || ''));
-    let activeSubjectId = frenchDub ? frenchDub.subjectId : item.subjectId;
+    let activeSubjectId = item.subjectId;
+    let fallbackSubjectId = null;
+    let activeDetail = null;
+    if (frenchDub) {
+        let frenchReliable = true;
+        try {
+            const dd = await api.detail({ subjectId: frenchDub.subjectId, subjectType: item.subjectType });
+            if (dd && dd.item && dd.item.title && !titleMatches(item.title, dd.item.title)) {
+                // The provider points the VF button at a different film
+                // (e.g. "Liberated from Paradise" → "Première sortie"): do
+                // not auto-select it, the original plays instead.
+                frenchReliable = false;
+            } else {
+                activeDetail = dd;
+            }
+        } catch { /* detail unknown: trust the mapping */ }
+        if (frenchReliable) {
+            activeSubjectId = frenchDub.subjectId;
+            fallbackSubjectId = item.subjectId;
+            try {
+                const row = await api.item(frenchDub.subjectId);
+                if (row && row.hasResource === false) {
+                    activeSubjectId = item.subjectId;
+                    fallbackSubjectId = null;
+                }
+            } catch { /* row unknown: keep the French preference */ }
+        }
+    }
     const currentItem = () => ({ ...item, subjectId: activeSubjectId });
 
-    const play = () => navigate(isSeries && firstSeason
-        ? watchHref(currentItem(), firstSeason.season, 1)
-        : watchHref(currentItem()));
+    // The active dub can carry its own season numbering (e.g. Bleach VF uses a
+    // single S17 while the original uses S1–S4). Build the episode list and
+    // watch links from the ACTIVE subject's own seasons so "Play" and episode
+    // clicks target the right subject/season pair instead of silently falling
+    // back to the original language.
+    let activeSeasons = seasons;
+    if (activeSubjectId && activeSubjectId !== item.subjectId) {
+        const d = activeDetail || (await api.detail({ subjectId: activeSubjectId, subjectType: item.subjectType }).catch(() => null));
+        if (d && Array.isArray(d.seasons) && d.seasons.length) activeSeasons = d.seasons;
+    }
+
+    const firstSeason = activeSeasons[0];
+    const playLabel = isSeries ? `Play S${firstSeason?.season ?? 1} E1` : 'Play';
+    let refreshEpisodes = null;
+    let playBtn = null;
+
+    const play = () => navigate(isSeries && activeSeasons.length
+        ? watchHref(currentItem(), activeSeasons[0].season, 1, fallbackSubjectId)
+        : watchHref(currentItem(), isSeries ? 1 : 0, isSeries ? 1 : 0, fallbackSubjectId));
 
     // Warm the streaming cache in the background so the player starts instantly
     // when "Lecture" is clicked — /api/play is cached server-side, so this turns
@@ -710,25 +790,54 @@ async function renderDetail(app, data, params) {
     setTimeout(() => {
         const target = isSeries && firstSeason
             ? { season: firstSeason.season, episode: 1 }
-            : { season: 0, episode: 0 };
-        api.play({ ...currentItem(), ...target }).catch(() => {});
+            : { season: isSeries ? 1 : 0, episode: isSeries ? 1 : 0 };
+        api.play({ ...currentItem(), ...target, fallbackSubjectId }).catch(() => {});
     }, 100);
 
     let versionRow = null;
     if (dubs.length > 1) {
-        const buttons = dubs.map((d) => el('button', {
-            class: `season-tab ${d.subjectId === activeSubjectId ? 'active' : ''}`,
-            text: d.label + (d.original ? ' (VO)' : ''),
-            onclick: (e) => {
-                activeSubjectId = d.subjectId;
-                versionRow.querySelectorAll('.season-tab').forEach((b) => b.classList.remove('active'));
-                e.target.classList.add('active');
-            },
-        }));
-        versionRow = el('div', { style: 'margin-bottom:16px' }, [
-            el('div', { class: 'section-title', style: 'font-size:15px;margin:0 0 8px', text: 'Version / Langue' }),
-            el('div', { class: 'season-tabs' }, buttons),
-        ]);
+        // Drop dubs the local catalog knows have no streams: a VF button that
+        // can never play must not appear in the "Version / Langue" selector.
+        let playableDubs = dubs;
+        try {
+            const rows = await Promise.all(dubs.map((d) => api.item(d.subjectId).catch(() => null)));
+            playableDubs = dubs.filter((d, i) => {
+                const r = rows[i];
+                return !r || r.hasResource !== false;
+            });
+        } catch { /* catalog unknown: keep all dubs */ }
+        if (activeSubjectId && !playableDubs.some((d) => d.subjectId === activeSubjectId)) {
+            activeSubjectId = item.subjectId;
+        }
+        // The selector is always shown (even a single VO): the language must
+        // stay explicit instead of disappearing behind one "Lecture" button.
+        if (playableDubs.length > 0) {
+            const buttons = playableDubs.map((d) => el('button', {
+                class: `season-tab ${d.subjectId === activeSubjectId ? 'active' : ''}`,
+                text: d.original || !d.code ? 'VO' : d.label || 'VO',
+                onclick: (e) => {
+                    activeSubjectId = d.subjectId;
+                    fallbackSubjectId = d.original ? null : item.subjectId;
+                    versionRow.querySelectorAll('.season-tab').forEach((b) => b.classList.remove('active'));
+                    e.target.classList.add('active');
+                    if (activeSubjectId === item.subjectId) {
+                        activeSeasons = seasons;
+                        if (refreshEpisodes) refreshEpisodes();
+                    } else {
+                        api.detail({ subjectId: activeSubjectId, subjectType: item.subjectType })
+                            .then((dd) => {
+                                if (dd && Array.isArray(dd.seasons) && dd.seasons.length) activeSeasons = dd.seasons;
+                            })
+                            .catch(() => {})
+                            .finally(() => { if (refreshEpisodes) refreshEpisodes(); });
+                    }
+                },
+            }));
+            versionRow = el('div', { style: 'margin-bottom:16px' }, [
+                el('div', { class: 'section-title', style: 'font-size:15px;margin:0 0 8px', text: 'Version / Langue' }),
+                el('div', { class: 'season-tabs' }, buttons),
+            ]);
+        }
     }
 
     const info = el('div', { class: 'detail-info' }, [
@@ -737,7 +846,7 @@ async function renderDetail(app, data, params) {
         item.description ? el('p', { class: 'detail-desc', text: item.description }) : null,
         versionRow,
         el('div', { class: 'detail-actions' }, [
-            el('button', { class: 'btn btn-primary', html: `${PLAY_SVG} <span>${playLabel}</span>`, style: 'display:flex;gap:8px;align-items:center', onclick: play }),
+            (playBtn = el('button', { class: 'btn btn-primary', html: `${PLAY_SVG} <span>${playLabel}</span>`, style: 'display:flex;gap:8px;align-items:center', onclick: play })),
             favBtn,
         ]),
     ]);
@@ -765,8 +874,17 @@ async function renderDetail(app, data, params) {
 
     // Seasons / episodes
     if (isSeries && seasons.length) {
-        body.appendChild(el('h2', { class: 'section-title', text: 'Episodes' }));
-        body.appendChild(episodesBlock(currentItem, seasons));
+        const episodesSection = el('div');
+        refreshEpisodes = () => {
+            clear(episodesSection);
+            episodesSection.appendChild(el('h2', { class: 'section-title', text: 'Episodes' }));
+            episodesSection.appendChild(episodesBlock(currentItem, activeSeasons));
+            const span = playBtn?.querySelector('span');
+            if (span) span.textContent = isSeries ? `Play S${activeSeasons[0]?.season ?? 1} E1` : 'Play';
+        };
+        episodesSection.appendChild(el('h2', { class: 'section-title', text: 'Episodes' }));
+        episodesSection.appendChild(episodesBlock(currentItem, activeSeasons));
+        body.appendChild(episodesSection);
     }
 
     // Cast
@@ -900,6 +1018,7 @@ export async function watchPage(app, params) {
     };
     const season = Number(params.get('season') || 0);
     const episode = Number(params.get('episode') || 0);
+    const fallbackSubjectId = params.get('fallback') || null;
 
     clear(app);
 
@@ -910,12 +1029,17 @@ export async function watchPage(app, params) {
         return season > 0 ? `${shortTitle} — S${season} E${episode}` : shortTitle;
     };
     const titleEl = el('h1', { class: 'watch-title', text: item.title ? label() : '' });
+    const langOf = (src) => (src.french ? 'Français' : src.english ? 'Anglais (VO)' : 'VO');
+    const fallbackNote = (src) => el('p', { class: 'player-note', text: `Version française indisponible — lecture en ${langOf(src)}.` });
+    const showFallbackNote = (src) => { if (!toolbar.querySelector('.player-note')) toolbar.appendChild(fallbackNote(src || {})); };
 
     // Short /w/{code} URLs carry no title/cover/detailPath — resolve the item
     // locally (instant, always works for catalog rows) and repaint the title
     // when it lands; the full live detail is only a fallback for items the
-    // local store does not know yet.
-    if (!item.title || !item.cover || !item.detailPath) {
+    // local store does not know yet. When a dub fallback exists, the local row
+    // also tells us up front whether the VF has streams: if not, switch to the
+    // original's title right away instead of showing the unavailable dub name.
+    if (!item.title || !item.cover || !item.detailPath || fallbackSubjectId) {
         (async () => {
             const apply = (src) => {
                 item.title = src.title || item.title;
@@ -925,7 +1049,22 @@ export async function watchPage(app, params) {
             };
             try {
                 const row = await api.item(item.subjectId);
-                if (row && row.title) return apply(row);
+                if (row && row.title) {
+                    if (row.hasResource === false && fallbackSubjectId) {
+                        try {
+                            const fbRow = await api.item(fallbackSubjectId);
+                            if (fbRow && fbRow.title) {
+                                item.title = fbRow.title;
+                                item.cover = fbRow.cover || item.cover;
+                                item.detailPath = fbRow.detailPath ?? item.detailPath;
+                                titleEl.textContent = label();
+                                showFallbackNote(fbRow);
+                                return;
+                            }
+                        } catch { /* fall through to the dub title */ }
+                    }
+                    return apply(row);
+                }
             } catch { /* fall through to the full detail */ }
             try {
                 const d = await api.detail({ subjectId: item.subjectId, detailPath: item.detailPath, subjectType: item.subjectType, title: item.title, cover: item.cover });
@@ -946,7 +1085,7 @@ export async function watchPage(app, params) {
     if (season > 0) {
         const side = el('aside', { class: 'watch-side' });
         layout.appendChild(side);
-        buildEpisodeSidebar(side, item, season, episode);
+        buildEpisodeSidebar(side, item, season, episode, fallbackSubjectId);
     } else {
         layout.classList.add('solo');
     }
@@ -957,7 +1096,7 @@ export async function watchPage(app, params) {
     ]));
 
     let startTime = 0;
-    const playP = api.play({ subjectId: item.subjectId, detailPath: item.detailPath, season, episode, title: item.title });
+    const playP = api.play({ subjectId: item.subjectId, detailPath: item.detailPath, season, episode, title: item.title, fallbackSubjectId });
 
     // Resume position is looked up in parallel with the stream resolution so it
     // never delays the player start (play is the slow part, not the DB).
@@ -1007,6 +1146,16 @@ export async function watchPage(app, params) {
     clear(shell);
     const player = new Player(shell);
 
+    if (data.fallbackUsed) {
+        // The dub had no streams: drop the dub name, show the original title.
+        if (data.fallbackTitle) {
+            item.title = data.fallbackTitle;
+            item.cover = data.fallbackCover || item.cover;
+            titleEl.textContent = label();
+        }
+        showFallbackNote({ french: data.fallbackFrench, english: data.fallbackEnglish });
+    }
+
     const onProgress = (position, duration) => {
         if (!isAuthed()) return;
         api.saveHistory({
@@ -1022,7 +1171,7 @@ export async function watchPage(app, params) {
     };
 
     try {
-        await player.load({ ...data, startTime, onProgress });
+        await player.load({ ...data, startTime, onProgress, poster: item.cover, title: item.title });
         player.play();
     } catch (e) {
         clear(shell);
@@ -1039,21 +1188,46 @@ export async function watchPage(app, params) {
 }
 
 // Builds the seasons/episodes selector shown to the right of the player.
-async function buildEpisodeSidebar(side, item, activeSeason, activeEpisode) {
+async function buildEpisodeSidebar(side, item, activeSeason, activeEpisode, fallbackSubjectId = null) {
     clear(side);
-    side.appendChild(el('h3', { text: 'Saisons & épisodes' }));
+    const sideTitle = el('h3', { text: 'Saisons & épisodes' });
+    side.appendChild(sideTitle);
 
     const body = el('div', {}, [loadingState('Chargement des épisodes…')]);
     side.appendChild(body);
 
+    // A dub known to have no streams must not drive the episode list: resolve
+    // the playable (fallback/original) subject so only available episodes show.
+    let episodeItem = item;
+    if (fallbackSubjectId && fallbackSubjectId !== item.subjectId) {
+        try {
+            const row = await api.item(item.subjectId);
+            if (row && row.hasResource === false) {
+                const fbRow = await api.item(fallbackSubjectId);
+                if (fbRow && fbRow.subjectId) {
+                    episodeItem = {
+                        ...item,
+                        subjectId: fbRow.subjectId,
+                        title: fbRow.title,
+                        cover: fbRow.cover || item.cover,
+                        detailPath: fbRow.detailPath ?? item.detailPath,
+                    };
+                    // Always state which language is actually being listed.
+                    const lang = fbRow.french ? 'Français' : fbRow.english ? 'Anglais (VO)' : 'VO';
+                    sideTitle.textContent = `Saisons & épisodes — ${lang}`;
+                }
+            }
+        } catch { /* keep the active subject */ }
+    }
+
     let seasons = [];
     try {
         const data = await api.detail({
-            subjectId: item.subjectId,
-            detailPath: item.detailPath,
-            subjectType: item.subjectType,
-            title: item.title,
-            cover: item.cover,
+            subjectId: episodeItem.subjectId,
+            detailPath: episodeItem.detailPath,
+            subjectType: episodeItem.subjectType,
+            title: episodeItem.title,
+            cover: episodeItem.cover,
         });
         seasons = data.seasons || [];
     } catch {
@@ -1070,11 +1244,11 @@ async function buildEpisodeSidebar(side, item, activeSeason, activeEpisode) {
             if (!side.isConnected) return;
             try {
                 const richer = await api.detail({
-                    subjectId: item.subjectId,
-                    detailPath: item.detailPath,
-                    subjectType: item.subjectType,
-                    title: item.title,
-                    cover: item.cover,
+                    subjectId: episodeItem.subjectId,
+                    detailPath: episodeItem.detailPath,
+                    subjectType: episodeItem.subjectType,
+                    title: episodeItem.title,
+                    cover: episodeItem.cover,
                 });
                 const full = richer?.seasons?.length ? richer.seasons : [];
                 if (!full.length) return;
@@ -1087,7 +1261,7 @@ async function buildEpisodeSidebar(side, item, activeSeason, activeEpisode) {
                         retryWrap.appendChild(el('button', {
                             class: `episode-btn ${season.season === activeSeason && ep === activeEpisode ? 'active' : ''}`,
                             text: `E${ep}`,
-                            onclick: () => navigate(watchHref(item, season.season, ep)),
+                            onclick: () => navigate(watchHref(episodeItem, season.season, ep)),
                         }));
                     });
                 };
@@ -1126,7 +1300,7 @@ async function buildEpisodeSidebar(side, item, activeSeason, activeEpisode) {
             listWrap.appendChild(el('button', {
                 class: `episode-btn ${isActive ? 'active' : ''}`,
                 text: `E${ep}`,
-                onclick: () => navigate(watchHref(item, season.season, ep)),
+                onclick: () => navigate(watchHref(episodeItem, season.season, ep)),
             }));
         });
     };

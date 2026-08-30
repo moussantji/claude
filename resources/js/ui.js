@@ -31,6 +31,65 @@ export function el(tag, attrs = {}, children = []) {
 
 export function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
 
+// ---- TV-friendly dropdown ----
+// Native <select> popups don't open on many TV browsers (SmartTV/WebView
+// remotes never trigger them). This is a button + option list navigable with
+// the remote: OK/Enter opens and selects (native button behavior), arrows move
+// inside the list, Escape/Back closes. Mouse and keyboard both work.
+export function dropdown({ options, value = '', placeholder = '', onchange }) {
+    const current = () => (options.find((o) => o.value === value) || {}).label || placeholder;
+    const trigger = el('button', { type: 'button', class: 'select-trigger', tabindex: '0', 'aria-haspopup': 'listbox', text: current() });
+    const wrap = el('div', { class: 'dropdown' }, [trigger]);
+    let list = null;
+
+    const close = () => {
+        wrap.classList.remove('open');
+        if (list) list.remove();
+        list = null;
+        window.removeEventListener('scroll', close, true);
+    };
+
+    const focusAt = (i) => {
+        const btns = list ? list.querySelectorAll('.sel') : [];
+        if (!btns.length) return;
+        const idx = Math.max(0, Math.min(btns.length - 1, i));
+        btns.forEach((b, k) => b.classList.toggle('focus', k === idx));
+        btns[idx].focus();
+    };
+
+    const open = () => {
+        if (list) { close(); return; }
+        list = el('div', { class: 'select-popup', role: 'listbox' });
+        options.forEach((o, i) => {
+            list.appendChild(el('button', {
+                type: 'button', role: 'option',
+                class: o.value === value ? 'sel active' : 'sel',
+                text: o.label,
+                onclick: () => { value = o.value; trigger.textContent = current(); close(); onchange(value); },
+                onkeydown: (e) => {
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); focusAt(i + 1); }
+                    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); focusAt(i - 1); }
+                    else if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); close(); trigger.focus(); }
+                },
+            }));
+        });
+        wrap.appendChild(list);
+        wrap.classList.add('open');
+        focusAt(0);
+        window.addEventListener('scroll', close, true);
+    };
+
+    // Fires on mouse click and on remote OK/Enter (native <button> behavior).
+    trigger.addEventListener('click', open);
+    document.addEventListener('click', (e) => { if (list && !wrap.contains(e.target)) close(); });
+
+    return {
+        el: wrap,
+        setOptions(opts, keep) { options = opts; value = keep; trigger.textContent = current(); },
+        get value() { return value; },
+    };
+}
+
 // ---- routing helper (History API) ----
 export function navigate(path) {
     window.history.pushState({}, '', path);
@@ -72,6 +131,30 @@ export function displayTitle(item) {
     return translateTitleTags(item.title) || 'Untitled';
 }
 
+// Normalized significant words: lowercase, diacritics stripped, [tags] and
+// punctuation removed, words of 3+ letters kept.
+const titleWords = (t) => (t || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+
+// True when two titles plausibly name the same film/series (any shared word).
+// Used to reject provider dub mappings that point to a different title: e.g.
+// "Liberated from Paradise" → "Première sortie [Version française]" is a
+// broken VF link to another movie, while "Bleach: ..." → "... [Version
+// française]" is legit. Unknown/empty titles default to trusted (true).
+export function titleMatches(a, b) {
+    const wa = titleWords(a);
+    const wb = titleWords(b);
+    if (!wa.length || !wb.length) return true;
+    return wa.some((w) => wb.includes(w)) || wb.some((w) => wa.includes(w));
+}
+
 // Short title code: base62 token of subjectId+subjectType, mirroring
 // App\Support\ShortId (the trailing two digits of the raw string are the
 // subject type).
@@ -109,8 +192,10 @@ export function detailHref(item) {
     return `/t/${shortCode(item.subjectId, item.subjectType ?? 0)}`;
 }
 
-export function watchHref(item, season = 0, episode = 0) {
-    return `/w/${shortCode(item.subjectId, item.subjectType ?? 0)}/${season}/${episode}`;
+export function watchHref(item, season = 0, episode = 0, fallbackSubjectId = null) {
+    const base = `/w/${shortCode(item.subjectId, item.subjectType ?? 0)}/${season}/${episode}`;
+    if (fallbackSubjectId) return `${base}/${shortCode(fallbackSubjectId, item.subjectType ?? 0)}`;
+    return base;
 }
 
 const PLAY_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="#fff"><path d="M8 5v14l11-7z"/></svg>';

@@ -57,7 +57,25 @@ class StreamController extends Controller
         }
 
         $diag = [];
-        $payload = $this->resolvePlayPayload($v, $diag, $debug);
+        try {
+            $payload = $this->resolvePlayPayload($v, $diag, $debug);
+        } catch (\Throwable $e) {
+            // Never 500 on a flaky upstream: the client must get a retryable
+            // "provider unreachable" payload, not a dead "Something went wrong".
+            report($e);
+            $payload = [
+                'sources' => [],
+                'hls' => [],
+                'dash' => [],
+                'subtitles' => [],
+                'hasResource' => false,
+                'streamError' => [
+                    'message' => 'Le service de streaming est temporairement indisponible.',
+                    'detail' => $e->getMessage(),
+                    'retryable' => true,
+                ],
+            ];
+        }
 
         // Only cache resolvable results, never "no stream" outcomes that may
         // be transient upstream errors.
@@ -207,6 +225,32 @@ class StreamController extends Controller
             'subtitles' => $subtitles,
             'hasResource' => $sources !== [] || $hls !== [] || $dash !== [],
         ];
+
+        // Dub fallback: some entries advertise a French (or other) dub whose
+        // upstream copy has no streams at all (e.g. "Version française" rows
+        // with zero resources), while the original version still plays. When the
+        // caller supplies the sibling subject and nothing resolved here, retry
+        // with the sibling and tell the client which one ended up playing.
+        $fallbackSubjectId = trim((string) ($v['fallbackSubjectId'] ?? ''));
+        if (! $payload['hasResource'] && $fallbackSubjectId !== '' && $fallbackSubjectId !== $v['subjectId']) {
+            $diag['dubFallback'] = true;
+            $fb = $v;
+            $fb['subjectId'] = $fallbackSubjectId;
+            $fb['fallbackSubjectId'] = '';
+            $payload = $this->resolvePlayPayload($fb, $diag, $debug);
+            $payload['fallbackUsed'] = true;
+            $payload['fallbackSubjectId'] = $fallbackSubjectId;
+            // Surface the fallback's real title/cover so the client can stop
+            // labelling the episode with the unavailable dub name.
+            $fbRow = \App\Models\CatalogItem::query()->where('subject_id', $fallbackSubjectId)->first();
+            if ($fbRow !== null) {
+                $payload['fallbackTitle'] = $fbRow->title;
+                $payload['fallbackCover'] = $fbRow->cover;
+                $fbPayload = is_array($fbRow->payload) ? $fbRow->payload : [];
+                $payload['fallbackFrench'] = (bool) ($fbPayload['french'] ?? false);
+                $payload['fallbackEnglish'] = (bool) ($fbPayload['english'] ?? false);
+            }
+        }
 
         // When nothing resolved, tell the client WHY so it can distinguish a
         // genuinely unavailable title from a transient upstream failure (which
@@ -910,7 +954,7 @@ class StreamController extends Controller
             // stream instead of tying up a worker (or a single-threaded local
             // `artisan serve`) forever. The browser then sees EOF, surfaces a
             // media error and falls back to the next source.
-            $deadline = microtime(true) + (int) config('moviebox.timeout', 30);
+            $deadline = microtime(true) + $this->streamTimeout();
             while (microtime(true) < $deadline) {
                 try {
                     $chunk = $body->read(1048576);
@@ -1201,6 +1245,16 @@ class StreamController extends Controller
     }
 
     /**
+     * Wall-clock budget for proxied MEDIA bodies. The generic moviebox.timeout
+     * (30 s, tuned for JSON APIs) kills any MP4 transfer mid-stream — the
+     * mobile client sees "stream was reset". Downloads need minutes.
+     */
+    protected function streamTimeout(): int
+    {
+        return (int) config('moviebox.stream_timeout', env('MOVIEBOX_STREAM_TIMEOUT', 600));
+    }
+
+    /**
      * Headers the CDN expects on the H5 download URLs (bcdnxw…): the same
      * videodownloader.site browser context used by the H5 API itself.
      *
@@ -1244,7 +1298,7 @@ class StreamController extends Controller
         $range = $request->header('Range');
         $upstream = Http::withOptions(['stream' => true])
             ->withHeaders(array_filter(array_merge($headers, ['Range' => $range])))
-            ->timeout((int) config('moviebox.timeout', 30))
+            ->timeout($this->streamTimeout())
             ->get($url);
 
         abort_if($upstream->failed(), 502, 'Upstream media fetch failed.');
@@ -1264,7 +1318,7 @@ class StreamController extends Controller
         return response()->stream(function () use ($body) {
             // Hard wall-clock budget — see proxy(): never wedge a worker when
             // the CDN stalls mid-body.
-            $deadline = microtime(true) + (int) config('moviebox.timeout', 30);
+            $deadline = microtime(true) + $this->streamTimeout();
             while (microtime(true) < $deadline) {
                 try {
                     $chunk = $body->read(1048576);
@@ -1576,6 +1630,7 @@ class StreamController extends Controller
             'episode' => ['sometimes', 'integer', 'min:0'],
             'title' => ['sometimes', 'nullable', 'string', 'max:300'],
             'subjectType' => ['sometimes', 'integer', 'min:0', 'max:9'],
+            'fallbackSubjectId' => ['sometimes', 'nullable', 'string'],
         ]);
 
         return [
@@ -1584,6 +1639,7 @@ class StreamController extends Controller
             'episode' => (int) ($validated['episode'] ?? 0),
             'title' => trim((string) ($validated['title'] ?? '')),
             'subjectType' => (int) ($validated['subjectType'] ?? 0),
+            'fallbackSubjectId' => trim((string) ($validated['fallbackSubjectId'] ?? '')),
         ];
     }
 

@@ -1,16 +1,39 @@
 {
   "expo": {
-    "name": "MovieBox",
-    "slug": "moviebox",
-    "version": "1.0.0",
+    "name": "Stream",
+    "slug": "manden-stream",
+    "scheme": "mandenstream",
+    "version": "1.1.0",
+    "runtimeVersion": "1.1.0",
     "orientation": "default",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#0b0b0f",
-    "newArchEnabled": false,
-    "assetBundlePatterns": ["**/*"],
+    "backgroundColor": "#000000",
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "plugins": ["expo-av", "expo-video"],
+    "extra": {
+      "apiBase": "https://stream.mandenbaoubab.com/api"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
     "android": {
-      "package": "com.moviebox.app",
-      "permissions": ["INTERNET"]
+      "adaptiveIcon": {
+        "backgroundColor": "#000000"
+      },
+      "permissions": [
+        "android.permission.INTERNET"
+      ],
+      "package": "com.moussantji.mandenstream"
+    },
+    "splash": {
+      "backgroundColor": "#000000"
     }
   }
 }

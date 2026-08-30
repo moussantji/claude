@@ -102,6 +102,15 @@ export class Player {
         // frames as soon as the source is set (before the user hits play).
         this.video = el('video', { playsinline: 'playsinline', preload: 'auto' });
 
+        // Poster + animated ring loading overlay (initial load), like the
+        // upstream players: a clear "the film is being prepared" animation.
+        this.loadingPoster = el('img', { class: 'vp-loading-img', alt: '' });
+        this.loadingTitle = el('div', { class: 'vp-loading-title' });
+        this.loading = el('div', { class: 'vp-loading', hidden: 'hidden' }, [
+            el('div', { class: 'vp-loading-poster' }, [this.loadingPoster, el('div', { class: 'vp-loading-ring' })]),
+            this.loadingTitle,
+        ]);
+
         this.spinner = el('div', { class: 'vp-spinner', hidden: 'hidden' });
         this.bigBtn = el('button', { class: 'vp-big', 'aria-label': 'Lecture', html: I.bigPlay });
 
@@ -150,7 +159,7 @@ export class Player {
         ]);
 
         this.wrap = el('div', { class: 'vp', tabindex: '0' }, [
-            this.video, this.spinner, this.skipL, this.skipR, this.bigBtn, this.controls,
+            this.video, this.loading, this.spinner, this.skipL, this.skipR, this.bigBtn, this.controls,
         ]);
         this.errorEl = el('div', { class: 'vp-error', hidden: 'hidden' });
         this.wrap.appendChild(this.errorEl);
@@ -338,7 +347,18 @@ export class Player {
             this.scheduleHide();
         }
     }
-    hideSpinner() { clearTimeout(this._waitT); this.spinner.hidden = true; }
+    hideSpinner() { clearTimeout(this._waitT); this.spinner.hidden = true; this.loading.hidden = true; }
+    showLoading(poster, title) {
+        if (poster) {
+            this.loadingPoster.src = poster;
+            this.loadingPoster.style.display = '';
+        } else {
+            this.loadingPoster.removeAttribute('src');
+            this.loadingPoster.style.display = 'none';
+        }
+        this.loadingTitle.textContent = title || '';
+        this.loading.hidden = false;
+    }
     scheduleHide() {
         clearTimeout(this._hideTimer);
         this._hideTimer = setTimeout(() => { if (!this.video.paused) this.hideControls(); }, 3000);
@@ -445,9 +465,10 @@ export class Player {
         this._triedSources = new Set();
         this._started = false;
         clearTimeout(this._watchdog);
-        const { sources = [], hls = [], dash = [], subtitles = [], startTime = 0, onProgress } = data;
+        const { sources = [], hls = [], dash = [], subtitles = [], startTime = 0, onProgress, poster, title } = data;
         this.currentSources = sources;
         this._activeSource = null;
+        this.showLoading(poster, title);
 
         // Source selection: keep the highest available resolution instead of
         // always choosing H.264. A catalogue may only offer H.264 at 480p and
