@@ -11,9 +11,15 @@
     "updates": {
       "fallbackToCacheTimeout": 0
     },
-    "plugins": ["expo-av", "expo-video"],
+    "plugins": [
+      "expo-av",
+      "expo-video"
+    ],
     "extra": {
-      "apiBase": "https://stream.mandenbaoubab.com/api"
+      "apiBase": "https://stream.mandenbaoubab.com/api",
+      "eas": {
+        "projectId": "887d468f-c4c8-4530-9751-f1a78bc833fc"
+      }
     },
     "ios": {
       "supportsTablet": true,
@@ -28,12 +34,15 @@
         "backgroundColor": "#000000"
       },
       "permissions": [
-        "android.permission.INTERNET"
+        "android.permission.INTERNET",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "package": "com.moussantji.mandenstream"
     },
     "splash": {
       "backgroundColor": "#000000"
-    }
+    },
+    "owner": "moussantji"
   }
 }
