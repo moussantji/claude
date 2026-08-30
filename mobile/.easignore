@@ -1,9 +1,12 @@
-node_modules
-android
-ios
+node_modules/
+android/
+ios/
+.expo/
+.expo-shared/
+dist/
+web-build/
 .androguard*
 *.db
 *.db-shm
 *.db-wal
-.expo
-mockups
+mockups/
