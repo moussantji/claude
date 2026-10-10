@@ -2,7 +2,7 @@
 
 return [
 
-    'name' => env('APP_NAME', 'Faso Digital API'),
+    'name' => env('APP_NAME', 'Manden Baoubab API'),
 
     'env' => env('APP_ENV', 'production'),
 

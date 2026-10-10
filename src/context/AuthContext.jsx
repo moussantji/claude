@@ -3,7 +3,7 @@ import { initStore, getAll } from '../data/store.js'
 import { API_ENABLED, apiLogin, apiLogout, apiMe } from '../api/client.js'
 
 const AuthContext = createContext(null)
-const SESSION_KEY = 'faso.session'
+const SESSION_KEY = 'manden.session'
 
 function toSafeUser(u) {
   return { id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar }

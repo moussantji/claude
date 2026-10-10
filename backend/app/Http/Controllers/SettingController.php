@@ -17,8 +17,8 @@ class SettingController extends Controller
     private function current(): Setting
     {
         return Setting::firstOrCreate(['id' => 1], [
-            'company' => 'Faso Digital',
-            'email' => 'contact@fasodigital.ml',
+            'company' => 'Manden Baoubab',
+            'email' => 'contact@mandenbaoubab.com',
             'phone' => '+223 20 00 00 00',
             'address' => 'ACI 2000, Bamako - Mali',
             'currency' => 'FCFA',

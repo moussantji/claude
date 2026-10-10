@@ -8,7 +8,7 @@ export default function Footer() {
           <div>
             <div className="brand" style={{ marginBottom: 14 }}>
               <span className="logo"><span /><span /><span /></span>
-              <span>Faso Digital</span>
+              <span>Manden Baoubab</span>
             </div>
             <p style={{ maxWidth: 320 }}>
               Entreprise numerique malienne. Nous creons des sites web, applications, logiciels
@@ -16,7 +16,7 @@ export default function Footer() {
             </p>
             <p style={{ marginBottom: 0 }}>
               ACI 2000, Bamako - Mali<br />
-              +223 20 00 00 00 - contact@fasodigital.ml
+              +223 20 00 00 00 - contact@mandenbaoubab.com
             </p>
           </div>
 
@@ -30,9 +30,9 @@ export default function Footer() {
 
           <div>
             <h4>Plateformes</h4>
-            <Link to="/streaming">FasoStream</Link>
-            <Link to="/e-commerce">FasoShop</Link>
-            <Link to="/iptv">FasoTV IPTV</Link>
+            <Link to="/streaming">Manden Stream</Link>
+            <Link to="/e-commerce">Manden Shop</Link>
+            <Link to="/iptv">Manden TV IPTV</Link>
             <Link to="/blog">Blog</Link>
           </div>
 
@@ -46,7 +46,7 @@ export default function Footer() {
         </div>
 
         <div className="footer-bottom">
-          <span>&copy; {new Date().getFullYear()} Faso Digital. Tous droits reserves.</span>
+          <span>&copy; {new Date().getFullYear()} Manden Baoubab. Tous droits reserves.</span>
           <span>
             Fait avec fierte au Mali &middot;{' '}
             <Link to="/admin/login" className="admin-link">Espace administration</Link>

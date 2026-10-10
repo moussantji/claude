@@ -44,9 +44,9 @@ export default function Contact() {
           <div>
             <h2 className="section-title" style={{ fontSize: '1.8rem' }}>Nos coordonnees</h2>
             <ul className="feature-list">
-              <li><span className="fi">&#128205;</span> ACI 2000, Immeuble Faso, Bamako - Mali</li>
+              <li><span className="fi">&#128205;</span> ACI 2000, Immeuble Manden, Bamako - Mali</li>
               <li><span className="fi">&#128222;</span> +223 20 00 00 00 / +223 76 00 00 00</li>
-              <li><span className="fi">&#9993;</span> contact@fasodigital.ml</li>
+              <li><span className="fi">&#9993;</span> contact@mandenbaoubab.com</li>
               <li><span className="fi">&#128337;</span> Lun - Ven : 8h - 18h &middot; Sam : 9h - 13h</li>
             </ul>
             <div className="card" style={{ marginTop: 20, background: 'var(--bg-soft)' }}>

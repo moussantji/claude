@@ -14,16 +14,16 @@ use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| Routes API - CRM Faso Digital
+| Routes API - CRM Manden Baoubab
 |--------------------------------------------------------------------------
 | Authentification via Laravel Sanctum en mode SPA (cookie de session).
 | Le front recupere d'abord le cookie CSRF via GET /sanctum/csrf-cookie.
 */
 
-// --- Public ---
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/messages', [MessageController::class, 'store']); // formulaire de contact
-Route::post('/orders', [OrderController::class, 'store']);      // checkout e-commerce
+// --- Public (avec limite anti-spam/anti-bruteforce) ---
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+Route::post('/messages', [MessageController::class, 'store'])->middleware('throttle:20,1'); // formulaire de contact
+Route::post('/orders', [OrderController::class, 'store'])->middleware('throttle:20,1');      // checkout e-commerce
 
 // --- Routes protegees (session Sanctum requise) ---
 Route::middleware('auth:sanctum')->group(function () {

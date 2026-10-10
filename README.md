@@ -1,10 +1,10 @@
-# Faso Digital
+# Manden Baoubab
 
-Site web + CRM pour **Faso Digital**, une entreprise numerique malienne (fictive) basee a Bamako.
+Site web + CRM pour **Manden Baoubab**, une entreprise numerique malienne (fictive) basee a Bamako.
 Le projet regroupe en une seule application React :
 
 - un **site vitrine** presentant les services (creation de sites, applications web, logiciels PC) ;
-- trois **plateformes maison** : streaming (FasoStream), e-commerce (FasoShop) et IPTV (FasoTV) ;
+- trois **plateformes maison** : streaming (Manden Stream), e-commerce (Manden Shop) et IPTV (Manden TV) ;
 - un **blog** (liste + article, alimente par l'espace admin) ;
 - un **espace d'administration protege** accessible uniquement aux administrateurs ;
 - un **CRM complet** pour tout gerer : prospects, clients, projets, produits/offres,
@@ -44,8 +44,8 @@ L'espace admin n'est **pas** lie dans le menu public. On y accede :
 
 | Role             | Email                     | Mot de passe |
 |------------------|---------------------------|--------------|
-| Administrateur   | `admin@fasodigital.ml`    | `admin123`   |
-| Chef de projet   | `fatou@fasodigital.ml`    | `faso2025`   |
+| Administrateur   | `admin@mandenbaoubab.com`    | `admin123`   |
+| Chef de projet   | `fatou@mandenbaoubab.com`    | `manden2025`   |
 
 ## Fonctionnalites du CRM
 
@@ -191,8 +191,8 @@ Routes :
 
 ### Comptes seedes
 
-- `admin@fasodigital.ml` / `admin123`
-- `fatou@fasodigital.ml` / `faso2025`
+- `admin@mandenbaoubab.com` / `admin123`
+- `fatou@mandenbaoubab.com` / `manden2025`
 
 ### CORS
 

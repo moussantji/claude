@@ -30,7 +30,7 @@ export default function Login() {
       <div className="auth-card">
         <div className="brand">
           <span className="logo"><span /><span /><span /></span>
-          <span>Faso Digital</span>
+          <span>Manden Baoubab</span>
         </div>
         <p className="center cell-sub" style={{ marginBottom: 22 }}>Espace administration &middot; CRM</p>
 
@@ -46,7 +46,7 @@ export default function Login() {
               autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@fasodigital.ml"
+              placeholder="admin@mandenbaoubab.com"
             />
           </div>
           <div className="field">
@@ -67,8 +67,8 @@ export default function Login() {
 
         <div className="auth-note">
           <b>Comptes de demonstration</b><br />
-          Admin : admin@fasodigital.ml / admin123<br />
-          Chef de projet : fatou@fasodigital.ml / faso2025
+          Admin : admin@mandenbaoubab.com / admin123<br />
+          Chef de projet : fatou@mandenbaoubab.com / manden2025
         </div>
 
         <p className="center" style={{ marginTop: 18, marginBottom: 0 }}>

@@ -1,5 +1,5 @@
 // ----------------------------------------------------------
-// Faso Digital - Couche de donnees
+// Manden Baoubab - Couche de donnees
 // * Mode demo (par defaut) : persistance via localStorage.
 // * Mode API (si VITE_API_URL defini) : lecture/ecriture via
 //   l'API Laravel + Sanctum, avec cache local pour l'affichage.
@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 import { seed } from './seed.js'
 import { API_ENABLED, resource, settingsApi } from '../api/client.js'
 
-const PREFIX = 'faso.'
+const PREFIX = 'manden.'
 const listeners = new Map() // collection -> Set<fn>
 
 // Collections gerees par l'API en mode backend

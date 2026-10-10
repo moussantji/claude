@@ -1,7 +1,7 @@
 {
-    "name": "faso/digital-api",
+    "name": "manden/baoubab-api",
     "type": "project",
-    "description": "API CRM Faso Digital (Laravel 12 + Sanctum).",
+    "description": "API CRM Manden Baoubab (Laravel 12 + Sanctum).",
     "keywords": ["laravel", "sanctum", "crm", "api"],
     "license": "MIT",
     "require": {

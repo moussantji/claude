@@ -6,6 +6,6 @@ Route::get('/', function () {
     return response()->json([
         'name' => config('app.name'),
         'status' => 'ok',
-        'docs' => 'API CRM Faso Digital. Voir /api/*',
+        'docs' => 'API CRM Manden Baoubab. Voir /api/*',
     ]);
 });

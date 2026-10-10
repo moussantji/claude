@@ -22,7 +22,7 @@ export default function Navbar() {
             <span /><span /><span />
           </span>
           <span>
-            Faso Digital
+            Manden Baoubab
             <small>Bamako, Mali</small>
           </span>
         </Link>

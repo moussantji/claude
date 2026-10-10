@@ -43,7 +43,7 @@ export default function Sidebar({ open, onNavigate }) {
       <div className="brand">
         <span className="logo"><span /><span /><span /></span>
         <span>
-          Faso Digital
+          Manden Baoubab
           <small style={{ display: 'block', fontSize: '.6rem', letterSpacing: '.14em', color: 'rgba(255,255,255,.5)' }}>CRM</small>
         </span>
       </div>

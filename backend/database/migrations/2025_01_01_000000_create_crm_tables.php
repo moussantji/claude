@@ -102,7 +102,7 @@ return new class extends Migration
 
         Schema::create('settings', function (Blueprint $table) {
             $table->id();
-            $table->string('company')->default('Faso Digital');
+            $table->string('company')->default('Manden Baoubab');
             $table->string('email')->nullable();
             $table->string('phone')->nullable();
             $table->string('address')->nullable();
