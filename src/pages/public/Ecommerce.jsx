@@ -12,7 +12,7 @@ export default function Ecommerce() {
   return (
     <>
       <PageHero
-        eyebrow="Manden Shop"
+        eyebrow="MandenShop"
         title="Achetez et vendez en toute confiance"
         lead="Notre marketplace et notre application mobile e-commerce : paiement Orange Money / Moov Money, livraison a Bamako et dans tout le Mali."
       >
@@ -69,7 +69,7 @@ export default function Ecommerce() {
             <span className="eyebrow">Vendeurs</span>
             <h2 className="section-title">Vendez vos produits en ligne</h2>
             <p className="section-lead">
-              Ouvrez votre boutique sur Manden Shop et touchez des clients dans tout le Mali. Nous
+              Ouvrez votre boutique sur MandenShop et touchez des clients dans tout le Mali. Nous
               gerons la technologie, le paiement et la logistique, vous vous concentrez sur vos ventes.
             </p>
             <ul className="feature-list">
@@ -81,7 +81,7 @@ export default function Ecommerce() {
           </div>
           <div className="split-media">
             <div className="media-card media-shop">
-              <span className="badge">Application Manden Shop</span>
+              <span className="badge">Application MandenShop</span>
               <h3>Vos ventes dans votre poche</h3>
               <p>Recevez une notification a chaque commande.</p>
             </div>

@@ -4,7 +4,7 @@ Site web + CRM pour **Manden Baoubab**, une entreprise numerique malienne (ficti
 Le projet regroupe en une seule application React :
 
 - un **site vitrine** presentant les services (creation de sites, applications web, logiciels PC) ;
-- trois **plateformes maison** : streaming (Manden Stream), e-commerce (Manden Shop) et IPTV (Manden TV) ;
+- trois **plateformes maison** : streaming (MandenStream), e-commerce (MandenShop) et IPTV (MandenTV) ;
 - un **blog** (liste + article, alimente par l'espace admin) ;
 - un **espace d'administration protege** accessible uniquement aux administrateurs ;
 - un **CRM complet** pour tout gerer : prospects, clients, projets, produits/offres,

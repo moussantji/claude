@@ -10,7 +10,7 @@ export default function Iptv() {
   return (
     <>
       <PageHero
-        eyebrow="Manden TV IPTV"
+        eyebrow="MandenTV IPTV"
         title="La television en direct, partout avec vous"
         lead="Des centaines de chaines nationales et internationales, le sport en direct, les films et la replay sur TV, PC et smartphone."
       >
@@ -47,7 +47,7 @@ export default function Iptv() {
           <div className="grid grid-2" style={{ maxWidth: 760, margin: '0 auto' }}>
             {plans.map((p, i) => (
               <div key={p.id} className={`card price-card ${i === plans.length - 1 ? 'pop' : ''}`}>
-                <span className="pill pill-blue">{p.name.replace('Manden TV IPTV - ', '')}</span>
+                <span className="pill pill-blue">{p.name.replace('MandenTV IPTV - ', '')}</span>
                 <div className="price">{fcfa(p.price)}</div>
                 <p className="cell-sub">{p.cycle}</p>
                 <ul className="feature-list" style={{ textAlign: 'left' }}>

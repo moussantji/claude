@@ -9,12 +9,7 @@
 //   3. credentials: 'include' pour transporter le cookie de session
 // ----------------------------------------------------------
 
-// Sans slash final et sans suffixe /api (les chemins ajoutent deja /api/...).
-// Exemples acceptes : https://api.mandenbaoubab.com ou https://api.mandenbaoubab.com/
-const BASE = (import.meta.env.VITE_API_URL || '')
-  .trim()
-  .replace(/\/+$/, '')
-  .replace(/\/api$/i, '')
+const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 export const API_ENABLED = !!BASE
 
 function getCookie(name) {

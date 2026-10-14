@@ -118,7 +118,7 @@ export default function Home() {
             <Reveal className="split">
               <div className="split-media">
                 <div className="media-card media-stream">
-                  <span className="badge">Manden Stream</span>
+                  <span className="badge">MandenStream</span>
                   <div className="play">&#9654;</div>
                   <h3>Streaming films & musique</h3>
                   <p>Contenus africains et internationaux, en HD et 4K.</p>
@@ -126,38 +126,38 @@ export default function Home() {
               </div>
               <div>
                 <span className="pill pill-red">Streaming</span>
-                <h3 style={{ fontSize: '1.6rem', marginTop: 12 }}>Manden Stream</h3>
+                <h3 style={{ fontSize: '1.6rem', marginTop: 12 }}>MandenStream</h3>
                 <p style={{ color: 'var(--muted)' }}>
                   Une plateforme de streaming de films, series et musique pensee pour l&apos;Afrique :
                   contenus locaux en bambara et en francais, lecture fluide meme en connexion moderee.
                 </p>
-                <Link to="/streaming" className="btn btn-primary btn-sm">Explorer Manden Stream</Link>
+                <Link to="/streaming" className="btn btn-primary btn-sm">Explorer MandenStream</Link>
               </div>
             </Reveal>
 
             <Reveal className="split rev">
               <div className="split-media">
                 <div className="media-card media-shop">
-                  <span className="badge">Manden Shop</span>
+                  <span className="badge">MandenShop</span>
                   <h3>Boutique en ligne</h3>
                   <p>Vendez et achetez avec paiement mobile money.</p>
                 </div>
               </div>
               <div>
                 <span className="pill pill-green">E-commerce</span>
-                <h3 style={{ fontSize: '1.6rem', marginTop: 12 }}>Manden Shop</h3>
+                <h3 style={{ fontSize: '1.6rem', marginTop: 12 }}>MandenShop</h3>
                 <p style={{ color: 'var(--muted)' }}>
                   Notre marketplace et notre application mobile e-commerce : catalogue, panier,
                   paiement Orange Money / Moov Money et livraison a Bamako et en region.
                 </p>
-                <Link to="/e-commerce" className="btn btn-primary btn-sm">Explorer Manden Shop</Link>
+                <Link to="/e-commerce" className="btn btn-primary btn-sm">Explorer MandenShop</Link>
               </div>
             </Reveal>
 
             <Reveal className="split">
               <div className="split-media">
                 <div className="media-card media-iptv">
-                  <span className="badge">Manden TV</span>
+                  <span className="badge">MandenTV</span>
                   <div className="play">&#9654;</div>
                   <h3>IPTV & TV en direct</h3>
                   <p>Chaines locales, sport et divertissement.</p>
@@ -165,12 +165,12 @@ export default function Home() {
               </div>
               <div>
                 <span className="pill pill-blue">IPTV</span>
-                <h3 style={{ fontSize: '1.6rem', marginTop: 12 }}>Manden TV IPTV</h3>
+                <h3 style={{ fontSize: '1.6rem', marginTop: 12 }}>MandenTV IPTV</h3>
                 <p style={{ color: 'var(--muted)' }}>
                   Des centaines de chaines nationales et internationales, le sport en direct et
                   la replay, sur votre TV, ordinateur ou smartphone.
                 </p>
-                <Link to="/iptv" className="btn btn-primary btn-sm">Explorer Manden TV</Link>
+                <Link to="/iptv" className="btn btn-primary btn-sm">Explorer MandenTV</Link>
               </div>
             </Reveal>
           </div>

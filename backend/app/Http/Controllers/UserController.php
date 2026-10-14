@@ -9,29 +9,13 @@ use Illuminate\Support\Str;
 
 class UserController extends Controller
 {
-    /**
-     * La gestion des utilisateurs est reservee aux administrateurs.
-     * (Sans ce garde-fou, n'importe quel compte connecte — ex. Chef de projet —
-     *  pourrait creer des admins ou supprimer des comptes.)
-     */
-    private function ensureAdmin(Request $request): void
+    public function index(): JsonResponse
     {
-        if ($request->user()?->role !== 'Administrateur') {
-            abort(403, 'Reserve aux administrateurs.');
-        }
-    }
-
-    public function index(Request $request): JsonResponse
-    {
-        $this->ensureAdmin($request);
-
         return response()->json(User::orderBy('name')->get());
     }
 
     public function store(Request $request): JsonResponse
     {
-        $this->ensureAdmin($request);
-
         $data = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
@@ -51,8 +35,6 @@ class UserController extends Controller
 
     public function update(Request $request, int|string $id): JsonResponse
     {
-        $this->ensureAdmin($request);
-
         $user = User::findOrFail($id);
 
         $data = $request->validate([
@@ -75,8 +57,6 @@ class UserController extends Controller
 
     public function destroy(Request $request, int|string $id): JsonResponse
     {
-        $this->ensureAdmin($request);
-
         if (User::count() <= 1) {
             return response()->json(
                 ['message' => 'Impossible de supprimer le dernier administrateur.'],

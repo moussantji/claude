@@ -30,9 +30,9 @@ export default function Footer() {
 
           <div>
             <h4>Plateformes</h4>
-            <Link to="/streaming">Manden Stream</Link>
-            <Link to="/e-commerce">Manden Shop</Link>
-            <Link to="/iptv">Manden TV IPTV</Link>
+            <Link to="/streaming">MandenStream</Link>
+            <Link to="/e-commerce">MandenShop</Link>
+            <Link to="/iptv">MandenTV IPTV</Link>
             <Link to="/blog">Blog</Link>
           </div>
 

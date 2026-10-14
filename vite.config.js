@@ -6,8 +6,5 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
-    // Dev uniquement : autorise le tunnel public pour voir sur telephone.
-    // Sans impact sur le build de production (dist/).
-    allowedHosts: ['tap-fails-forest-journals.trycloudflare.com'],
   },
 })

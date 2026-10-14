@@ -12,7 +12,7 @@ export default function Streaming() {
   return (
     <>
       <PageHero
-        eyebrow="Manden Stream"
+        eyebrow="MandenStream"
         title="Le streaming pense pour l'Afrique"
         lead="Films, series et musique en bambara, francais et anglais. Une lecture fluide, meme en connexion moderee, sur tous vos ecrans."
       >
@@ -61,7 +61,7 @@ export default function Streaming() {
           <div className="grid grid-2" style={{ maxWidth: 760, margin: '0 auto' }}>
             {plans.map((p, i) => (
               <div key={p.id} className={`card price-card ${i === 1 ? 'pop' : ''}`}>
-                <span className="pill pill-red">{p.name.replace('Manden Stream - ', '')}</span>
+                <span className="pill pill-red">{p.name.replace('MandenStream - ', '')}</span>
                 <div className="price">{fcfa(p.price)}</div>
                 <p className="cell-sub">{p.cycle}</p>
                 <ul className="feature-list" style={{ textAlign: 'left' }}>
