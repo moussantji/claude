@@ -1,0 +1,27 @@
+services:
+  movie-api:
+    build: ./movie-api
+    container_name: fz-movie-api
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build: ./laravel-frontend
+    container_name: fz-web
+    ports:
+      - "8080:8000"
+    environment:
+      # Talk to the Python service over the compose network
+      MOVIE_API_URL: "http://movie-api:8000"
+      MOVIE_API_TIMEOUT: "45"
+      APP_ENV: "local"
+      APP_DEBUG: "true"
+    depends_on:
+      - movie-api
+    restart: unless-stopped
