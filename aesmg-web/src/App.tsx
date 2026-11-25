@@ -6,6 +6,7 @@ import { CommunityLifeSection } from './components/CommunityLifeSection'
 import { NewcomerGuideSection } from './components/NewcomerGuideSection'
 import { BlogSection } from './components/BlogSection'
 import { BlogArticleReader } from './components/BlogArticleReader'
+import { BlogAdminModal } from './components/BlogAdminModal'
 import { LeadershipSection } from './components/LeadershipSection'
 import { MembershipSection } from './components/MembershipSection'
 import { BottomNavDock } from './components/BottomNavDock'
@@ -25,6 +26,7 @@ const SECTION_IDS = [
 ]
 
 const BOOKMARK_STORAGE_KEY = 'aesmg_saved_articles_v1'
+const ARTICLES_STORAGE_KEY = 'aesmg_blog_articles_v1'
 
 export function App() {
   const isInsideFrame =
@@ -33,8 +35,21 @@ export function App() {
 
   const [activeSection, setActiveSection] = useState<string>('accueil')
   const [isContactSheetOpen, setIsContactSheetOpen] = useState(false)
+  const [isBlogAdminOpen, setIsBlogAdminOpen] = useState(false)
   const [isPhoneShowcase, setIsPhoneShowcase] = useState(false)
   const [activeArticle, setActiveArticle] = useState<BlogArticle | null>(null)
+
+  const [articles, setArticles] = useState<BlogArticle[]>(() => {
+    try {
+      const raw = window.localStorage.getItem(ARTICLES_STORAGE_KEY)
+      if (!raw) return BLOG_ARTICLES
+      const parsed = JSON.parse(raw) as BlogArticle[]
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : BLOG_ARTICLES
+    } catch {
+      return BLOG_ARTICLES
+    }
+  })
+
   const [bookmarkedIds, setBookmarkedIds] = useState<string[]>(() => {
     try {
       const raw = window.localStorage.getItem(BOOKMARK_STORAGE_KEY)
@@ -43,8 +58,18 @@ export function App() {
       return []
     }
   })
+
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const toastTimerRef = useRef<number | null>(null)
+
+  const persistArticles = useCallback((next: BlogArticle[]) => {
+    setArticles(next)
+    try {
+      window.localStorage.setItem(ARTICLES_STORAGE_KEY, JSON.stringify(next))
+    } catch {
+      // Ignore quota exceeded
+    }
+  }, [])
 
   const showToast = useCallback((message: string) => {
     setToastMessage(message)
@@ -55,6 +80,101 @@ export function App() {
       setToastMessage(null)
     }, 3200)
   }, [])
+
+  const handleSaveArticle = useCallback(
+    (saved: BlogArticle, isNew: boolean) => {
+      setArticles((prev) => {
+        const cleaned = saved.featured
+          ? prev.map((a) => ({ ...a, featured: false }))
+          : prev
+        const next = isNew
+          ? [saved, ...cleaned]
+          : cleaned.map((a) => (a.id === saved.id ? saved : a))
+        try {
+          window.localStorage.setItem(ARTICLES_STORAGE_KEY, JSON.stringify(next))
+        } catch {
+          // Ignore quota exceeded
+        }
+        return next
+      })
+      showToast(
+        saved.status === 'published'
+          ? isNew
+            ? 'Nouvel article publié sur le Blog AESMG !'
+            : 'Article mis à jour et publié !'
+          : 'Article enregistré dans les brouillons.'
+      )
+    },
+    [showToast]
+  )
+
+  const handleDeleteArticle = useCallback(
+    (articleId: string) => {
+      setArticles((prev) => {
+        const next = prev.filter((a) => a.id !== articleId)
+        try {
+          window.localStorage.setItem(ARTICLES_STORAGE_KEY, JSON.stringify(next))
+        } catch {
+          // Ignore quota exceeded
+        }
+        return next
+      })
+      setActiveArticle((curr) => (curr?.id === articleId ? null : curr))
+      showToast('Article supprimé du Blog.')
+    },
+    [showToast]
+  )
+
+  const handleToggleArticleStatus = useCallback(
+    (articleId: string) => {
+      let becamePublished = false
+      setArticles((prev) => {
+        const next = prev.map((a) => {
+          if (a.id !== articleId) return a
+          const nextStatus: BlogArticle['status'] =
+            a.status === 'published' ? 'draft' : 'published'
+          becamePublished = nextStatus === 'published'
+          return { ...a, status: nextStatus }
+        })
+        try {
+          window.localStorage.setItem(ARTICLES_STORAGE_KEY, JSON.stringify(next))
+        } catch {
+          // Ignore quota exceeded
+        }
+        return next
+      })
+      showToast(
+        becamePublished
+          ? 'Article publié en ligne !'
+          : 'Article passé en brouillon (masqué du public).'
+      )
+    },
+    [showToast]
+  )
+
+  const handleSetFeatured = useCallback(
+    (articleId: string) => {
+      setArticles((prev) => {
+        const next = prev.map((a) => ({
+          ...a,
+          featured: a.id === articleId,
+        }))
+        try {
+          window.localStorage.setItem(ARTICLES_STORAGE_KEY, JSON.stringify(next))
+        } catch {
+          // Ignore quota exceeded
+        }
+        return next
+      })
+      showToast('Article promu « À la une » du Blog !')
+    },
+    [showToast]
+  )
+
+  const handleResetDefaults = useCallback(() => {
+    persistArticles(BLOG_ARTICLES)
+    showToast('Catalogue du Blog réinitialisé avec les articles officiels.')
+  }, [persistArticles, showToast])
 
   const toggleBookmark = useCallback(
     (articleId: string) => {
@@ -85,7 +205,6 @@ export function App() {
     }
   }, [])
 
-  // Smooth IntersectionObserver scrollspy for mobile dock & desktop nav
   useEffect(() => {
     if (isPhoneShowcase) return
 
@@ -121,7 +240,6 @@ export function App() {
     }
   }, [])
 
-  // Optional Desktop Interactive Phone Frame Showcase
   if (isPhoneShowcase && !isInsideFrame) {
     return <PhoneShowcaseFrame onExit={() => setIsPhoneShowcase(false)} />
   }
@@ -147,15 +265,20 @@ export function App() {
         <CommunityLifeSection onNavigate={handleNavigate} />
         <NewcomerGuideSection />
         <BlogSection
+          articles={articles}
           bookmarkedIds={bookmarkedIds}
           onToggleBookmark={toggleBookmark}
           onOpenArticle={setActiveArticle}
+          onOpenAdmin={() => setIsBlogAdminOpen(true)}
         />
         <LeadershipSection onShowToast={showToast} />
         <MembershipSection onShowToast={showToast} />
       </main>
 
-      <Footer onNavigate={handleNavigate} />
+      <Footer
+        onNavigate={handleNavigate}
+        onOpenBlogAdmin={() => setIsBlogAdminOpen(true)}
+      />
 
       <BottomNavDock
         activeSection={activeSection}
@@ -164,13 +287,30 @@ export function App() {
 
       <BlogArticleReader
         article={activeArticle}
-        allArticles={BLOG_ARTICLES}
+        allArticles={articles.filter((a) => a.status === 'published')}
         isBookmarked={
           activeArticle ? bookmarkedIds.includes(activeArticle.id) : false
         }
         onToggleBookmark={toggleBookmark}
         onSelectArticle={setActiveArticle}
         onClose={() => setActiveArticle(null)}
+        onShowToast={showToast}
+      />
+
+      <BlogAdminModal
+        isOpen={isBlogAdminOpen}
+        articles={articles}
+        onClose={() => setIsBlogAdminOpen(false)}
+        onSaveArticle={handleSaveArticle}
+        onDeleteArticle={handleDeleteArticle}
+        onToggleStatus={handleToggleArticleStatus}
+        onSetFeatured={handleSetFeatured}
+        onReplaceAllArticles={persistArticles}
+        onResetDefaults={handleResetDefaults}
+        onPreviewArticle={(article) => {
+          setIsBlogAdminOpen(false)
+          setActiveArticle(article)
+        }}
         onShowToast={showToast}
       />
 

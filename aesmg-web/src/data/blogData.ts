@@ -4,6 +4,8 @@ export type BlogCategory =
   | 'Culture & Fraternité'
   | 'Droits & Vie'
 
+export type BlogStatus = 'published' | 'draft'
+
 export interface BlogArticleSection {
   heading: string
   paragraphs: string[]
@@ -11,6 +13,7 @@ export interface BlogArticleSection {
 
 export interface BlogArticle {
   id: string
+  status: BlogStatus
   category: BlogCategory
   featured?: boolean
   title: string
@@ -34,9 +37,27 @@ export const BLOG_CATEGORIES: Array<'Tous' | BlogCategory> = [
   'Droits & Vie',
 ]
 
+export const BLOG_COVER_GALLERY = [
+  { label: 'Accra · Golden Hour', url: '/images/blog-accra-skyline.jpg' },
+  { label: 'Héritage Bogolan', url: '/images/blog-culture-heritage.jpg' },
+  { label: 'Campus & Mentorat', url: '/images/academic-mentorship.jpg' },
+  { label: 'Gala & Fraternité', url: '/images/community-gala.jpg' },
+  { label: 'Étudiants au Ghana', url: '/images/hero-accra-students.jpg' },
+  { label: 'Sport & Cohésion', url: '/images/sports-solidarity.jpg' },
+] as const
+
+export const BLOG_AUTHOR_PRESETS = [
+  { author: 'Diadié GUITTEYE', role: 'Président · AESMG' },
+  { author: 'Georgette Jeanne MARGNA', role: 'Secrétaire général · AESMG' },
+  { author: 'Bureau Exécutif AESMG', role: 'Communication Officielle' },
+  { author: 'Commission Éducation AESMG', role: 'Mentorat & Stages' },
+  { author: 'Pôle Culture & Social AESMG', role: 'Vie Communautaire' },
+] as const
+
 export const BLOG_ARTICLES: BlogArticle[] = [
   {
     id: 'guide-installation-ghana',
+    status: 'published',
     category: 'Guides & Ghana',
     featured: true,
     title:
@@ -81,6 +102,7 @@ export const BLOG_ARTICLES: BlogArticle[] = [
   },
   {
     id: 'bilinguisme-accelerateur-carriere',
+    status: 'published',
     category: 'Académique',
     title:
       'Bilinguisme français–anglais au Ghana : transformer son séjour en véritable accélérateur de carrière',
@@ -117,6 +139,7 @@ export const BLOG_ARTICLES: BlogArticle[] = [
   },
   {
     id: 'heritage-malien-fraternite-accra',
+    status: 'published',
     category: 'Culture & Fraternité',
     title:
       'Entre Bamako et Accra : faire rayonner la culture malienne et l’esprit de fraternité au Ghana',
@@ -152,6 +175,7 @@ export const BLOG_ARTICLES: BlogArticle[] = [
   },
   {
     id: 'droits-accompagnement-membres',
+    status: 'published',
     category: 'Droits & Vie',
     title:
       'Droits moraux, académiques et sociaux : comment l’AESMG protège et accompagne chaque membre',

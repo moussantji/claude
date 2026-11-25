@@ -8,9 +8,9 @@ import {
   ArrowUpRight,
   PenLine,
   Sparkles,
+  Settings2,
 } from 'lucide-react'
 import {
-  BLOG_ARTICLES,
   BLOG_CATEGORIES,
   type BlogArticle,
   type BlogCategory,
@@ -19,23 +19,32 @@ import { EXECUTIVE_BUREAU, buildWhatsAppLink } from '../data/aesmgData'
 import { BogolanDivider } from './BrandMarks'
 
 interface BlogSectionProps {
+  articles: BlogArticle[]
   bookmarkedIds: string[]
   onToggleBookmark: (articleId: string) => void
   onOpenArticle: (article: BlogArticle) => void
+  onOpenAdmin: () => void
 }
 
 export const BlogSection: React.FC<BlogSectionProps> = ({
+  articles,
   bookmarkedIds,
   onToggleBookmark,
   onOpenArticle,
+  onOpenAdmin,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<'Tous' | BlogCategory>('Tous')
   const [searchQuery, setSearchQuery] = useState('')
   const [showSavedOnly, setShowSavedOnly] = useState(false)
 
+  const publishedArticles = useMemo(
+    () => articles.filter((a) => a.status === 'published'),
+    [articles]
+  )
+
   const filteredArticles = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    return BLOG_ARTICLES.filter((article) => {
+    return publishedArticles.filter((article) => {
       if (showSavedOnly && !bookmarkedIds.includes(article.id)) return false
       if (selectedCategory !== 'Tous' && article.category !== selectedCategory) {
         return false
@@ -47,7 +56,7 @@ export const BlogSection: React.FC<BlogSectionProps> = ({
         article.tags.some((t) => t.toLowerCase().includes(q))
       )
     })
-  }, [selectedCategory, searchQuery, showSavedOnly, bookmarkedIds])
+  }, [publishedArticles, selectedCategory, searchQuery, showSavedOnly, bookmarkedIds])
 
   const featuredArticle =
     selectedCategory === 'Tous' && !searchQuery.trim() && !showSavedOnly
@@ -130,6 +139,17 @@ export const BlogSection: React.FC<BlogSectionProps> = ({
                   {bookmarkedIds.length}
                 </span>
               )}
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenAdmin}
+              className="inline-flex min-h-[46px] shrink-0 items-center gap-1.5 rounded-2xl border border-[#C9961A]/50 bg-[#F7EBC6]/75 px-3.5 text-xs font-bold text-[#062319] transition-all hover:bg-[#F7EBC6] active:scale-95"
+              title="Ouvrir le Studio de Gestion du Blog (Espace Bureau)"
+            >
+              <Settings2 className="h-4 w-4 text-[#8C640B]" />
+              <span className="hidden sm:inline">Gérer le Blog</span>
+              <span className="sm:hidden">Gérer</span>
             </button>
           </div>
 

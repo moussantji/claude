@@ -9,9 +9,13 @@ import { AesmgSeal, TricoloreRibbon } from './BrandMarks'
 
 interface FooterProps {
   onNavigate: (sectionId: string) => void
+  onOpenBlogAdmin: () => void
 }
 
-export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
+export const Footer: React.FC<FooterProps> = ({
+  onNavigate,
+  onOpenBlogAdmin,
+}) => {
   const president = EXECUTIVE_BUREAU[0]
   const secretary = EXECUTIVE_BUREAU[1]
 
@@ -64,6 +68,15 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                   </button>
                 </li>
               ))}
+              <li>
+                <button
+                  type="button"
+                  onClick={onOpenBlogAdmin}
+                  className="font-semibold text-[#E2B643] transition-colors hover:text-[#F7EBC6]"
+                >
+                  Espace Bureau · Gérer le Blog
+                </button>
+              </li>
             </ul>
           </div>
 
