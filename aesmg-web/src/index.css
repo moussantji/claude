@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-sahel-ivory: #FAF8F3;
+  --color-sahel-cream: #F3EFE5;
+  --color-sahel-sand: #E6DFCE;
+  --color-emerald-deep: #062319;
+  --color-emerald-rich: #0B3B2B;
+  --color-emerald-soft: #13543E;
+  --color-gold-burnished: #C9961A;
+  --color-gold-bright: #E2B643;
+  --color-gold-champagne: #F7EBC6;
+  --color-crimson-sovereign: #B91C2E;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background-color: #FAF8F3;
+    color: #0E1E18;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  h1, h2, h3, .font-editorial {
+    font-family: var(--font-display);
+  }
+}
+
+/* Subtle architectural Bogolan-inspired geometric weave background */
+.bg-bogolan-subtle {
+  background-image: url("data:image/svg+xml,%3Csvg width='72' height='72' viewBox='0 0 72 72' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%230B3B2B' stroke-opacity='0.045' stroke-width='1'%3E%3Cpath d='M36 6 L66 36 L36 66 L6 36 Z'/%3E%3Cpath d='M36 18 L54 36 L36 54 L18 36 Z'/%3E%3Ccircle cx='36' cy='36' r='3' fill='%23C9961A' fill-opacity='0.09' stroke='none'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+.bg-bogolan-dark {
+  background-image: url("data:image/svg+xml,%3Csvg width='80' height='80' viewBox='0 0 80 80' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23E2B643' stroke-opacity='0.08' stroke-width='1'%3E%3Cpath d='M40 8 L72 40 L40 72 L8 40 Z'/%3E%3Cpath d='M40 22 L58 40 L40 58 L22 40 Z'/%3E%3Ccircle cx='40' cy='40' r='2.5' fill='%23E2B643' fill-opacity='0.14' stroke='none'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Holographic metallic sheen for Digital Member Pass */
+@keyframes shimmer-sweep {
+  0% {
+    transform: translateX(-140%) skewX(-22deg);
+  }
+  100% {
+    transform: translateX(240%) skewX(-22deg);
+  }
+}
+
+.card-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(247, 235, 198, 0.12) 45%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(247, 235, 198, 0.12) 55%,
+    transparent 100%
+  );
+  animation: shimmer-sweep 6.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Hide scrollbars cleanly on horizontal mobile carousels */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Safe area padding for iOS notch / home indicator */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* Refined glass surface */
+.glass-ivory {
+  background: rgba(250, 248, 243, 0.84);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+.glass-emerald {
+  background: rgba(6, 35, 25, 0.86);
+  backdrop-filter: blur(22px) saturate(170%);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+}
